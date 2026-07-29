@@ -14,7 +14,7 @@
 
 - 工作目录：`%USERPROFILE%\Desktop\Projects\zhiweave`
 - 分支：`agent/professional-workbench`
-- 当前提交：`6693e1a`（基线 `847a2c3`）；Markdown 文件纵切在工作区中尚未提交
+- Markdown 文件纵切功能提交：`193ce03`（基线 `6693e1a`），尚待通过 Linux 中转推送
 - Draft PR：[jacek4yang/zhiweave#1](https://github.com/jacek4yang/zhiweave/pull/1)
 - GitHub CI：Frontend 与 Rust 均通过。
 - Windows 原生开发应用和 Vite 已启动；日志在 `%TEMP%\zhiweave-windows-tauri-3.*.log`。
@@ -23,7 +23,7 @@
 
 见 [`PROGRESS.md`](./PROGRESS.md)。重点是专业工作台、无系统标题栏、多标签、实时分栏、语义配色、详细状态栏、知识节点 H1 命名、增量分支版本图、日记入口、上下文菜单分流，以及安全的 Markdown UUID 交互实验。
 
-当前未提交纵切增加：
+功能提交 `193ce03` 增加：
 
 - application `WorkspacePort` 和结构化失败 DTO；
 - `zhiweave-storage` 固定根文件适配器；
