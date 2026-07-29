@@ -7,7 +7,9 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import {
+  Archive,
   BookOpenText,
+  Bookmark,
   BrainCircuit,
   CalendarDays,
   CheckCircle2,
@@ -31,6 +33,7 @@ import {
   RotateCcw,
   Save,
   Search,
+  ShieldCheck,
   Sparkles,
   Trash2,
   X,
@@ -80,24 +83,34 @@ import {
   type SystemStatus,
 } from "./system";
 import {
+  applyNativeVersionRetention,
   asWorkspaceFailure,
   checkoutNativeVersion,
   createNativeNote,
+  createNativeWorkspaceBackup,
   deleteNativeVersion,
   detectNativeWorkspaceChanges,
   loadNativeWorkspace,
   loadNativeVersionHistory,
+  listNativeWorkspaceBackups,
+  prepareNativeWorkspaceRestore,
+  previewNativeVersionRetention,
   readNativeVersion,
   rebuildNativeIndex,
   renameNativeNote,
   saveNativeNote,
   saveNativeVersion,
   searchNativeNotes,
+  setNativeVersionCheckpoint,
   type NativeIndexStatus,
   type NativeNoteDocument,
   type NativeVersionHistory,
+  type NativeVersionRetentionPolicy,
+  type NativeVersionRetentionPreview,
+  type NativeWorkspaceBackupSummary,
   type NativeWorkspaceChangeKind,
   type NativeWorkspaceChangesResult,
+  verifyNativeWorkspaceBackup,
 } from "./workspaceClient";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -143,6 +156,11 @@ const EMPTY_EDITOR_STATUS: EditorStatus = {
   selectionLength: 0,
   undoDepth: 0,
   redoDepth: 0,
+};
+
+const DEFAULT_RETENTION_POLICY: NativeVersionRetentionPolicy = {
+  keepLatest: 20,
+  keepDays: 30,
 };
 
 const PRIMARY_NAVIGATION = [
@@ -200,6 +218,22 @@ export function App() {
   );
   const [nativeVersionHistory, setNativeVersionHistory] =
     useState<NativeVersionHistory | null>(null);
+  const [retentionPolicy, setRetentionPolicy] =
+    useState<NativeVersionRetentionPolicy>(DEFAULT_RETENTION_POLICY);
+  const [retentionPreview, setRetentionPreview] =
+    useState<NativeVersionRetentionPreview | null>(null);
+  const [retentionState, setRetentionState] = useState<
+    "idle" | "previewing" | "applying"
+  >("idle");
+  const [workspaceBackups, setWorkspaceBackups] = useState<
+    readonly NativeWorkspaceBackupSummary[]
+  >([]);
+  const [backupState, setBackupState] = useState<
+    "idle" | "loading" | "creating" | "verifying" | "restoring"
+  >(nativeRuntime ? "loading" : "idle");
+  const [verifiedBackupId, setVerifiedBackupId] = useState<string | null>(
+    null,
+  );
   const [nativeSearchIds, setNativeSearchIds] = useState<readonly string[]>(
     [],
   );
@@ -248,6 +282,7 @@ export function App() {
 
   function applyNativeHistory(history: NativeVersionHistory) {
     const mapped = nativeHistoryToSnapshots(history);
+    setRetentionPreview(null);
     setNativeVersionHistory(history);
     setWorkspace((current) => ({
       ...current,
@@ -259,6 +294,30 @@ export function App() {
   useEffect(() => {
     void loadSystemStatus().then(setStatus);
   }, []);
+
+  useEffect(() => {
+    if (!nativeRuntime) {
+      return;
+    }
+    let active = true;
+    setBackupState("loading");
+    void listNativeWorkspaceBackups()
+      .then((backups) => {
+        if (active) {
+          setWorkspaceBackups(backups);
+          setBackupState("idle");
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setBackupState("idle");
+          setToast("无法读取本地备份清单；Markdown 正文未受影响。");
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [nativeRuntime]);
 
   useEffect(() => {
     if (!nativeRuntime) {
@@ -1456,7 +1515,7 @@ export function App() {
 
   async function deleteVersion(snapshot: NoteSnapshot) {
     const confirmed = window.confirm(
-      `删除“${snapshot.noteTitle}”在 ${formatDate(snapshot.createdAt)} 的版本节点？后续分支会自动重接，笔记正文不会被删除。`,
+      `${snapshot.checkpointName === undefined ? "" : `这是检查点“${snapshot.checkpointName}”。`}\n删除“${snapshot.noteTitle}”在 ${formatDate(snapshot.createdAt)} 的版本节点？后续分支会自动重接，笔记正文不会被删除。`,
     );
     if (!confirmed) {
       return;
@@ -1515,6 +1574,279 @@ export function App() {
         ? `版本节点已删除，释放约 ${formatBytes(released)}。`
         : "版本节点已删除；子分支已重接并保持可恢复。",
     );
+  }
+
+  async function toggleVersionCheckpoint(snapshot: NoteSnapshot) {
+    if (!nativeRuntime) {
+      setToast("浏览器预览不写入正式检查点；请在 Windows 桌面端使用。");
+      return;
+    }
+    const checkpointName =
+      snapshot.checkpointName === undefined
+        ? window.prompt(
+            "为这个版本命名。命名检查点不会被自动清理（最多 80 个字符）。",
+            snapshot.message ?? "重要里程碑",
+          )
+        : null;
+    if (snapshot.checkpointName === undefined && checkpointName === null) {
+      return;
+    }
+    const normalizedName = checkpointName?.trim() ?? null;
+    if (
+      normalizedName !== null &&
+      (normalizedName.length === 0 ||
+        [...normalizedName].length > 80 ||
+        /[\u0000-\u001f\u007f]/u.test(normalizedName))
+    ) {
+      setToast("检查点名称需为 1–80 个可见字符。");
+      return;
+    }
+    try {
+      const currentHistory =
+        nativeVersionHistory?.noteId === snapshot.noteId
+          ? nativeVersionHistory
+          : await loadNativeVersionHistory(snapshot.noteId);
+      const history = await setNativeVersionCheckpoint(
+        snapshot.noteId,
+        snapshot.id,
+        currentHistory.head,
+        normalizedName,
+      );
+      if (activeNoteIdRef.current === snapshot.noteId) {
+        applyNativeHistory(history);
+      }
+      setToast(
+        normalizedName === null
+          ? "已取消检查点保护；这个版本以后可以进入清理预览。"
+          : `已设为检查点“${normalizedName}”；自动清理会始终保护它。`,
+      );
+    } catch (error: unknown) {
+      const failure = asWorkspaceFailure(error);
+      if (failure?.code === "versionConflict") {
+        void loadNativeVersionHistory(snapshot.noteId).then(
+          applyNativeHistory,
+        );
+        setToast("分支头已变化；版本图已刷新，没有修改检查点。");
+      } else {
+        setToast(
+          failure?.kind === "checkpointNameAlreadyExists"
+            ? "这个知识节点已有同名检查点，请换一个名称。"
+            : failure?.code === "historyCorrupt"
+              ? "版本库完整性检查失败，没有修改检查点。"
+              : "检查点未修改；现有历史保持不变。",
+        );
+      }
+    }
+  }
+
+  function updateRetentionPolicy(policy: NativeVersionRetentionPolicy) {
+    setRetentionPolicy(policy);
+    setRetentionPreview(null);
+  }
+
+  async function previewVersionRetention() {
+    if (!nativeRuntime || selectedNote === undefined) {
+      setToast("清理预览只会在 Windows 桌面端读取正式版本库。");
+      return;
+    }
+    setRetentionState("previewing");
+    try {
+      const currentHistory =
+        nativeVersionHistory?.noteId === selectedNote.id
+          ? nativeVersionHistory
+          : await loadNativeVersionHistory(selectedNote.id);
+      const preview = await previewNativeVersionRetention(
+        selectedNote.id,
+        currentHistory.head,
+        retentionPolicy,
+      );
+      if (activeNoteIdRef.current === selectedNote.id) {
+        setRetentionPreview(preview);
+      }
+      setToast(
+        preview.candidates.length === 0
+          ? "当前策略没有可安全清理的版本。"
+          : `预览完成：可清理 ${preview.candidates.length} 个旧版本，预计释放 ${formatBytes(preview.releasedBytes)}。`,
+      );
+    } catch (error: unknown) {
+      const failure = asWorkspaceFailure(error);
+      setRetentionPreview(null);
+      if (failure?.code === "versionConflict") {
+        void loadNativeVersionHistory(selectedNote.id).then(
+          applyNativeHistory,
+        );
+        setToast("分支头已变化；版本图已刷新，请重新生成清理预览。");
+      } else {
+        setToast(
+          failure?.code === "historyCorrupt"
+            ? "发现不可安全读取的历史内容；没有生成清理计划，也没有删除任何数据。"
+            : "无法生成清理预览；现有历史保持不变。",
+        );
+      }
+    } finally {
+      setRetentionState("idle");
+    }
+  }
+
+  async function applyVersionRetention() {
+    if (retentionPreview === null || retentionPreview.candidates.length === 0) {
+      return;
+    }
+    const confirmed = window.confirm(
+      `按刚才的预览清理 ${retentionPreview.candidates.length} 个旧版本？\n将保留 ${retentionPreview.remainingVersionCount} 个版本；检查点、分支末端、最早基线和当前分支头不会删除。`,
+    );
+    if (!confirmed) {
+      return;
+    }
+    setRetentionState("applying");
+    try {
+      const result = await applyNativeVersionRetention(retentionPreview);
+      applyNativeHistory(result.history);
+      setToast(
+        result.releasedBytes > 0
+          ? `已清理 ${result.deletedVersions} 个旧版本并释放 ${formatBytes(result.releasedBytes)}；所有保留节点仍可独立恢复。`
+          : `已清理 ${result.deletedVersions} 个旧版本；共享内容块仍被保留节点引用。`,
+      );
+    } catch (error: unknown) {
+      const failure = asWorkspaceFailure(error);
+      if (
+        failure?.code === "versionConflict" ||
+        failure?.kind === "staleRetentionPreview"
+      ) {
+        if (selectedNote !== undefined) {
+          void loadNativeVersionHistory(selectedNote.id).then(
+            applyNativeHistory,
+          );
+        }
+        setToast("版本历史或检查点已变化；旧预览作废，没有删除任何数据。");
+      } else {
+        setToast(
+          failure?.code === "historyCorrupt"
+            ? "版本库完整性检查失败；清理事务已中止，没有删除任何数据。"
+            : "旧版本清理未完成；现有历史保持不变。",
+        );
+      }
+    } finally {
+      setRetentionState("idle");
+    }
+  }
+
+  function workspaceIsCleanForBackup(): boolean {
+    return (
+      savingNoteIdsRef.current.size === 0 &&
+      workspace.notes.every(
+        (note) =>
+          lastPersistedMarkdownRef.current.get(note.id) === note.markdown,
+      ) &&
+      externalChanges === null &&
+      !isResolvingExternalChanges
+    );
+  }
+
+  async function createWorkspaceBackup() {
+    if (!nativeRuntime) {
+      setToast("正式工作区备份只在 Windows 桌面端创建。");
+      return;
+    }
+    if (!workspaceIsCleanForBackup()) {
+      setToast("请先保存或处理外部更改，再创建完整工作区备份。");
+      return;
+    }
+    const proposed = `手动备份 ${new Intl.DateTimeFormat("zh-CN", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(new Date())}`;
+    const label = window.prompt(
+      "为完整工作区备份添加一个容易识别的名称（最多 80 个字符）。",
+      proposed,
+    );
+    if (label === null) {
+      return;
+    }
+    const normalized = label.trim();
+    if (
+      normalized.length === 0 ||
+      [...normalized].length > 80 ||
+      /[\u0000-\u001f\u007f]/u.test(normalized)
+    ) {
+      setToast("备份名称需为 1–80 个可见字符。");
+      return;
+    }
+    setBackupState("creating");
+    try {
+      const result = await createNativeWorkspaceBackup(normalized);
+      setWorkspaceBackups((current) => [
+        result.backup,
+        ...current.filter((item) => item.id !== result.backup.id),
+      ]);
+      setVerifiedBackupId(result.backup.id);
+      setToast(
+        `完整备份已校验并保存到 ${result.backup.pathDisplay}（${formatBytes(result.backup.totalBytes)}）。`,
+      );
+    } catch (error: unknown) {
+      const failure = asWorkspaceFailure(error);
+      setToast(
+        failure?.code === "backupCorrupt"
+          ? "备份校验失败，未发布不完整备份包。"
+          : failure?.kind === "sourceChanged"
+            ? "备份期间有文件被外部修改；未发布不一致备份，请重试。"
+            : "完整备份未完成；现有 Markdown 与历史均保持不变。",
+      );
+    } finally {
+      setBackupState("idle");
+    }
+  }
+
+  async function verifyWorkspaceBackup(backup: NativeWorkspaceBackupSummary) {
+    setBackupState("verifying");
+    try {
+      const verified = await verifyNativeWorkspaceBackup(backup.id);
+      setVerifiedBackupId(backup.id);
+      setToast(
+        `备份校验通过：重新读取 ${verified.verifiedFiles} 个文件、${formatBytes(verified.verifiedBytes)}，包括 ${verified.backup.historyVersionCount} 个版本节点。`,
+      );
+    } catch (error: unknown) {
+      const failure = asWorkspaceFailure(error);
+      setVerifiedBackupId(null);
+      setToast(
+        failure?.code === "backupCorrupt"
+          ? "备份内容或校验清单已损坏，不能用于恢复。"
+          : "备份校验未完成；没有更改工作区。",
+      );
+    } finally {
+      setBackupState("idle");
+    }
+  }
+
+  async function restoreWorkspaceBackup(backup: NativeWorkspaceBackupSummary) {
+    if (!workspaceIsCleanForBackup()) {
+      setToast("请先保存或处理外部更改，再准备完整工作区恢复。");
+      return;
+    }
+    const confirmed = window.confirm(
+      `恢复到“${backup.label ?? formatDate(new Date(backup.createdAtMillis).toISOString())}”？\n\n知织会先完整校验该备份，再为当前工作区创建一份安全备份。真正替换会在下次启动、文件监控和数据库打开之前完成；当前目录仍会保留为可回退副本。`,
+    );
+    if (!confirmed) {
+      return;
+    }
+    setBackupState("restoring");
+    try {
+      const prepared = await prepareNativeWorkspaceRestore(backup.id);
+      window.alert(
+        `恢复已安全准备完成。\n\n当前工作区已另存为“${prepared.safetyBackup.label ?? "恢复前自动保护"}”。知织现在会关闭；请重新打开，恢复将在启动前完成。`,
+      );
+      await getCurrentWindow().close();
+    } catch (error: unknown) {
+      const failure = asWorkspaceFailure(error);
+      setToast(
+        failure?.code === "backupCorrupt"
+          ? "备份校验失败，未准备恢复，也没有替换当前工作区。"
+          : failure?.kind === "restoreAlreadyPending"
+            ? "已有一项恢复等待重启，请先重新打开知织。"
+            : "恢复准备未完成；当前工作区保持原样。",
+      );
+      setBackupState("idle");
+    }
   }
 
   function resetDemoData() {
@@ -2140,12 +2472,25 @@ export function App() {
         <section className="editor-stage" data-context="workspace">
           {activeView === "versions" ? (
             <VersionHistory
+              backupState={backupState}
+              backups={workspaceBackups}
               currentNote={selectedNote}
               isNative={nativeRuntime}
               nativeHistory={nativeVersionHistory}
+              onApplyRetention={applyVersionRetention}
+              onCreateBackup={createWorkspaceBackup}
               onDelete={deleteVersion}
+              onPreviewRetention={previewVersionRetention}
               onReset={resetDemoData}
               onRestore={restoreVersion}
+              onRestoreBackup={restoreWorkspaceBackup}
+              onToggleCheckpoint={toggleVersionCheckpoint}
+              onVerifyBackup={verifyWorkspaceBackup}
+              retentionPolicy={retentionPolicy}
+              retentionPreview={retentionPreview}
+              retentionState={retentionState}
+              setRetentionPolicy={updateRetentionPolicy}
+              verifiedBackupId={verifiedBackupId}
               workspace={workspace}
             />
           ) : selectedNote === undefined ? (
@@ -2744,6 +3089,19 @@ export function App() {
                   <Copy />
                   复制这个版本的 Markdown
                 </button>
+                {nativeRuntime && (
+                  <button
+                    onClick={() =>
+                      void toggleVersionCheckpoint(contextSnapshot)
+                    }
+                    role="menuitem"
+                  >
+                    <Bookmark />
+                    {contextSnapshot.checkpointName === undefined
+                      ? "命名并保护为检查点"
+                      : "取消检查点保护"}
+                  </button>
+                )}
                 {contextNote !== undefined && (
                   <button
                     onClick={() => activateNote(contextNote)}
@@ -2782,6 +3140,16 @@ export function App() {
                 <FlaskConical />
                 新建 UUID 交互实验
               </button>
+              {nativeRuntime && (
+                <button
+                  disabled={backupState !== "idle"}
+                  onClick={() => void createWorkspaceBackup()}
+                  role="menuitem"
+                >
+                  <Archive />
+                  创建完整工作区备份
+                </button>
+              )}
               {contextMenu.scope === "explorer" && (
                 <button
                   onClick={() => searchInputRef.current?.focus()}
@@ -2837,23 +3205,62 @@ export function App() {
 }
 
 interface VersionHistoryProps {
+  readonly backups: readonly NativeWorkspaceBackupSummary[];
+  readonly backupState:
+    | "idle"
+    | "loading"
+    | "creating"
+    | "verifying"
+    | "restoring";
   readonly currentNote: LearningNote | undefined;
   readonly isNative: boolean;
   readonly nativeHistory: NativeVersionHistory | null;
+  readonly onApplyRetention: () => void | Promise<void>;
+  readonly onCreateBackup: () => void | Promise<void>;
   readonly workspace: WorkspaceState;
   readonly onDelete: (snapshot: NoteSnapshot) => void | Promise<void>;
+  readonly onPreviewRetention: () => void | Promise<void>;
   readonly onReset: () => void;
   readonly onRestore: (snapshot: NoteSnapshot) => void | Promise<void>;
+  readonly onRestoreBackup: (
+    backup: NativeWorkspaceBackupSummary,
+  ) => void | Promise<void>;
+  readonly onToggleCheckpoint: (
+    snapshot: NoteSnapshot,
+  ) => void | Promise<void>;
+  readonly retentionPolicy: NativeVersionRetentionPolicy;
+  readonly retentionPreview: NativeVersionRetentionPreview | null;
+  readonly retentionState: "idle" | "previewing" | "applying";
+  readonly setRetentionPolicy: (
+    policy: NativeVersionRetentionPolicy,
+  ) => void;
+  readonly onVerifyBackup: (
+    backup: NativeWorkspaceBackupSummary,
+  ) => void | Promise<void>;
+  readonly verifiedBackupId: string | null;
 }
 
 function VersionHistory({
+  backups,
+  backupState,
   currentNote,
   isNative,
   nativeHistory,
+  onApplyRetention,
+  onCreateBackup,
   workspace,
   onDelete,
+  onPreviewRetention,
   onReset,
   onRestore,
+  onRestoreBackup,
+  onToggleCheckpoint,
+  retentionPolicy,
+  retentionPreview,
+  retentionState,
+  setRetentionPolicy,
+  onVerifyBackup,
+  verifiedBackupId,
 }: VersionHistoryProps) {
   const snapshots = workspace.snapshots;
   const relevant = currentNote === undefined
@@ -2920,6 +3327,198 @@ function VersionHistory({
           相比完整副本节省 <strong>{savedPercent}%</strong>
         </span>
       </div>
+      {isNative && (
+        <section className="retention-panel" aria-label="旧版本保留与清理">
+          <div className="retention-copy">
+            <Bookmark />
+            <div>
+              <h3>安全清理旧版本</h3>
+              <p>
+                始终保护检查点、当前分支头、最早基线和每条分支末端；先预览，再执行。
+              </p>
+            </div>
+          </div>
+          <div className="retention-controls">
+            <label>
+              至少保留最新
+              <input
+                aria-label="至少保留的最新版本数"
+                max={1000}
+                min={1}
+                onChange={(event) =>
+                  setRetentionPolicy({
+                    ...retentionPolicy,
+                    keepLatest: boundedInteger(
+                      event.currentTarget.value,
+                      1,
+                      1000,
+                      retentionPolicy.keepLatest,
+                    ),
+                  })
+                }
+                type="number"
+                value={retentionPolicy.keepLatest}
+              />
+              个
+            </label>
+            <label>
+              保留最近
+              <input
+                aria-label="保留最近天数"
+                max={3650}
+                min={0}
+                onChange={(event) =>
+                  setRetentionPolicy({
+                    ...retentionPolicy,
+                    keepDays: boundedInteger(
+                      event.currentTarget.value,
+                      0,
+                      3650,
+                      retentionPolicy.keepDays,
+                    ),
+                  })
+                }
+                type="number"
+                value={retentionPolicy.keepDays}
+              />
+              天
+            </label>
+            <button
+              disabled={
+                currentNote === undefined || retentionState !== "idle"
+              }
+              onClick={() => void onPreviewRetention()}
+              type="button"
+            >
+              {retentionState === "previewing" ? "正在校验…" : "预览清理"}
+            </button>
+          </div>
+          {retentionPreview !== null && (
+            <div className="retention-preview" aria-live="polite">
+              <div>
+                <strong>
+                  {retentionPreview.candidates.length === 0
+                    ? "没有可安全清理的版本"
+                    : `将清理 ${retentionPreview.candidates.length} 个旧版本`}
+                </strong>
+                <span>
+                  保留 {retentionPreview.remainingVersionCount} 个 · 预计释放{" "}
+                  {formatBytes(retentionPreview.releasedBytes)}
+                </span>
+              </div>
+              {retentionPreview.candidates.length > 0 && (
+                <>
+                  <ol>
+                    {retentionPreview.candidates.slice(0, 4).map((node) => (
+                      <li key={node.id}>
+                        {formatDate(
+                          new Date(node.createdAtMillis).toISOString(),
+                        )}
+                        <span>{node.message ?? "手动版本"}</span>
+                      </li>
+                    ))}
+                  </ol>
+                  {retentionPreview.candidates.length > 4 && (
+                    <small>
+                      另有 {retentionPreview.candidates.length - 4} 个版本
+                    </small>
+                  )}
+                  <button
+                    className="danger"
+                    disabled={retentionState !== "idle"}
+                    onClick={() => void onApplyRetention()}
+                    type="button"
+                  >
+                    <Trash2 />
+                    {retentionState === "applying"
+                      ? "正在清理…"
+                      : "按此预览清理"}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </section>
+      )}
+      {isNative && (
+        <section className="backup-panel" aria-label="完整工作区备份与恢复">
+          <header>
+            <div>
+              <Archive />
+              <span>
+                <strong>完整工作区备份</strong>
+                <small>
+                  Markdown、附件、身份清单、恢复副本和版本库；搜索索引会重建。
+                </small>
+              </span>
+            </div>
+            <button
+              disabled={backupState !== "idle"}
+              onClick={() => void onCreateBackup()}
+              type="button"
+            >
+              <Archive />
+              {backupState === "creating" ? "正在校验…" : "创建完整备份"}
+            </button>
+          </header>
+          {backupState === "loading" ? (
+            <p>正在读取本机备份清单…</p>
+          ) : backups.length === 0 ? (
+            <p>还没有完整工作区备份。版本节点不能替代独立备份。</p>
+          ) : (
+            <div className="backup-list">
+              {backups.slice(0, 8).map((backup) => (
+                <article key={backup.id}>
+                  <div>
+                    <strong>
+                      {backup.label ??
+                        formatDate(
+                          new Date(backup.createdAtMillis).toISOString(),
+                        )}
+                    </strong>
+                    {verifiedBackupId === backup.id && (
+                      <span>
+                        <ShieldCheck />
+                        本次已校验
+                      </span>
+                    )}
+                    <small>
+                      {formatDate(
+                        new Date(backup.createdAtMillis).toISOString(),
+                      )}{" "}
+                      · {backup.fileCount} 个文件 ·{" "}
+                      {formatBytes(backup.totalBytes)} ·{" "}
+                      {backup.historyVersionCount} 个版本
+                    </small>
+                    <code title={backup.pathDisplay}>
+                      {backup.pathDisplay}
+                    </code>
+                  </div>
+                  <footer>
+                    <button
+                      disabled={backupState !== "idle"}
+                      onClick={() => void onVerifyBackup(backup)}
+                      type="button"
+                    >
+                      <ShieldCheck />
+                      完整校验
+                    </button>
+                    <button
+                      className="restore"
+                      disabled={backupState !== "idle"}
+                      onClick={() => void onRestoreBackup(backup)}
+                      type="button"
+                    >
+                      <RotateCcw />
+                      恢复（重启）
+                    </button>
+                  </footer>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
       {isNative && nativeHistory === null ? (
         <div className="empty-state compact">
           <Clock3 />
@@ -2985,6 +3584,12 @@ function VersionHistory({
                       <strong>{row.snapshot.noteTitle}</strong>
                       {row.isHead && <span>当前分支头</span>}
                       {row.childCount > 1 && <span>分支节点</span>}
+                      {row.snapshot.checkpointName !== undefined && (
+                        <span className="checkpoint-badge">
+                          <Bookmark />
+                          {row.snapshot.checkpointName}
+                        </span>
+                      )}
                     </div>
                     <small>{formatDate(row.snapshot.createdAt)}</small>
                   </header>
@@ -2999,6 +3604,29 @@ function VersionHistory({
                         ? `增量 ${formatBytes(snapshotStorageBytes(row.snapshot))}`
                         : `可独立校验 · ${row.snapshot.message ?? "手动版本"}`}
                     </span>
+                    {isNative && (
+                      <button
+                        className={
+                          row.snapshot.checkpointName === undefined
+                            ? ""
+                            : "is-checkpoint"
+                        }
+                        onClick={() =>
+                          void onToggleCheckpoint(row.snapshot)
+                        }
+                        title={
+                          row.snapshot.checkpointName === undefined
+                            ? "命名并保护为检查点"
+                            : "取消检查点保护"
+                        }
+                        type="button"
+                      >
+                        <Bookmark />
+                        {row.snapshot.checkpointName === undefined
+                          ? "检查点"
+                          : "取消保护"}
+                      </button>
+                    )}
                     <button
                       onClick={() => void onRestore(row.snapshot)}
                       type="button"
@@ -3198,6 +3826,18 @@ function formatRelativeDate(value: string): string {
     month: "2-digit",
     day: "2-digit",
   }).format(timestamp);
+}
+
+function boundedInteger(
+  value: string,
+  minimum: number,
+  maximum: number,
+  fallback: number,
+): number {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed)
+    ? Math.min(maximum, Math.max(minimum, parsed))
+    : fallback;
 }
 
 function formatBytes(value: number): string {

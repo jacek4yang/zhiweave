@@ -24,14 +24,14 @@
 环境：当前 Windows 电脑，Vite 直接绑定 `127.0.0.1:1420`，Tauri 2 原生开发壳。
 
 - Vite ready：约 185 ms。
-- Vitest：5 files / 24 tests，约 830 ms（与 Rust 全量测试并行时测得）。
-- Vite production build：约 498 ms。
-- CSS：32.57 KB（gzip 6.56 KB）。
-- 主 JavaScript：892.90 KB（gzip 298.41 KB）。
-- `EmbeddedLab` 按需 chunk：6.22 KB（gzip 2.57 KB）。
+- Vitest：5 files / 24 tests，约 312 ms。
+- Vite production build：约 422 ms。
+- CSS：37.65 KB（gzip 7.30 KB）。
+- 主 JavaScript：905.22 KB（gzip 301.89 KB）。
+- `EmbeddedLab` 按需 chunk：5.97 KB（gzip 2.44 KB）。
 - Vite 仍报告主 chunk 超过 500 KB。
 
-交互实验已从主包动态拆分，但主包 gzip 仍超过目标 98.41 KB。下一步必须用可重复的 chunk 报告定位 CodeMirror、图标和工作台依赖；语言 grammar、图谱、Canvas、数学和实验组件均不得进入无关首屏。
+交互实验已从主包动态拆分，但主包 gzip 仍超过目标 101.89 KB。下一步必须用可重复的 chunk 报告定位 CodeMirror、图标和工作台依赖；语言 grammar、图谱、Canvas、数学和实验组件均不得进入无关首屏。
 
 Windows 小样本原生版本验收中，三份约 261–317 B 的 Markdown 版本经内容寻址压缩后实际占用
 796 B/3 块；删除一个独有版本回收 275 B。该结果只证明统计和垃圾回收路径正确，不代表大正文

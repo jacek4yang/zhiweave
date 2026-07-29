@@ -1509,6 +1509,298 @@ button:disabled {
   color: var(--ink);
 }
 
+.retention-panel {
+  display: grid;
+  width: 100%;
+  max-width: 760px;
+  gap: 12px;
+  margin: 0 auto 22px;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: rgb(30 32 48 / 58%);
+}
+
+.retention-copy {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 9px;
+}
+
+.retention-copy > svg {
+  width: 16px;
+  flex: 0 0 auto;
+  color: var(--syntax-yellow);
+}
+
+.retention-copy h3,
+.retention-copy p {
+  margin: 0;
+}
+
+.retention-copy h3 {
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.retention-copy p {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.retention-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.retention-controls label {
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  gap: 6px;
+  padding-left: 8px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--canvas);
+  font-size: 9px;
+}
+
+.retention-controls input {
+  width: 58px;
+  height: 28px;
+  padding: 0 6px;
+  color: var(--ink);
+  border: 0;
+  border-right: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+  outline: 0;
+  background: var(--panel);
+  font: 10px/1 "Cascadia Code", Consolas, monospace;
+}
+
+.retention-controls input:focus {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.retention-controls button,
+.retention-preview button {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 9px;
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--panel);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.retention-controls button:disabled,
+.retention-preview button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.retention-preview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 9px 14px;
+  padding: 10px;
+  border-left: 2px solid var(--syntax-yellow);
+  background: rgb(230 195 132 / 6%);
+}
+
+.retention-preview > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.retention-preview strong {
+  color: var(--ink);
+  font-size: 10px;
+}
+
+.retention-preview span,
+.retention-preview small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.retention-preview ol {
+  grid-column: 1;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--subtle);
+  font-size: 9px;
+}
+
+.retention-preview li {
+  padding: 2px 0;
+}
+
+.retention-preview li span {
+  margin-left: 7px;
+}
+
+.retention-preview button.danger {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  color: var(--danger);
+  border-color: rgb(255 117 127 / 28%);
+}
+
+.retention-preview button svg {
+  width: 12px;
+}
+
+.backup-panel {
+  display: grid;
+  width: 100%;
+  max-width: 760px;
+  gap: 10px;
+  margin: 0 auto 24px;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: rgb(30 32 48 / 58%);
+}
+
+.backup-panel > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.backup-panel > header > div {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 9px;
+}
+
+.backup-panel > header > div > svg {
+  width: 16px;
+  flex: 0 0 auto;
+  color: var(--syntax-teal);
+}
+
+.backup-panel > header span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.backup-panel strong {
+  color: var(--ink);
+  font-size: 10px;
+}
+
+.backup-panel small,
+.backup-panel > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.backup-panel button {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 9px;
+  color: var(--ink);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--panel);
+  font-size: 10px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.backup-panel button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.backup-panel button svg {
+  width: 12px;
+}
+
+.backup-list {
+  display: grid;
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--line);
+}
+
+.backup-list article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  background: var(--canvas);
+}
+
+.backup-list article > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.backup-list article > div > span {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 5px;
+  color: var(--syntax-green);
+  border: 1px solid rgb(158 206 106 / 25%);
+  border-radius: 3px;
+  font-size: 8px;
+}
+
+.backup-list article > div > span svg {
+  width: 9px;
+}
+
+.backup-list code {
+  overflow: hidden;
+  color: var(--subtle);
+  font: 8px/1.4 "Cascadia Code", Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backup-list footer {
+  display: flex;
+  gap: 5px;
+}
+
+.backup-list button.restore {
+  color: var(--syntax-yellow);
+  border-color: rgb(230 195 132 / 28%);
+}
+
 .version-graph {
   display: grid;
   width: 100%;
@@ -1630,6 +1922,19 @@ button:disabled {
   white-space: nowrap;
 }
 
+.version-cards article > header span.checkpoint-badge {
+  max-width: 170px;
+  overflow: hidden;
+  color: var(--syntax-yellow);
+  border-color: rgb(230 195 132 / 28%);
+  text-overflow: ellipsis;
+}
+
+.version-cards article > header span.checkpoint-badge svg {
+  width: 9px;
+  vertical-align: -2px;
+}
+
 .version-cards article > header small {
   flex: 0 0 auto;
   color: var(--subtle);
@@ -1687,6 +1992,11 @@ button:disabled {
 .version-cards article button.danger {
   color: var(--danger);
   border-color: rgb(255 117 127 / 26%);
+}
+
+.version-cards article button.is-checkpoint {
+  color: var(--syntax-yellow);
+  border-color: rgb(230 195 132 / 28%);
 }
 
 .empty-state {
@@ -2319,6 +2629,65 @@ button:disabled {
   .status-bar > .status-mode,
   .status-bar > .status-sync,
   .status-bar > .status-protocol {
+    display: none;
+  }
+
+  .version-history {
+    padding: 22px 14px 70px;
+  }
+
+  .version-metrics {
+    gap: 9px;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  .retention-controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .retention-controls label {
+    justify-content: space-between;
+  }
+
+  .retention-controls button {
+    grid-column: 1 / -1;
+  }
+
+  .retention-preview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .retention-preview button.danger {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .backup-panel > header,
+  .backup-list article {
+    align-items: stretch;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .backup-panel > header {
+    display: grid;
+  }
+
+  .backup-panel > header > button {
+    width: 100%;
+  }
+
+  .backup-list footer {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .version-cards article > header span.checkpoint-badge {
+    max-width: 92px;
+  }
+
+  .version-cards article > footer > span {
     display: none;
   }
 

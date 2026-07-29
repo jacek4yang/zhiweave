@@ -1,6 +1,6 @@
 # Agent 交接
 
-最近更新：2026-07-30 04:35 CST
+最近更新：2026-07-30 05:27 CST
 
 ## 不可改变的用户约束
 
@@ -59,24 +59,44 @@ SQLite/稳定身份稳定切片增加：
 - 精确删除、子节点事务重接、head 调整和无引用块垃圾回收；
 - Tauri 命令与真实版本图、实际压缩占用/块数、复制/恢复/删除右键操作贯通。
 
+当前检查点、保留和完整备份切片增加：
+
+- history schema v2 命名检查点与 v1→v2 原位迁移；
+- 固定保护 head、根、分支末端、检查点、最新数量与最近天数的保留策略；
+- 绑定完整图和固定时间边界的预览 token，陈旧预览失败关闭；
+- 单事务批量重接/删除/GC，候选损坏时预览不执行；
+- `.zhiweave/backups/<UUID>.zhiweave-backup` 完整目录包与逐文件长度/SHA-256 清单；
+- `VACUUM INTO` 一致历史快照、全部版本重建校验、payload 集合与总量校验；
+- 恢复前 current safety backup、完整 stage、工作区同级 restore plan 和启动前双 rename；
+- 进程在 preserve/activate 之间中断后继续恢复，旧 workspace 始终保留为 previous。
+
 ## 最近验证
 
 - pnpm lint/typecheck、24 项前端测试和生产构建通过。
-- Rust workspace 40 项、fmt 与 Clippy `-D warnings` 全部通过；storage 22 项中含 7 项正式历史测试。
+- Rust workspace 49 项、fmt 与 Clippy `-D warnings` 全部通过；storage 30 项覆盖历史、保留、
+  完整备份、篡改拒绝和恢复中断。
 - Windows Tauri 原生验收覆盖保存、分支、重启、删除/空间回收和恢复；测试正文与版本均已清理，固定工作区保持 6 个 Markdown。
 - GitHub CI run `30482533535`：Frontend 21 s、Rust 3 min 1 s，全部通过；Node 20 actions deprecation annotation 尚待 workflow 维护。
 - Windows Tauri 客户区顶部非客户区仅 1 px，证明系统标题栏已移除。
 - 真实浏览器验证 UUID v4 版本/变体、非法 UUID、AI 提示词、输入框粘贴、编辑器撤销和五类上下文菜单。
-- 交互实验已按需拆为独立 6.22 KB chunk。
+- 交互实验已按需拆为独立 5.97 KB chunk。
+- Windows 原生保留验收：6 节点中预览 2 候选/540 B，检查点保留；清理后 4 节点，最终验收
+  历史归零且 Markdown 不变。右键菜单按检查点状态变化。
+- Windows 原生完整备份“版本与备份功能上线基线”覆盖 8 文件/46.1 KB/0 版本，二次逐文件
+  校验通过；恢复确认取消后无 pending plan。1280×800 和 390×844 无页面级水平溢出。
 
 ## 下一步顺序
 
-1. 完成持久版本切片的全门禁、审计、提交、Linux 中转推送、PR/CI。
-2. 设计版本保留策略预览、批量压缩/检查点和工作区备份导出。
-3. 补 watcher 高频压力、休眠恢复、占位强杀、只读目录和磁盘满夹具。
-4. 收敛统一 command registry 与命令面板，再替换共享 Markdown AST。
+1. 完成检查点/保留/备份恢复切片的全门禁、审计、提交、Linux 中转推送、PR/CI。
+2. 收敛统一 command registry 与命令面板，再替换共享 Markdown AST。
+3. 补 watcher 高频压力、休眠恢复、占位强杀、只读目录和卷级磁盘满夹具。
+4. 增加外部备份导入/跨设备恢复演练，再进入客户端加密和同步。
 5. 持续排除根 `AGENTS.md`、真实工作区文件、地址、密钥和数据库。
 
 ## 关键风险
 
-Markdown 文件事实源、稳定 ID、可重建 SQLite/FTS、本机 watcher 和持久版本 DAG 已进入 alpha，但还不能称为完整长期数据保证：启动与每次外部事件仍全量扫描正文，缺少完整工作区备份恢复与客户端加密；底层平台漏报只能依赖 `Rescan`/后续事件或重启发现。create 强杀可能留下空占位，安全移动强杀可能留下重复副本，删源前仍有极窄竞态。通用 Markdown 阅读器仍需统一 AST，主 bundle 超预算，同步后端仍只是协议/健康状态骨架。
+Markdown 文件事实源、稳定 ID、可重建 SQLite/FTS、本机 watcher、持久版本 DAG 和本机完整备份/
+重启恢复已进入 alpha，但还不能称为完整长期数据保证：启动与每次外部事件仍全量扫描正文，
+备份包尚未加密且缺少外部导入/跨设备演练；底层平台漏报只能依赖 `Rescan`/后续事件或重启发现。
+create 强杀可能留下空占位，安全移动强杀可能留下重复副本，删源前仍有极窄竞态。通用 Markdown
+阅读器仍需统一 AST，主 bundle 超预算，同步后端仍只是协议/健康状态骨架。

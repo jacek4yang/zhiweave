@@ -54,6 +54,9 @@ export function nativeHistoryToSnapshots(
       createdAt: new Date(node.createdAtMillis).toISOString(),
       contentHash: node.contentHash,
       ...(node.message === null ? {} : { message: node.message }),
+      ...(node.checkpointName === null
+        ? {}
+        : { checkpointName: node.checkpointName }),
     })),
     versionHeads:
       history.head === null ? {} : { [history.noteId]: history.head },

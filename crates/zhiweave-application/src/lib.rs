@@ -252,6 +252,8 @@ pub struct VersionNode {
     pub created_at_millis: u64,
     /// Optional bounded user explanation.
     pub message: Option<String>,
+    /// Optional user-visible name that protects this node from retention cleanup.
+    pub checkpoint_name: Option<String>,
 }
 
 /// Storage summary for one note's reachable and branched local history.
@@ -360,6 +362,168 @@ pub struct DeleteVersionResult {
     pub history: VersionHistory,
     /// Compressed chunk bytes reclaimed by this transaction.
     pub released_bytes: u64,
+}
+
+/// Request to name or remove a protected checkpoint on one version node.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetVersionCheckpointRequest {
+    /// Stable note identity.
+    pub note_id: NoteId,
+    /// Existing immutable version identity.
+    pub version_id: String,
+    /// Head observed by the caller; mismatch is a conflict.
+    pub expected_head: Option<String>,
+    /// Trimmed checkpoint name, or `None` to remove the checkpoint.
+    pub checkpoint_name: Option<String>,
+}
+
+/// Bounded retention policy for one note's local history.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionRetentionPolicy {
+    /// Always retain at least this many newest nodes.
+    pub keep_latest: u16,
+    /// Retain every node created within this many whole days.
+    pub keep_days: u16,
+}
+
+/// Request for a non-mutating retention preview.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewVersionRetentionRequest {
+    /// Stable note identity.
+    pub note_id: NoteId,
+    /// Head observed by the caller; mismatch is a conflict.
+    pub expected_head: Option<String>,
+    /// User-selected bounded retention policy.
+    pub policy: VersionRetentionPolicy,
+}
+
+/// Exact retention plan generated from one verified history state.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionRetentionPreview {
+    /// Stable note identity.
+    pub note_id: NoteId,
+    /// Head that was current while the preview was generated.
+    pub expected_head: Option<String>,
+    /// Validated policy used to select candidates.
+    pub policy: VersionRetentionPolicy,
+    /// Fixed age boundary reused during apply so time cannot change the plan.
+    pub cutoff_at_millis: u64,
+    /// Digest binding the policy, graph state, and exact candidate set.
+    pub preview_token: String,
+    /// Exact nodes proposed for deletion, newest first.
+    pub candidates: Vec<VersionNode>,
+    /// Number of nodes that will remain.
+    pub remaining_version_count: usize,
+    /// Exact compressed bytes expected to become globally unreferenced.
+    pub released_bytes: u64,
+}
+
+/// Request to apply one previously reviewed retention preview.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplyVersionRetentionRequest {
+    /// Stable note identity.
+    pub note_id: NoteId,
+    /// Head observed in the preview.
+    pub expected_head: Option<String>,
+    /// Policy shown in the preview.
+    pub policy: VersionRetentionPolicy,
+    /// Fixed cutoff returned by the preview.
+    pub cutoff_at_millis: u64,
+    /// Digest returned by the preview.
+    pub preview_token: String,
+}
+
+/// Result of one atomic retention cleanup.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplyVersionRetentionResult {
+    /// Verified graph after cleanup and child reparenting.
+    pub history: VersionHistory,
+    /// Number of exact nodes removed by the transaction.
+    pub deleted_versions: usize,
+    /// Compressed chunk bytes reclaimed by the transaction.
+    pub released_bytes: u64,
+}
+
+/// User-visible summary of one verified portable workspace backup directory.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceBackupSummary {
+    /// Backend-generated immutable backup identity.
+    pub id: String,
+    /// Optional bounded user label.
+    pub label: Option<String>,
+    /// Creation time as Unix milliseconds.
+    pub created_at_millis: u64,
+    /// Number of payload files covered by the checksum manifest.
+    pub file_count: usize,
+    /// Sum of payload bytes.
+    pub total_bytes: u64,
+    /// Number of durable version nodes in the consistent history snapshot.
+    pub history_version_count: usize,
+    /// Workspace-relative directory that can be copied as one backup package.
+    pub path_display: String,
+}
+
+/// Request to create a complete portable workspace backup.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateWorkspaceBackupRequest {
+    /// Optional user-visible label.
+    pub label: Option<String>,
+}
+
+/// Result of a complete, checksum-verified backup export.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateWorkspaceBackupResult {
+    /// Newly committed backup package.
+    pub backup: WorkspaceBackupSummary,
+}
+
+/// Request to verify one existing backup package.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VerifyWorkspaceBackupRequest {
+    /// Immutable backend-generated backup identity.
+    pub backup_id: String,
+}
+
+/// Result of re-reading every payload file and checksum.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VerifyWorkspaceBackupResult {
+    /// Verified package summary.
+    pub backup: WorkspaceBackupSummary,
+    /// Number of payload files re-read.
+    pub verified_files: usize,
+    /// Number of payload bytes re-read.
+    pub verified_bytes: u64,
+}
+
+/// Request to stage a complete restore for the next application start.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrepareWorkspaceRestoreRequest {
+    /// Exact verified backup to stage.
+    pub backup_id: String,
+}
+
+/// Result of staging a crash-recoverable workspace replacement.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PrepareWorkspaceRestoreResult {
+    /// Backup selected for restore.
+    pub backup: WorkspaceBackupSummary,
+    /// Fresh backup of the current workspace made before staging.
+    pub safety_backup: WorkspaceBackupSummary,
+    /// Always true: the directory swap occurs before storage opens next launch.
+    pub restart_required: bool,
 }
 
 /// Data required to create a new Markdown source file.
@@ -542,6 +706,32 @@ pub enum WorkspaceFailure {
         /// Stable validation category.
         kind: String,
     },
+    /// A requested backup package does not exist.
+    #[error("workspace backup was not found: {backup_id}")]
+    BackupNotFound {
+        /// Backend-generated backup identity.
+        backup_id: String,
+    },
+    /// A backup package, checksum manifest, or staged restore is damaged.
+    #[error("workspace backup is damaged: {kind}")]
+    BackupCorrupt {
+        /// Stable, non-sensitive reason category.
+        kind: String,
+    },
+    /// A non-corruption backup or restore operation failed.
+    #[error("workspace backup operation {operation} failed: {kind}")]
+    BackupUnavailable {
+        /// Stable operation name.
+        operation: String,
+        /// Coarse error category suitable for UI decisions.
+        kind: String,
+    },
+    /// A public backup request exceeded a bound or was malformed.
+    #[error("workspace backup request is invalid: {kind}")]
+    InvalidBackupRequest {
+        /// Stable validation category.
+        kind: String,
+    },
     /// A search query exceeds the public boundary or is empty.
     #[error("workspace search query is invalid: {kind}")]
     InvalidSearch {
@@ -676,6 +866,76 @@ pub trait VersionHistoryPort {
         &self,
         request: &DeleteVersionRequest,
     ) -> Result<DeleteVersionResult, WorkspaceFailure>;
+
+    /// Names or removes a retention-protected checkpoint.
+    ///
+    /// # Errors
+    ///
+    /// Returns without mutation on validation, concurrency, or integrity failure.
+    fn set_version_checkpoint(
+        &self,
+        request: &SetVersionCheckpointRequest,
+    ) -> Result<VersionHistory, WorkspaceFailure>;
+
+    /// Builds an exact, non-mutating cleanup preview.
+    ///
+    /// # Errors
+    ///
+    /// Returns a structured failure when the graph, policy, or head is invalid.
+    fn preview_version_retention(
+        &self,
+        request: &PreviewVersionRetentionRequest,
+    ) -> Result<VersionRetentionPreview, WorkspaceFailure>;
+
+    /// Applies a still-current preview in one transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns without mutation when the preview or graph changed.
+    fn apply_version_retention(
+        &self,
+        request: &ApplyVersionRetentionRequest,
+    ) -> Result<ApplyVersionRetentionResult, WorkspaceFailure>;
+}
+
+/// Complete workspace backup and crash-recoverable restore boundary.
+pub trait WorkspaceBackupPort {
+    /// Lists committed local backup packages without reading payload contents.
+    ///
+    /// # Errors
+    ///
+    /// Returns a structured package or storage failure.
+    fn list_workspace_backups(&self) -> Result<Vec<WorkspaceBackupSummary>, WorkspaceFailure>;
+
+    /// Creates and verifies one complete portable backup package.
+    ///
+    /// # Errors
+    ///
+    /// Returns without publishing a partial package.
+    fn create_workspace_backup(
+        &self,
+        request: &CreateWorkspaceBackupRequest,
+    ) -> Result<CreateWorkspaceBackupResult, WorkspaceFailure>;
+
+    /// Re-reads one package's complete checksum manifest.
+    ///
+    /// # Errors
+    ///
+    /// Returns a corruption failure without changing the package.
+    fn verify_workspace_backup(
+        &self,
+        request: &VerifyWorkspaceBackupRequest,
+    ) -> Result<VerifyWorkspaceBackupResult, WorkspaceFailure>;
+
+    /// Stages a verified restore plus a safety backup for next launch.
+    ///
+    /// # Errors
+    ///
+    /// Returns without modifying the live workspace when preparation fails.
+    fn prepare_workspace_restore(
+        &self,
+        request: &PrepareWorkspaceRestoreRequest,
+    ) -> Result<PrepareWorkspaceRestoreResult, WorkspaceFailure>;
 }
 
 /// Thin application service that keeps native adapters behind one audited port.
@@ -831,6 +1091,92 @@ where
         request: &DeleteVersionRequest,
     ) -> Result<DeleteVersionResult, WorkspaceFailure> {
         self.port.delete_version(request)
+    }
+
+    /// Names or removes one protected checkpoint.
+    ///
+    /// # Errors
+    ///
+    /// Propagates validation, concurrency, integrity, and storage failures.
+    pub fn set_version_checkpoint(
+        &self,
+        request: &SetVersionCheckpointRequest,
+    ) -> Result<VersionHistory, WorkspaceFailure> {
+        self.port.set_version_checkpoint(request)
+    }
+
+    /// Builds an exact non-mutating cleanup preview.
+    ///
+    /// # Errors
+    ///
+    /// Propagates validation, concurrency, integrity, and storage failures.
+    pub fn preview_version_retention(
+        &self,
+        request: &PreviewVersionRetentionRequest,
+    ) -> Result<VersionRetentionPreview, WorkspaceFailure> {
+        self.port.preview_version_retention(request)
+    }
+
+    /// Applies one still-current cleanup preview atomically.
+    ///
+    /// # Errors
+    ///
+    /// Propagates stale-preview, concurrency, integrity, and storage failures.
+    pub fn apply_version_retention(
+        &self,
+        request: &ApplyVersionRetentionRequest,
+    ) -> Result<ApplyVersionRetentionResult, WorkspaceFailure> {
+        self.port.apply_version_retention(request)
+    }
+}
+
+impl<P> WorkspaceApplication<P>
+where
+    P: WorkspaceBackupPort,
+{
+    /// Lists committed local backup packages.
+    ///
+    /// # Errors
+    ///
+    /// Propagates structured package and storage failures.
+    pub fn list_workspace_backups(&self) -> Result<Vec<WorkspaceBackupSummary>, WorkspaceFailure> {
+        self.port.list_workspace_backups()
+    }
+
+    /// Creates and verifies one complete workspace backup.
+    ///
+    /// # Errors
+    ///
+    /// Propagates structured validation, integrity, and storage failures.
+    pub fn create_workspace_backup(
+        &self,
+        request: &CreateWorkspaceBackupRequest,
+    ) -> Result<CreateWorkspaceBackupResult, WorkspaceFailure> {
+        self.port.create_workspace_backup(request)
+    }
+
+    /// Re-reads every file in one backup package.
+    ///
+    /// # Errors
+    ///
+    /// Propagates structured integrity and storage failures.
+    pub fn verify_workspace_backup(
+        &self,
+        request: &VerifyWorkspaceBackupRequest,
+    ) -> Result<VerifyWorkspaceBackupResult, WorkspaceFailure> {
+        self.port.verify_workspace_backup(request)
+    }
+
+    /// Stages a verified, restart-applied restore after a safety backup.
+    ///
+    /// # Errors
+    ///
+    /// Propagates structured integrity, pending-restore, and storage failures.
+    pub fn prepare_workspace_restore(
+        &self,
+        request: &PrepareWorkspaceRestoreRequest,
+    ) -> Result<PrepareWorkspaceRestoreResult, WorkspaceFailure> {
+        self.port.prepare_workspace_restore(request)
     }
 }
 

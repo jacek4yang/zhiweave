@@ -1,5 +1,6 @@
 //! Recoverable local Markdown workspace adapter.
 
+mod backup;
 mod history;
 mod identity;
 mod index;
@@ -14,16 +15,22 @@ use std::{
 use atomic_write_file::AtomicWriteFile;
 use sha2::{Digest, Sha256};
 use zhiweave_application::{
-    CheckoutVersionRequest, CreateNoteRequest, DeleteVersionRequest, DeleteVersionResult,
-    FileRevision, IndexState, IndexStatus, LineEnding, NoteDocument, ReadVersionRequest,
-    RebuildIndexResult, RenameNoteRequest, SaveNoteRequest, SaveNoteResult, SaveVersionRequest,
-    SaveVersionResult, SearchNoteResult, SearchNotesRequest, VersionContent, VersionHistory,
-    VersionHistoryPort, VersionHistoryRequest, WorkspaceFailure, WorkspacePort, WorkspaceSnapshot,
+    ApplyVersionRetentionRequest, ApplyVersionRetentionResult, CheckoutVersionRequest,
+    CreateNoteRequest, CreateWorkspaceBackupRequest, CreateWorkspaceBackupResult,
+    DeleteVersionRequest, DeleteVersionResult, FileRevision, IndexState, IndexStatus, LineEnding,
+    NoteDocument, PrepareWorkspaceRestoreRequest, PrepareWorkspaceRestoreResult,
+    PreviewVersionRetentionRequest, ReadVersionRequest, RebuildIndexResult, RenameNoteRequest,
+    SaveNoteRequest, SaveNoteResult, SaveVersionRequest, SaveVersionResult, SearchNoteResult,
+    SearchNotesRequest, SetVersionCheckpointRequest, VerifyWorkspaceBackupRequest,
+    VerifyWorkspaceBackupResult, VersionContent, VersionHistory, VersionHistoryPort,
+    VersionHistoryRequest, VersionRetentionPreview, WorkspaceBackupPort, WorkspaceBackupSummary,
+    WorkspaceFailure, WorkspacePort, WorkspaceSnapshot,
 };
 use zhiweave_domain::{NoteId, NoteKind, PortablePath};
 use zhiweave_markdown::first_level_one_heading;
 
 use crate::{
+    backup::{WorkspaceBackups, apply_pending_restore},
     history::SqliteHistory,
     identity::{IdentityManifest, prepare_metadata_directory},
     index::{INDEX_SCHEMA_VERSION, SqliteIndex},
@@ -43,6 +50,7 @@ pub struct FileWorkspace {
     identity_path: PathBuf,
     index: SqliteIndex,
     history: SqliteHistory,
+    backups: WorkspaceBackups,
 }
 
 #[derive(Clone)]
@@ -91,6 +99,7 @@ impl FileWorkspace {
     /// canonicalized.
     pub fn new(root: impl AsRef<Path>) -> Result<Self, WorkspaceFailure> {
         let requested = root.as_ref();
+        apply_pending_restore(requested)?;
         fs::create_dir_all(requested)
             .map_err(|error| io_failure("createRoot", "workspace", &error))?;
         let metadata = fs::symlink_metadata(requested)
@@ -111,12 +120,14 @@ impl FileWorkspace {
             .canonicalize()
             .map_err(|error| io_failure("canonicalizeRoot", "workspace", &error))?;
         let metadata_directory = prepare_metadata_directory(&root)?;
+        let backups = WorkspaceBackups::new(&root, &metadata_directory)?;
         Ok(Self {
             root_display: root.display().to_string(),
             root,
             identity_path: metadata_directory.join("identity.json"),
             index: SqliteIndex::new(&metadata_directory),
             history: SqliteHistory::new(&metadata_directory),
+            backups,
         })
     }
 
@@ -671,6 +682,54 @@ impl VersionHistoryPort for FileWorkspace {
         request: &DeleteVersionRequest,
     ) -> Result<DeleteVersionResult, WorkspaceFailure> {
         self.history.delete(request)
+    }
+
+    fn set_version_checkpoint(
+        &self,
+        request: &SetVersionCheckpointRequest,
+    ) -> Result<VersionHistory, WorkspaceFailure> {
+        self.history.set_checkpoint(request)
+    }
+
+    fn preview_version_retention(
+        &self,
+        request: &PreviewVersionRetentionRequest,
+    ) -> Result<VersionRetentionPreview, WorkspaceFailure> {
+        self.history.preview_retention(request)
+    }
+
+    fn apply_version_retention(
+        &self,
+        request: &ApplyVersionRetentionRequest,
+    ) -> Result<ApplyVersionRetentionResult, WorkspaceFailure> {
+        self.history.apply_retention(request)
+    }
+}
+
+impl WorkspaceBackupPort for FileWorkspace {
+    fn list_workspace_backups(&self) -> Result<Vec<WorkspaceBackupSummary>, WorkspaceFailure> {
+        self.backups.list()
+    }
+
+    fn create_workspace_backup(
+        &self,
+        request: &CreateWorkspaceBackupRequest,
+    ) -> Result<CreateWorkspaceBackupResult, WorkspaceFailure> {
+        self.backups.create(&self.history, request)
+    }
+
+    fn verify_workspace_backup(
+        &self,
+        request: &VerifyWorkspaceBackupRequest,
+    ) -> Result<VerifyWorkspaceBackupResult, WorkspaceFailure> {
+        self.backups.verify(request)
+    }
+
+    fn prepare_workspace_restore(
+        &self,
+        request: &PrepareWorkspaceRestoreRequest,
+    ) -> Result<PrepareWorkspaceRestoreResult, WorkspaceFailure> {
+        self.backups.prepare_restore(&self.history, request)
     }
 }
 

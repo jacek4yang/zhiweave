@@ -1,6 +1,6 @@
 # 开发进度
 
-最后更新：2026-07-30 04:35 CST
+最后更新：2026-07-30 05:27 CST
 
 ## 执行拓扑
 
@@ -46,36 +46,44 @@
 - application 用稳定 ID + path + revision 结构化区分外部新建、修改、删除和移动；基线最多 10,000 篇，重复 ID/路径失败关闭。
 - 状态栏新增外部更改计数；外部更改中心展示分类、前后路径和“移动时正文也变化”，可安全应用无冲突变化。
 - 未保存编辑绝不自动刷新；冲突笔记继续保留编辑缓冲。用户明确接受磁盘版本时，先把所有脏缓冲分别创建到 `recovery/`，全部成功且恢复期间未继续输入后才重载。
-- `.zhiweave/history.sqlite3` 是独立于可重建索引的正式历史库；使用独立 application ID、schema v1、WAL/FULL、foreign keys、busy timeout、`quick_check` 和 optimistic head。
+- `.zhiweave/history.sqlite3` 是独立于可重建索引的正式历史库；使用独立 application ID、schema v2、WAL/FULL、foreign keys、busy timeout、`quick_check` 和 optimistic head；v1 原位迁移已测试。
 - 正文通过 FastCDC 内容定义分块、SHA-256 内容寻址和 zstd 压缩；相同块跨版本复用，每个版本仍能脱离父节点独立校验并重建。
 - 保存相同 head 内容是 no-op；恢复前先持久保护当前编辑内容，目标版本经分块/长度/完整哈希验证后才以文件 revision 防冲突写回，再切换分支 head。
 - 精确删除旧节点时在同一事务内把直接子节点重接到旧父节点、调整 head，并只回收全局无引用块；多窗口陈旧 head 结构化冲突，不做 last-write-wins。
+- 版本节点支持 1–80 字命名检查点；右键和节点卡操作会按当前检查点状态显示“命名并保护”或“取消保护”。
+- 保留策略先精确预览再清理：固定保护 head、根、每条分支末端、检查点、最近天数和最新数量；预览令牌在 head、图或检查点变化后失效。
+- 批量清理在一个 SQLite 事务内重接保留节点、删除候选并回收全局无引用块；损坏候选在预览阶段失败关闭。
+- 完整工作区备份包包含 Markdown、附件/开放文件、identity、recovery 与一致历史快照；派生索引和已有备份不递归打包。
+- 每个备份以路径、长度和 SHA-256 清单逐文件复读校验；临时包通过后才同卷发布，备份列表可随时执行完整复核。
+- 完整恢复先校验目标并自动备份当前工作区，再构建完整 stage；下次启动在 SQLite/watcher 打开前切换目录，旧工作区保留为 previous，双 rename 中断可继续恢复。
 
 ## 当前质量证据
 
 - `pnpm typecheck`：通过。
 - `pnpm test`：5 files / 24 tests，通过。
-- `pnpm build`：通过，约 498 ms。
-- 交互实验独立 chunk：6.22 KB（gzip 2.57 KB）。
-- 主 CSS：32.57 KB（gzip 6.56 KB）。
-- 主 JavaScript：892.90 KB（gzip 298.41 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
-- Rust workspace 40 项测试通过，其中 application 4 项、Tauri 3 项、storage 22 项、portable path 5 项；fmt 和全 workspace Clippy `-D warnings` 通过。
+- `pnpm build`：通过，约 422 ms。
+- 交互实验独立 chunk：5.97 KB（gzip 2.44 KB）。
+- 主 CSS：37.65 KB（gzip 7.30 KB）。
+- 主 JavaScript：905.22 KB（gzip 301.89 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
+- Rust workspace 49 项测试通过，其中 application 4 项、Tauri 4 项、storage 30 项、portable path 5 项；fmt 和全 workspace Clippy `-D warnings` 通过。
 - `pnpm audit --prod --audit-level high`：无已知漏洞；`cargo audit --no-fetch --stale` 扫描 471 个 lockfile 依赖，无已知 vulnerability，17 项既有 allowed warning。
 - Windows 原生进程：`知织 · ZhiWeave` 正常运行；固定工作区有 6 个真实 Markdown、identity v1 的 6 个唯一 ID/路径和有效 SQLite 3 数据库。
-- Draft PR #1 已更新到 watcher/冲突中心稳定切片；持久版本切片完成最终门禁后继续推送。
+- Draft PR #1 已更新到提交 `baff323` 的持久版本切片；该提交的 GitHub CI run `30489523805` 前端与 Rust 全部通过。
 - GitHub CI run `30487216178`：watcher 跨平台修复后的 Frontend 与 Rust 全部通过。
 - CI 有一项非阻断 annotation：部分 actions 仍声明 Node 20，GitHub runner 已强制 Node 24；列为 workflow 维护项。
 - [Draft PR #1](https://github.com/jacek4yang/zhiweave/pull/1) 已创建。
 - GitHub CI：Frontend 通过（18 s），Rust 通过（3 min 7 s）。
 - Windows 原生版本验收：创建第二版本、恢复旧节点、从旧节点形成分支；重启后 3 个节点、3 个去重块和 796 B 统计保持；删除一个分支节点回收 275 B，其他节点仍可恢复。随后恢复原始 Markdown 并清空全部测试版本，最终 0 节点/0 B。
+- Windows 原生保留验收：创建 6 节点线性历史、命名“核心理解完成”检查点，以“最新 2 个/最近 0 天”生成 2 个候选和 540 B 精确预览；执行后保留根、检查点和最新节点，右键菜单同步变化。验收节点随后清空，原 Markdown 不变。
+- Windows 原生完整备份：创建并再次逐文件校验“版本与备份功能上线基线”，覆盖 8 个文件、46.1 KB 和空历史库；1280×800、390×844 均无页面级横向溢出，恢复确认取消后无 pending plan。
 
 ## 当前任务
 
-1. 完成持久版本切片的最终门禁、审计、提交、Linux 中转推送与 Draft PR/CI。
-2. 为版本历史加入保留策略预览、批量清理/检查点和完整工作区备份导出。
-3. 把当前直接事件处理器收敛到真正的 command registry，并补键盘菜单语义。
-4. 替换手写 Markdown 阅读器为共享 AST 管线。
-5. 补 watcher 高频压力、文件锁、磁盘满、只读目录和强杀恢复夹具。
+1. 完成检查点/保留/备份恢复切片的最终门禁、审计、提交、Linux 中转推送与 Draft PR/CI。
+2. 把当前直接事件处理器收敛到真正的 command registry，并补键盘菜单语义。
+3. 替换手写 Markdown 阅读器为共享 AST 管线。
+4. 补 watcher 高频压力、文件锁、磁盘满、只读目录和强杀恢复夹具。
+5. 继续附件、集合、Canvas 与跨设备加密备份/同步设计；现有本机目录备份不能冒充加密云备份。
 
 ## 未解决风险
 
@@ -86,8 +94,8 @@
 - watcher 只保证“事件后完整核对”，不保证底层平台一定投递事件；网络文件系统不在当前固定本机工作区支持范围，高频事件压力和进程休眠恢复仍需基准。
 - create 的空占位后若进程强杀可能留下空 Markdown，自动恢复日志未完成。
 - `MarkdownPreview` 仍是临时逐行解析器；仅交互 fence 已有严格边界，通用 Markdown 语义尚未统一。
-- 首屏 JS gzip 超预算 98.41 KB；CodeMirror/图标/工作台需进一步分包和测量。
-- 已有本机文件监控、单笔记 recovery 和持久版本恢复，但尚无完整工作区备份包/跨设备恢复演练或同步加密；本地 SQLite 目前未加密，不得宣称客户端密码保护已完成。
+- 首屏 JS gzip 超预算 101.89 KB；CodeMirror/图标/工作台需进一步分包和测量。
+- 已有可校验完整工作区目录包和重启前目录切换恢复，但尚无系统文件选择器导入、跨设备恢复演练、备份加密或同步加密；本地 SQLite 与备份包目前未加密，不得宣称客户端密码保护已完成。
 - Command registry、命令面板、完整树/属性/反向链接、FSRS 与深度学习 schema 尚未完成。
 - 当前垂直切片已发布到 Draft PR；根目录 `AGENTS.md` 仍是用户未跟踪文件，严禁暂存。
 

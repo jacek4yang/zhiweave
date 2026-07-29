@@ -37,6 +37,7 @@ export interface NoteSnapshot {
   readonly createdAt: string;
   readonly contentHash?: string;
   readonly message?: string;
+  readonly checkpointName?: string;
 }
 
 export interface WorkspaceState {

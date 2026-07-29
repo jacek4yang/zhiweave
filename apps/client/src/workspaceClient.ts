@@ -96,6 +96,7 @@ export interface NativeVersionNode {
   readonly contentLength: number;
   readonly createdAtMillis: number;
   readonly message: string | null;
+  readonly checkpointName: string | null;
 }
 
 export interface NativeVersionHistoryStats {
@@ -126,6 +127,54 @@ export interface NativeVersionContent {
 export interface NativeDeleteVersionResult {
   readonly history: NativeVersionHistory;
   readonly releasedBytes: number;
+}
+
+export interface NativeVersionRetentionPolicy {
+  readonly keepLatest: number;
+  readonly keepDays: number;
+}
+
+export interface NativeVersionRetentionPreview {
+  readonly noteId: string;
+  readonly expectedHead: string | null;
+  readonly policy: NativeVersionRetentionPolicy;
+  readonly cutoffAtMillis: number;
+  readonly previewToken: string;
+  readonly candidates: readonly NativeVersionNode[];
+  readonly remainingVersionCount: number;
+  readonly releasedBytes: number;
+}
+
+export interface NativeApplyVersionRetentionResult {
+  readonly history: NativeVersionHistory;
+  readonly deletedVersions: number;
+  readonly releasedBytes: number;
+}
+
+export interface NativeWorkspaceBackupSummary {
+  readonly id: string;
+  readonly label: string | null;
+  readonly createdAtMillis: number;
+  readonly fileCount: number;
+  readonly totalBytes: number;
+  readonly historyVersionCount: number;
+  readonly pathDisplay: string;
+}
+
+export interface NativeCreateWorkspaceBackupResult {
+  readonly backup: NativeWorkspaceBackupSummary;
+}
+
+export interface NativeVerifyWorkspaceBackupResult {
+  readonly backup: NativeWorkspaceBackupSummary;
+  readonly verifiedFiles: number;
+  readonly verifiedBytes: number;
+}
+
+export interface NativePrepareWorkspaceRestoreResult {
+  readonly backup: NativeWorkspaceBackupSummary;
+  readonly safetyBackup: NativeWorkspaceBackupSummary;
+  readonly restartRequired: boolean;
 }
 
 export interface NativeWorkspaceFailure {
@@ -246,6 +295,76 @@ export function deleteNativeVersion(
   return invoke<NativeDeleteVersionResult>("version_delete", {
     request: { noteId, versionId, expectedHead },
   });
+}
+
+export function setNativeVersionCheckpoint(
+  noteId: string,
+  versionId: string,
+  expectedHead: string | null,
+  checkpointName: string | null,
+): Promise<NativeVersionHistory> {
+  return invoke<NativeVersionHistory>("version_set_checkpoint", {
+    request: { noteId, versionId, expectedHead, checkpointName },
+  });
+}
+
+export function previewNativeVersionRetention(
+  noteId: string,
+  expectedHead: string | null,
+  policy: NativeVersionRetentionPolicy,
+): Promise<NativeVersionRetentionPreview> {
+  return invoke<NativeVersionRetentionPreview>("version_retention_preview", {
+    request: { noteId, expectedHead, policy },
+  });
+}
+
+export function applyNativeVersionRetention(
+  preview: NativeVersionRetentionPreview,
+): Promise<NativeApplyVersionRetentionResult> {
+  return invoke<NativeApplyVersionRetentionResult>("version_retention_apply", {
+    request: {
+      noteId: preview.noteId,
+      expectedHead: preview.expectedHead,
+      policy: preview.policy,
+      cutoffAtMillis: preview.cutoffAtMillis,
+      previewToken: preview.previewToken,
+    },
+  });
+}
+
+export function listNativeWorkspaceBackups(): Promise<
+  readonly NativeWorkspaceBackupSummary[]
+> {
+  return invoke<readonly NativeWorkspaceBackupSummary[]>(
+    "workspace_backup_list",
+  );
+}
+
+export function createNativeWorkspaceBackup(
+  label: string | null,
+): Promise<NativeCreateWorkspaceBackupResult> {
+  return invoke<NativeCreateWorkspaceBackupResult>(
+    "workspace_backup_create",
+    { request: { label } },
+  );
+}
+
+export function verifyNativeWorkspaceBackup(
+  backupId: string,
+): Promise<NativeVerifyWorkspaceBackupResult> {
+  return invoke<NativeVerifyWorkspaceBackupResult>(
+    "workspace_backup_verify",
+    { request: { backupId } },
+  );
+}
+
+export function prepareNativeWorkspaceRestore(
+  backupId: string,
+): Promise<NativePrepareWorkspaceRestoreResult> {
+  return invoke<NativePrepareWorkspaceRestoreResult>(
+    "workspace_restore_prepare",
+    { request: { backupId } },
+  );
 }
 
 export function asWorkspaceFailure(

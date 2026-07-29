@@ -10,12 +10,16 @@ use std::{
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use tauri::{Emitter, Manager, State};
 use zhiweave_application::{
-    CheckoutVersionRequest, CreateNoteRequest, DeleteVersionRequest, DeleteVersionResult,
-    DetectWorkspaceChangesRequest, NoteDocument, ReadVersionRequest, RebuildIndexResult,
-    RenameNoteRequest, SaveNoteRequest, SaveNoteResult, SaveVersionRequest, SaveVersionResult,
-    SearchNoteResult, SearchNotesRequest, SystemStatus, VersionContent, VersionHistory,
-    VersionHistoryRequest, WorkspaceApplication, WorkspaceChangesResult, WorkspaceFailure,
-    WorkspaceSnapshot,
+    ApplyVersionRetentionRequest, ApplyVersionRetentionResult, CheckoutVersionRequest,
+    CreateNoteRequest, CreateWorkspaceBackupRequest, CreateWorkspaceBackupResult,
+    DeleteVersionRequest, DeleteVersionResult, DetectWorkspaceChangesRequest, NoteDocument,
+    PrepareWorkspaceRestoreRequest, PrepareWorkspaceRestoreResult, PreviewVersionRetentionRequest,
+    ReadVersionRequest, RebuildIndexResult, RenameNoteRequest, SaveNoteRequest, SaveNoteResult,
+    SaveVersionRequest, SaveVersionResult, SearchNoteResult, SearchNotesRequest,
+    SetVersionCheckpointRequest, SystemStatus, VerifyWorkspaceBackupRequest,
+    VerifyWorkspaceBackupResult, VersionContent, VersionHistory, VersionHistoryRequest,
+    VersionRetentionPreview, WorkspaceApplication, WorkspaceBackupSummary, WorkspaceChangesResult,
+    WorkspaceFailure, WorkspaceSnapshot,
 };
 use zhiweave_domain::PortablePath;
 use zhiweave_storage::FileWorkspace;
@@ -295,10 +299,128 @@ async fn version_delete(
     .map_err(|_| WorkspaceFailure::Unavailable)?
 }
 
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri command extractors are ABI values.
+async fn version_set_checkpoint(
+    workspace: State<'_, NativeWorkspace>,
+    request: SetVersionCheckpointRequest,
+) -> Result<VersionHistory, WorkspaceFailure> {
+    let workspace = Arc::clone(workspace.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        workspace
+            .lock()
+            .map_err(|_| WorkspaceFailure::Unavailable)?
+            .set_version_checkpoint(&request)
+    })
+    .await
+    .map_err(|_| WorkspaceFailure::Unavailable)?
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri command extractors are ABI values.
+async fn version_retention_preview(
+    workspace: State<'_, NativeWorkspace>,
+    request: PreviewVersionRetentionRequest,
+) -> Result<VersionRetentionPreview, WorkspaceFailure> {
+    let workspace = Arc::clone(workspace.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        workspace
+            .lock()
+            .map_err(|_| WorkspaceFailure::Unavailable)?
+            .preview_version_retention(&request)
+    })
+    .await
+    .map_err(|_| WorkspaceFailure::Unavailable)?
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri command extractors are ABI values.
+async fn version_retention_apply(
+    workspace: State<'_, NativeWorkspace>,
+    request: ApplyVersionRetentionRequest,
+) -> Result<ApplyVersionRetentionResult, WorkspaceFailure> {
+    let workspace = Arc::clone(workspace.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        workspace
+            .lock()
+            .map_err(|_| WorkspaceFailure::Unavailable)?
+            .apply_version_retention(&request)
+    })
+    .await
+    .map_err(|_| WorkspaceFailure::Unavailable)?
+}
+
+#[tauri::command]
+async fn workspace_backup_list(
+    workspace: State<'_, NativeWorkspace>,
+) -> Result<Vec<WorkspaceBackupSummary>, WorkspaceFailure> {
+    let workspace = Arc::clone(workspace.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        workspace
+            .lock()
+            .map_err(|_| WorkspaceFailure::Unavailable)?
+            .list_workspace_backups()
+    })
+    .await
+    .map_err(|_| WorkspaceFailure::Unavailable)?
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri command extractors are ABI values.
+async fn workspace_backup_create(
+    workspace: State<'_, NativeWorkspace>,
+    request: CreateWorkspaceBackupRequest,
+) -> Result<CreateWorkspaceBackupResult, WorkspaceFailure> {
+    let workspace = Arc::clone(workspace.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        workspace
+            .lock()
+            .map_err(|_| WorkspaceFailure::Unavailable)?
+            .create_workspace_backup(&request)
+    })
+    .await
+    .map_err(|_| WorkspaceFailure::Unavailable)?
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri command extractors are ABI values.
+async fn workspace_backup_verify(
+    workspace: State<'_, NativeWorkspace>,
+    request: VerifyWorkspaceBackupRequest,
+) -> Result<VerifyWorkspaceBackupResult, WorkspaceFailure> {
+    let workspace = Arc::clone(workspace.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        workspace
+            .lock()
+            .map_err(|_| WorkspaceFailure::Unavailable)?
+            .verify_workspace_backup(&request)
+    })
+    .await
+    .map_err(|_| WorkspaceFailure::Unavailable)?
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri command extractors are ABI values.
+async fn workspace_restore_prepare(
+    workspace: State<'_, NativeWorkspace>,
+    request: PrepareWorkspaceRestoreRequest,
+) -> Result<PrepareWorkspaceRestoreResult, WorkspaceFailure> {
+    let workspace = Arc::clone(workspace.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        workspace
+            .lock()
+            .map_err(|_| WorkspaceFailure::Unavailable)?
+            .prepare_workspace_restore(&request)
+    })
+    .await
+    .map_err(|_| WorkspaceFailure::Unavailable)?
+}
+
 fn seed_empty_workspace(
     application: &WorkspaceApplication<FileWorkspace>,
+    should_seed: bool,
 ) -> Result<(), WorkspaceFailure> {
-    if !application.snapshot()?.documents.is_empty() {
+    if !should_seed || !application.snapshot()?.documents.is_empty() {
         return Ok(());
     }
 
@@ -379,8 +501,9 @@ pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             let root = app.path().app_data_dir()?.join("workspace");
+            let should_seed = !root.join(".zhiweave").join("identity.json").exists();
             let application = WorkspaceApplication::new(FileWorkspace::new(root.clone())?);
-            seed_empty_workspace(&application)?;
+            seed_empty_workspace(&application, should_seed)?;
             let watcher = NativeWorkspaceWatcher::start(&root, app.handle().clone())?;
             app.manage(Arc::new(Mutex::new(application)));
             app.manage(watcher);
@@ -399,7 +522,14 @@ pub fn run() {
             version_save,
             version_read,
             version_checkout,
-            version_delete
+            version_delete,
+            version_set_checkpoint,
+            version_retention_preview,
+            version_retention_apply,
+            workspace_backup_list,
+            workspace_backup_create,
+            workspace_backup_verify,
+            workspace_restore_prepare
         ])
         .run(tauri::generate_context!())
         .expect("ZhiWeave client failed to start");
@@ -466,7 +596,7 @@ mod tests {
     fn initial_seed_is_complete_and_never_overwrites_existing_markdown() {
         let directory = TestDirectory::new();
         let application = WorkspaceApplication::new(FileWorkspace::new(directory.path()).unwrap());
-        seed_empty_workspace(&application).unwrap();
+        seed_empty_workspace(&application, true).unwrap();
         let snapshot = application.snapshot().unwrap();
         assert_eq!(snapshot.documents.len(), 6);
         assert_eq!(snapshot.index.state, IndexState::Ready);
@@ -487,7 +617,7 @@ mod tests {
                 has_utf8_bom: welcome.has_utf8_bom,
             })
             .unwrap();
-        seed_empty_workspace(&application).unwrap();
+        seed_empty_workspace(&application, true).unwrap();
 
         let reloaded = application.snapshot().unwrap();
         assert_eq!(reloaded.documents.len(), 6);
@@ -523,6 +653,16 @@ mod tests {
                 .iter()
                 .any(|result| result.id == welcome_id)
         );
+    }
+
+    #[test]
+    fn initialized_empty_workspace_is_not_reseeded() {
+        let directory = TestDirectory::new();
+        let application = WorkspaceApplication::new(FileWorkspace::new(directory.path()).unwrap());
+
+        seed_empty_workspace(&application, false).unwrap();
+
+        assert!(application.snapshot().unwrap().documents.is_empty());
     }
 
     #[test]

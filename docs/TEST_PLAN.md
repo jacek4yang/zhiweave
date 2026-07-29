@@ -28,8 +28,8 @@
 
 ## Markdown 文件纵切证据
 
-- Rust 当前 workspace 40 项测试通过，其中 storage 22 项、portable path 5 项、
-  application 4 项、Markdown 4 项、protocol 1 项、server 1 项和 Tauri 3 项。
+- Rust 当前 workspace 49 项测试通过，其中 storage 30 项、portable path 5 项、
+  application 4 项、Markdown 4 项、protocol 1 项、server 1 项和 Tauri 4 项。
 - 原子保存：真实临时目录创建、修改、无变化保存、回读修订与 H1 标题通过。
 - 字节往返：UTF-8 BOM + CRLF 编辑后精确保留；Mixed 保存失败并要求明确规范化。
 - 冲突：读取后由外部进程改写，保存返回结构化 conflict，外部正文逐字节保留。
@@ -38,7 +38,8 @@
 - 中断：`AtomicWriteFile` 写入临时文件后不 commit 即销毁，旧 Markdown 保持可读。
 - 输入边界：绝对路径、UNC、`..`、Windows 设备名、非法字符、无效 UTF-8、16 MiB 超限被拒绝；反序列化不能绕过路径校验。
 - Windows Tauri：开发进程完成重编译并在固定应用数据工作区生成 6 个种子 Markdown，证明 setup → application service → storage adapter 链路可运行。
-- Tauri seed/restart：首次生成 6 篇；用户修改 welcome 后再次初始化不会覆盖正文。
+- Tauri seed/restart：首次生成 6 篇；用户修改 welcome 后再次初始化不会覆盖正文；已经初始化或
+  从备份恢复的空知识库保持为空，不会重新注入示例内容。
 - 浏览器：桌面重新载入后无新增 console error/warning；状态栏上下文菜单按环境分流；390×844 与 320×720 无页面水平溢出。
 
 ## SQLite、稳定身份与搜索证据
@@ -91,6 +92,24 @@
   3 个去重块和 796 B 统计保持。删除一条分支回收 275 B，其余版本仍显示和恢复。
 - 原生验证结束前恢复初始 Markdown，逐一删除测试版本；界面最终显示 0 节点、0 B，测试进程、
   本机调试端口和 WebView 连接均已关闭。
+
+## 检查点、保留与完整备份恢复证据
+
+- history schema v1→v2 迁移保留节点并可立即命名检查点；未来 schema 仍失败关闭且不降级。
+- 保留测试覆盖根/head/最新数量/分支末端/检查点固定保护、候选内容完整重建、批量重接和空间
+  回收。预览后新增检查点会使 token 失效，事务不删除任何节点。
+- 篡改候选压缩块时 retention preview 返回 `historyCorrupt`；不会把“清理”当成修复损坏库。
+- 完整备份测试真实复制 Markdown、普通附件、identity、recovery 与 `VACUUM INTO` 历史快照，
+  逐项复读长度/SHA-256，并验证历史所有节点可以重建。
+- 篡改备份 payload 后完整校验与恢复准备均失败，live workspace 与 restore plan 均不变化。
+- 完整恢复测试先创建 current safety backup，再在下次 `FileWorkspace::new` 前切换 stage；原始
+  修改后 workspace 作为唯一 previous 目录保留，恢复后的 Markdown、附件、identity 和版本一致。
+- 故障测试在“live root 已改名、stage 尚未激活”处模拟进程中断；下一次启动按外部 plan 完成
+  恢复。plan 根名/目录名不匹配时失败关闭，不使用清单中的路径逃逸固定父目录。
+- Windows 原生 UI：6 节点生成 2 候选/540 B 预览，检查点受保护；执行后保留 4 节点，最终清空
+  验收历史且 Markdown 不变。真实完整备份覆盖 8 文件/46.1 KB，再次完整校验通过。
+- 1280×800 与 390×844 版本/备份界面均无页面级水平溢出；窄屏只在版本统计条内保留受控横向
+  滚动。恢复按钮的明确确认被取消后没有生成 pending plan。
 
 尚未完成：稳定 Windows 磁盘满/只读目录故障注入、Tauri IPC 自动 E2E、watcher 高频压力/休眠恢复、
 占位/安全移动强杀恢复、长读事务、10,000 文件性能基准、100,000 条索引查询基准和 Android

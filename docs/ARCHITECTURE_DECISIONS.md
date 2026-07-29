@@ -130,7 +130,7 @@ rescan 时只能在后续事件或重启发现。网络文件系统不在当前�
 
 ## ADR-0011：版本 DAG 使用内容寻址分块，不使用父版本补丁链
 
-状态：Accepted（本地历史 v1）
+状态：Accepted（本地历史 schema v2）
 
 正式版本历史存放在固定工作区的 `.zhiweave/history.sqlite3`，与可重建的
 `index.sqlite3` 分离。它是用户数据的一部分：损坏、外来 application ID 或未来 schema
@@ -147,7 +147,7 @@ rescan 时只能在后续事件或重启发现。网络文件系统不在当前�
 同一 head 上内容哈希相同的保存是 no-op。恢复时先验证压缩块、分块 SHA-256、长度和完整内容
 SHA-256；任何不一致都拒绝把内容交给编辑器。
 
-本地历史 v1 限制单篇 Markdown 为 16 MiB、单篇最多 10,000 个版本、标题 200 字、说明
+本地历史格式限制单篇 Markdown 为 16 MiB、单篇最多 10,000 个版本、标题 200 字、说明
 200 字。SQLite 启用独立 application ID、schema version、foreign keys、WAL、
 `synchronous=FULL`、busy timeout 和 `quick_check`。后续同步层传输加密后的版本对象，但不能
 改变本地 DAG、显式冲突和校验语义。
@@ -155,3 +155,31 @@ SHA-256；任何不一致都拒绝把内容交给编辑器。
 选择完整清单 + 内容寻址分块，而不是单段前缀/后缀 delta 或父依赖补丁链，是为了把删除、
 分支、损坏隔离和恢复从“重写整条后代链”降为局部事务。代价是每个版本多一份小型清单，并
 需要在写入和读取时执行分块、压缩与哈希。
+
+schema v2 为节点增加可选命名检查点。保留策略始终保护当前 head、所有根、所有分支末端、
+命名检查点、指定天数内节点和指定数量的最新节点。清理先返回绑定 head、完整图、固定时间
+边界和精确候选集的 SHA-256 预览令牌；应用时在 `IMMEDIATE` 事务内重新计算，任何 head、
+检查点或图变化都会使旧预览失效。批量删除先把保留节点重接到最近保留祖先，再回收全局无
+引用块；候选内容损坏时预览失败，不借清理掩盖损坏。
+
+## ADR-0012：完整备份使用校验清单，恢复在下次启动前切换目录
+
+状态：Accepted（Windows 本机工作区 alpha）
+
+完整备份是 `.zhiweave/backups/<UUID>.zhiweave-backup/` 目录包。`payload/` 保存普通工作区
+文件、附件、开放集合/Canvas、identity、recovery 和一份通过 SQLite `VACUUM INTO` 得到的
+一致历史快照；可重建的 `index.sqlite3`、WAL/SHM、临时文件和已有备份不进入 payload。
+`manifest.json` 对每个 portable 相对路径记录长度和 SHA-256，并记录总字节与历史节点数。
+包只有在逐文件复读、路径集合、总量和全部历史节点重建校验通过后才从 `.pending-*` 同卷
+重命名为正式目录。符号链接、路径穿越、非常规文件、超过 100,000 个文件、单文件 4 GiB 或
+总计 64 GiB 均失败关闭。
+
+恢复不在运行中的工作区逐文件覆盖。用户选择恢复后，系统先复核目标包，再创建并校验当前
+工作区安全备份，然后在工作区同级构建完整 stage；外部原子写入 restore plan。下次启动时，
+在 `FileWorkspace`、SQLite 与 watcher 打开之前再次校验 stage，把现工作区重命名为唯一
+`previous` 目录，再把 stage 重命名为固定 workspace。plan 使进程在任一次 rename 前后中断
+时可以继续或回退；旧工作区不自动删除。恢复后的派生搜索索引从 Markdown 与 identity 重建。
+
+此设计牺牲“点击后立即热切换”，换取文件监控、SQLite 连接和 WebView 都无法观察到半恢复
+状态。当前包是本机未加密目录；它可以手动复制用于离线备份，但在客户端加密完成前必须像
+原始 Markdown 一样保护。

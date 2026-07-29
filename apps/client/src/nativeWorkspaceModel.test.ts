@@ -84,6 +84,7 @@ describe("native workspace model", () => {
           contentLength: 128,
           createdAtMillis: Date.parse("2026-07-30T01:00:00.000Z"),
           message: "恢复前保护",
+          checkpointName: "可发布基线",
         },
       ],
       stats: {
@@ -102,6 +103,7 @@ describe("native workspace model", () => {
       contentHash: "a".repeat(64),
       contentLength: 128,
       message: "恢复前保护",
+      checkpointName: "可发布基线",
       delta: { insertedText: "" },
     });
   });
