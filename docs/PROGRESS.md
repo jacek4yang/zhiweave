@@ -1,6 +1,6 @@
 # 开发进度
 
-最后更新：2026-07-30 06:03 CST
+最后更新：2026-07-30 06:46 CST
 
 ## 执行拓扑
 
@@ -64,20 +64,32 @@
   版本节点和备份节点使用独立上下文矩阵；菜单支持首项聚焦、方向键、Home/End、Esc 与焦点恢复。
 - Activity Bar、笔记列表与标签增加对应方向键/roving tab 操作；新建节点和外部更改对话框增加
   焦点陷阱、初始焦点和准确触发点恢复。
+- `markdownAst.ts` 使用标准 mdast + GFM/frontmatter/math 扩展建立 source-preserving 语义层，
+  并把 Wiki Link、嵌入与 Callout 提升为显式 ZhiWeave 节点。
+- 手写逐行 MarkdownPreview 已替换：标题/段落/引用/嵌套任务、表格、脚注、代码元数据、Wiki、
+  附件占位、Callout、行内/块数学和 frontmatter 使用语义 DOM；未知节点与异常按原始 source
+  安全降级，不丢内容。
+- 原始 HTML 只显示为转义源码，远程图片不自动加载，危险 URL 不生成链接；普通代码不执行，
+  KaTeX 按需加载并禁用 trust，声明式 `zhiweave-lab` 仍经过独立严格校验。
+- 当前节点新增“复制 Markdown 原文”和“复制结构化阅读文本”统一命令，可由命令面板及对象相关
+  右键菜单调用；代码和块公式提供精确源码复制。
+- H1 命名扫描新增 YAML/fence 排除、Setext H1、链接/Wiki 显示名处理，避免把元数据或代码里的
+  `#` 错当成知识节点名。
 
 ## 当前质量证据
 
 - `pnpm typecheck`：通过。
-- `pnpm test`：6 files / 30 tests，通过。
-- `pnpm build`：通过，约 440 ms。
-- 交互实验独立 chunk：5.97 KB（gzip 2.44 KB）。
-- 主 CSS：40.91 KB（gzip 7.82 KB）。
-- 主 JavaScript：925.06 KB（gzip 308.21 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
+- `pnpm test`：7 files / 35 tests，通过。
+- `pnpm build`：通过，最近一次约 500 ms。
+- 交互实验独立 chunk：5.99 KB（gzip 2.46 KB）。
+- Markdown 阅读器 / AST 独立 chunk：11.36 / 92.42 KB（gzip 4.00 / 26.21 KB）。
+- KaTeX 独立 chunk：259.54 KB（gzip 77.66 KB），只在公式出现时加载。
+- 主 CSS：48.42 KB（gzip 9.21 KB）。
+- 主 JavaScript：916.80 KB（gzip 305.34 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
 - Rust workspace 49 项测试通过，其中 application 4 项、Tauri 4 项、storage 30 项、portable path 5 项；fmt 和全 workspace Clippy `-D warnings` 通过。
 - `pnpm audit --prod --audit-level high`：无已知漏洞；`cargo audit --no-fetch --stale` 扫描 471 个 lockfile 依赖，无已知 vulnerability，17 项既有 allowed warning。
 - Windows 原生进程：`知织 · ZhiWeave` 正常运行；固定工作区有 6 个真实 Markdown、identity v1 的 6 个唯一 ID/路径和有效 SQLite 3 数据库。
-- Draft PR #1 已更新到统一命令系统提交 `12627b9`；GitHub CI run `30494931475` 的 Frontend 与
-  Rust 全部通过。
+- 当前已推送基线为 `5251e39`；GitHub CI run `30495257993` 的 Frontend 与 Rust 全部通过。
 - GitHub CI run `30487216178`：watcher 跨平台修复后的 Frontend 与 Rust 全部通过。
 - CI 有一项非阻断 annotation：部分 actions 仍声明 Node 20，GitHub runner 已强制 Node 24；列为 workflow 维护项。
 - [Draft PR #1](https://github.com/jacek4yang/zhiweave/pull/1) 已创建。
@@ -91,13 +103,22 @@
 - 命令系统 Windows 原生验收：原生命令面板正确增加完整备份、重建索引、路径复制和重命名；
   `Ctrl+P`、`Ctrl+Shift+P`、节点菜单方向键/Esc 与焦点恢复通过，无 console error/warning；
   全程未修改 Markdown、版本或备份。
+- Markdown AST 浏览器验收：复杂文档完整显示 YAML、H1、跨行段落、强调/删除、Wiki、Callout、
+  嵌套任务、表格、代码、公式、脚注、附件/嵌入占位和转义 HTML；代码/公式/Markdown/结构化
+  文本复制正确。DOM 中无 script、事件属性、iframe 或活动图片，console 无 warning/error。
+- Markdown AST 响应式验收：1280×720 与 390×844 均无页面或正文水平溢出；宽表格和长 HTML
+  源码只在自身容器滚动，窄屏右键菜单完全位于视口内。
+- Windows 原生只读验收：真实 welcome Markdown 进入新阅读器，H1 与正文完整；命令面板和预览
+  右键菜单均显示两类复制命令，无页面/正文溢出且未修改 Markdown、版本或备份。
 
 ## 当前任务
 
-1. 替换手写 Markdown 阅读器为共享 AST 管线。
-2. 增加快捷键编辑器，并为预览标签、移动触控入口和剩余复杂面板接入 command registry。
-3. 补 watcher 高频压力、文件锁、磁盘满、只读目录和强杀恢复夹具。
-4. 继续附件、集合、Canvas 与跨设备加密备份/同步设计；现有本机目录备份不能冒充加密云备份。
+1. 建立 Lezer/mdast 节点/范围适配并实现不跳光标的 Typora 式 Live Preview Decoration。
+2. 扩展 Markdown Corpus、2 MiB/深层/恶意输入基准，再接入大纲、Wiki 目标、反向链接、附件和
+   版本语义 diff。
+3. 增加快捷键编辑器、预览标签和移动触控入口。
+4. 补 watcher 高频压力、文件锁、磁盘满、只读目录和强杀恢复夹具。
+5. 继续集合、Canvas 与跨设备加密备份/同步设计；现有本机目录备份不能冒充加密云备份。
 
 ## 未解决风险
 
@@ -107,8 +128,10 @@
 - 外部“改名同时改正文”无法仅凭 revision 自动识别为同一节点；应用内显式重命名可以稳定保持身份。
 - watcher 只保证“事件后完整核对”，不保证底层平台一定投递事件；网络文件系统不在当前固定本机工作区支持范围，高频事件压力和进程休眠恢复仍需基准。
 - create 的空占位后若进程强杀可能留下空 Markdown，自动恢复日志未完成。
-- `MarkdownPreview` 仍是临时逐行解析器；仅交互 fence 已有严格边界，通用 Markdown 语义尚未统一。
-- 首屏 JS gzip 超预算 108.21 KB；CodeMirror/图标/工作台和命令面板需进一步分包和测量。
+- 通用阅读器已使用共享 mdast，但输入期 Lezer 与跨功能 AST 的范围契约、Live Preview、大纲/
+  搜索/反向链接/导出/版本差异尚未统一完成。
+- 首屏 JS gzip 超预算 105.34 KB；CodeMirror/图标/工作台和命令面板需进一步分包和测量。
+- KaTeX 虽按需加载，但构建仍携带上游 WOFF2/WOFF/TTF 多格式字体，安装包资产需要收敛。
 - 已有可校验完整工作区目录包和重启前目录切换恢复，但尚无系统文件选择器导入、跨设备恢复演练、备份加密或同步加密；本地 SQLite 与备份包目前未加密，不得宣称客户端密码保护已完成。
 - Command registry/命令面板第一纵切已完成，但快捷键编辑器、完整树/属性/反向链接、FSRS 与深度学习 schema 尚未完成。
 - 当前垂直切片已发布到 Draft PR；根目录 `AGENTS.md` 仍是用户未跟踪文件，严禁暂存。

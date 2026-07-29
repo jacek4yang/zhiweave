@@ -121,6 +121,15 @@ describe("command registry", () => {
     expect(
       editorCommands.find((command) => command.id === "edit.redo")?.enabled,
     ).toBe(false);
+    expect(
+      editorCommands
+        .filter((command) => command.id.startsWith("note.copy"))
+        .map((command) => command.id),
+    ).toEqual([
+      "note.copyMarkdown",
+      "note.copyPlainText",
+      "note.copyLearningPrompt",
+    ]);
   });
 
   it("searches Chinese and aliases while preserving the registry order", () => {

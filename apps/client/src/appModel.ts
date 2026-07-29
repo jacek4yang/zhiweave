@@ -285,20 +285,73 @@ export function titleFromMarkdown(
   markdown: string,
   fallback: string,
 ): string {
-  for (const line of markdown.replaceAll("\r\n", "\n").split("\n")) {
-    const heading = /^#(?!#)\s+(.+?)\s*#*\s*$/.exec(line);
-    if (heading === null) {
+  const lines = markdown.replaceAll(/\r\n?/g, "\n").split("\n");
+  let frontmatter =
+    lines[0]?.trim() === "---" &&
+    lines
+      .slice(1)
+      .some((line) => /^(?:---|\.\.\.)[ \t]*$/.test(line));
+  let fence: { readonly marker: "`" | "~"; readonly size: number } | null =
+    null;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (frontmatter) {
+      if (index > 0 && /^(?:---|\.\.\.)[ \t]*$/.test(line)) {
+        frontmatter = false;
+      }
       continue;
     }
-    const title = (heading[1] ?? "")
-      .replaceAll(/[*_`~]/g, "")
-      .trim()
-      .slice(0, 200);
+
+    const fenceMarker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence !== null) {
+      if (
+        fenceMarker?.[0] === fence.marker &&
+        fenceMarker.length >= fence.size &&
+        new RegExp(`^ {0,3}\\${fence.marker}{${fence.size},}[ \\t]*$`).test(
+          line,
+        )
+      ) {
+        fence = null;
+      }
+      continue;
+    }
+    if (fenceMarker !== undefined) {
+      fence = {
+        marker: fenceMarker[0] as "`" | "~",
+        size: fenceMarker.length,
+      };
+      continue;
+    }
+
+    const atxHeading = /^ {0,3}#(?:[ \t]+|$)(.*?)(?:[ \t]+#+[ \t]*)?$/.exec(
+      line,
+    );
+    const setextHeading =
+      line.trim().length > 0 &&
+      /^ {0,3}=+[ \t]*$/.test(lines[index + 1] ?? "")
+        ? line
+        : null;
+    const title = markdownHeadingText(atxHeading?.[1] ?? setextHeading ?? "");
     if (title.length > 0) {
       return title;
     }
   }
   return fallback;
+}
+
+function markdownHeadingText(source: string): string {
+  return source
+    .replaceAll(/!\[([^\]]*)\]\([^)\r\n]*\)/g, "$1")
+    .replaceAll(/\[([^\]]+)\]\([^)\r\n]*\)/g, "$1")
+    .replaceAll(/!?\[\[([^\]|\r\n]+)\|([^\]\r\n]+)\]\]/g, "$2")
+    .replaceAll(/!?\[\[([^\]\r\n]+)\]\]/g, "$1")
+    .replaceAll(/<[^>\r\n]+>/g, "")
+    .replaceAll(/\\([\\`*_[\]{}()#+\-.!~>])/g, "$1")
+    .replaceAll(/[*_`~]/g, "")
+    .replaceAll(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
 }
 
 export function createBlankNote(

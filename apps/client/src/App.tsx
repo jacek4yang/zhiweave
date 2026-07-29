@@ -1,5 +1,7 @@
 import {
   Fragment,
+  lazy,
+  Suspense,
   useEffect,
   useMemo,
   useRef,
@@ -79,7 +81,6 @@ import {
   type EditorStatus,
   type MarkdownEditorHandle,
 } from "./MarkdownEditor";
-import { MarkdownPreview } from "./MarkdownPreview";
 import { createUuidLabMarkdown } from "./embeddedLabModel";
 import {
   folderForView,
@@ -126,6 +127,11 @@ import {
   type NativeWorkspaceChangesResult,
   verifyNativeWorkspaceBackup,
 } from "./workspaceClient";
+
+const MarkdownPreview = lazy(async () => {
+  const module = await import("./MarkdownPreview");
+  return { default: module.MarkdownPreview };
+});
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
@@ -1275,6 +1281,30 @@ export function App() {
     }
   }
 
+  async function copyNoteContent(
+    note: LearningNote,
+    format: "markdown" | "plainText",
+  ) {
+    try {
+      const text =
+        format === "markdown"
+          ? note.markdown
+          : await import("./markdownAst").then((markdownAst) =>
+              markdownAst.plainTextFromMarkdown(
+                markdownAst.parseMarkdownDocument(note.markdown),
+              ),
+            );
+      await copyText(text);
+      setToast(
+        format === "markdown"
+          ? `已复制“${note.title}”的 Markdown 原文。`
+          : `已复制“${note.title}”的结构化阅读文本。`,
+      );
+    } catch {
+      setToast("复制失败，请检查 Markdown 内容与系统剪贴板权限。");
+    }
+  }
+
   async function renameNoteFile(note: LearningNote) {
     if (
       !nativeRuntime ||
@@ -2225,6 +2255,16 @@ export function App() {
           void copyNoteTitle(note);
         }
         return;
+      case "note.copyMarkdown":
+        if (note !== undefined) {
+          void copyNoteContent(note, "markdown");
+        }
+        return;
+      case "note.copyPlainText":
+        if (note !== undefined) {
+          void copyNoteContent(note, "plainText");
+        }
+        return;
       case "note.rename":
         if (note !== undefined) {
           void renameNoteFile(note);
@@ -3061,7 +3101,9 @@ export function App() {
               onCreate={() => runCommand("workspace.createNote")}
             />
           ) : editorMode === "preview" ? (
-            <MarkdownPreview markdown={selectedNote.markdown} />
+            <Suspense fallback={<MarkdownPreviewLoading />}>
+              <MarkdownPreview markdown={selectedNote.markdown} />
+            </Suspense>
           ) : editorMode === "split" ? (
             <div className="editor-split">
               <MarkdownEditor
@@ -3071,7 +3113,9 @@ export function App() {
                 ref={editorRef}
                 value={selectedNote.markdown}
               />
-              <MarkdownPreview markdown={selectedNote.markdown} />
+              <Suspense fallback={<MarkdownPreviewLoading />}>
+                <MarkdownPreview markdown={selectedNote.markdown} />
+              </Suspense>
             </div>
           ) : (
             <MarkdownEditor
@@ -3870,6 +3914,14 @@ function VersionHistory({
   );
 }
 
+function MarkdownPreviewLoading() {
+  return (
+    <div className="markdown-preview-loading" role="status">
+      正在解析 Markdown 结构…
+    </div>
+  );
+}
+
 function EmptyWorkspace({ onCreate }: { readonly onCreate: () => void }) {
   return (
     <section className="empty-state">
@@ -4207,6 +4259,10 @@ function contextCommandTitle(
       return note === undefined ? command.title : `打开“${note.title}”`;
     case "note.copyLearningPrompt":
       return "复制学习提示词";
+    case "note.copyMarkdown":
+      return "复制 Markdown 原文";
+    case "note.copyPlainText":
+      return "复制结构化阅读文本";
     case "note.showVersions":
       return "查看版本分支图";
     case "version.save":
@@ -4241,6 +4297,8 @@ function commandIcon(id: CommandId) {
     case "backup.verify":
       return Archive;
     case "edit.copy":
+    case "note.copyMarkdown":
+    case "note.copyPlainText":
     case "note.copyTitle":
     case "version.copyMarkdown":
     case "workspace.copyRoot":

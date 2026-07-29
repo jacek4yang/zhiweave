@@ -23,6 +23,10 @@ UTF-8 Markdown source
 
 编辑器和阅读器必须共享语义，不允许继续维护独立的手写逐行正则预览器。
 
+当前第一纵切已经实现 source-preserving mdast 语义层，并让安全阅读视图、结构化复制、H1/
+Setext H1 标题识别和大纲提取使用明确适配器。CodeMirror 的 Lezer 树仍负责输入期增量解析；
+Live Preview Decoration、搜索、反向链接、版本差异和导出尚未全部接入这层 AST。
+
 ## 往返规则
 
 - 未编辑字节不因打开、预览或索引而改变。
@@ -41,6 +45,20 @@ UTF-8 Markdown source
 - `zhiweave-lab` fence 只允许版本化声明式 JSON，并由内置组件注册表解释；详见 [Markdown 内嵌交互实验](./EMBEDDED_LABS.md)。
 - 未知、超限或校验失败的交互块必须显示原始 fenced block，不得猜测或下载执行器。
 
+当前安全阅读器的执行规则：
+
+| 语法 | 当前行为 |
+| --- | --- |
+| 标题、段落、强调、删除线、任务/嵌套列表、引用、表格、脚注 | 语义 HTML 渲染 |
+| YAML frontmatter | 默认折叠的只读源码面板 |
+| Wiki Link / 嵌入 / 图片 | 显示可识别占位；尚未解析工作区目标或主动加载资源 |
+| 普通链接 | 仅 `http`、`https`、`mailto` 可点击，并使用新窗口与 `noopener noreferrer` |
+| fenced code | 显示语言、title、高亮行元数据和精确源码复制；不执行 |
+| 行内/块数学 | 按需加载 KaTeX，`trust=false`；可复制块公式源码 |
+| 原始 HTML | 作为转义后的不可信源码显示，事件、脚本、iframe 和图片均不进入 DOM |
+| `zhiweave-lab` | 仅已登记、严格校验的声明式内置实验可以运行 |
+| 未知节点/解析异常 | 按原始 source 范围或整篇 source 转义降级，不吞内容 |
+
 ## Corpus
 
 Corpus 至少覆盖 CommonMark 官方示例、GFM、深层列表、表格、脚注、frontmatter、Wiki Link、混合中英文、Emoji、RTL、大代码块、错误 fence、恶意 HTML/SVG/URL 和截断输入。
@@ -55,4 +73,10 @@ Corpus 至少覆盖 CommonMark 官方示例、GFM、深层列表、表格、脚�
 
 ## 当前差距
 
-`MarkdownPreview.tsx` 仍使用逐行解析，只覆盖少量标题、列表、引用、任务、代码块和三类行内语法，必须在阶段 3 替换为统一 AST 管线。2026-07-30 已先修复 fence info string 的保留，并完成严格隔离的 `zhiweave-lab` 垂直切片；这不等于通用 Markdown 管线已经完成。
+逐行正则阅读器已移除，但统一管线仍只完成第一纵切：
+
+- Live Preview Decoration 尚未接入 mdast/Lezer 语义适配；
+- Wiki/附件仍是安全占位，未连接稳定 ID、反向链接和附件解析器；
+- Mermaid、Graphviz、导出、版本语义 diff、Corpus snapshot/fuzz 和 2 MiB 基准尚未完成；
+- 远程图片默认不加载；后续必须经过工作区资源策略与隐私提示，不能直接恢复任意 `src`；
+- 数学和解析器已按需分包，但 KaTeX 字体资产与首屏主包仍需优化。

@@ -222,6 +222,25 @@ describe("workspace model", () => {
         "旧名称",
       ),
     ).toBe("新的节点名称");
+    expect(
+      titleFromMarkdown(
+        `---
+title: 元数据标题
+---
+
+\`\`\`markdown
+# 代码块里的伪标题
+\`\`\`
+
+[真实节点](https://example.invalid)
+===================================
+`,
+        "旧名称",
+      ),
+    ).toBe("真实节点");
+    expect(
+      titleFromMarkdown("---\n# 未闭合分隔线后的标题\n", "旧名称"),
+    ).toBe("未闭合分隔线后的标题");
     expect(titleFromMarkdown("## 只有二级标题", "保留名称")).toBe("保留名称");
   });
 

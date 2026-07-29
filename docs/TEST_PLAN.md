@@ -18,9 +18,9 @@
 - `pnpm install --frozen-lockfile`：通过，142 个 lockfile 条目通过供应链策略。
 - `pnpm typecheck`：通过。
 - `pnpm lint`：通过（当前等同 TypeScript noEmit，需加入真实 ESLint）。
-- `pnpm test`：通过，6 files / 30 tests；除原有版本/分支、日记/H1、持久版本 DTO、种子、
+- `pnpm test`：通过，7 files / 35 tests；除原有版本/分支、日记/H1、持久版本 DTO、种子、
   交互实验和保存状态用例外，新增 command id/快捷键唯一性、IME 防误触、上下文矩阵、原生能力
-  隔离、禁用条件和中文/别名检索回归测试。
+  隔离、禁用条件、中文/别名检索，以及共享 Markdown AST/安全渲染回归测试。
 - `pnpm build`：通过，主 chunk 有 >500 KB 警告。
 - `pnpm audit --prod --audit-level high`：无已知漏洞。
 - 浏览器：搜索、阅读/编辑、分栏、标签、刷新恢复、复制保真、上下文菜单分流、输入粘贴、编辑撤销、UUID 生成/校验/提示词通过；命令面板中文筛选、方向键、Enter、Esc、焦点恢复和 390×844/1280×800 布局通过。
@@ -115,6 +115,23 @@
 - Windows 原生命令面板只在 Tauri 能力存在时展示工作区备份、索引重建、路径复制和 Markdown
   重命名；`Ctrl+P`、`Ctrl+Shift+P`、节点右键方向键/Esc 与焦点恢复通过。该轮只读验收未创建
   版本、备份或修改 Markdown，1280×800 无页面级溢出且无 console error/warning。
+
+## 共享 Markdown AST 与安全阅读证据
+
+- AST 单元覆盖 YAML frontmatter、GFM 任务/深层列表/表格、脚注、代码 metadata、Wiki Link/
+  嵌入、Callout、行内/块数学、原始 source 保留和结构化纯文本。
+- H1 命名单元覆盖 frontmatter、fenced code 中的伪标题、ATX/Setext H1 和链接显示名。
+- 安全渲染单元确认 `javascript:` 不生成 href、远程图片不生成 src、原始 HTML 被转义且提示
+  未执行；未知 fence metadata 原样保留。
+- 真实浏览器复杂文档完整显示 40 行/658 字符，没有脚本、事件属性、iframe 或活动图片；
+  code/LaTeX/Markdown 原文/结构化阅读文本四类剪贴板结果均核对。
+- 1280×720 与 390×844 的 document/article 水平溢出均为 0；表格/长原始 HTML 只在自己的
+  容器滚动，窄屏右键菜单边界为 138–386 px，完整位于 390 px 视口内。
+- Windows 原生 welcome Markdown 只读验收确认 H1、4 个正文段落、任务列表、两类复制命令和
+  能力矩阵；未修改 Markdown、版本或备份，原生进程与 9335 调试端口均关闭。
+
+尚未完成的 Markdown 测试：CommonMark 官方全集快照、round-trip 属性/模糊测试、2 MiB 输入与
+10,000 行代码块基准、IME + Live Preview Decoration、真实附件/Wiki 目标、Mermaid 和导出。
 
 尚未完成：稳定 Windows 磁盘满/只读目录故障注入、Tauri IPC 自动 E2E、watcher 高频压力/休眠恢复、
 占位/安全移动强杀恢复、长读事务、10,000 文件性能基准、100,000 条索引查询基准和 Android

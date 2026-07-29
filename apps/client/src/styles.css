@@ -761,20 +761,51 @@ button:disabled {
   container-type: inline-size;
   width: 100%;
   height: 100%;
-  max-width: 980px;
-  margin: 0 auto;
-  padding: 34px clamp(30px, 7vw, 110px) 90px;
+  padding: 34px clamp(24px, 6vw, 96px) 90px;
   overflow-y: auto;
   color: var(--ink);
   font:
     16px/1.82 "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei",
     sans-serif;
+  overflow-wrap: anywhere;
+  scrollbar-color: #444a73 transparent;
+}
+
+.markdown-preview-document {
+  width: min(100%, 880px);
+  margin: 0 auto;
+}
+
+.markdown-preview-loading {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-height: 160px;
+  place-items: center;
+  color: var(--muted);
+  background:
+    linear-gradient(
+      90deg,
+      transparent,
+      rgb(130 170 255 / 5%),
+      transparent
+    );
+  font: 12px/1.5 "Cascadia Code", Consolas, monospace;
+}
+
+.markdown-preview ::selection {
+  color: #f6f8ff;
+  background: #43567f;
 }
 
 .markdown-preview h1,
 .markdown-preview h2,
-.markdown-preview h3 {
+.markdown-preview h3,
+.markdown-preview h4,
+.markdown-preview h5,
+.markdown-preview h6 {
   line-height: 1.35;
+  text-wrap: balance;
 }
 
 .markdown-preview h1 {
@@ -795,8 +826,22 @@ button:disabled {
   font-size: 17px;
 }
 
+.markdown-preview h4 {
+  margin: 21px 0 7px;
+  color: var(--syntax-teal);
+  font-size: 16px;
+}
+
+.markdown-preview h5,
+.markdown-preview h6 {
+  margin: 18px 0 6px;
+  color: var(--syntax-yellow);
+  font-size: 15px;
+}
+
 .markdown-preview p {
-  margin: 8px 0;
+  margin: 10px 0;
+  white-space: pre-wrap;
 }
 
 .markdown-preview code {
@@ -808,11 +853,13 @@ button:disabled {
 }
 
 .markdown-preview pre {
+  margin: 0;
   padding: 16px;
   overflow-x: auto;
-  border: 1px solid var(--line);
-  border-radius: 5px;
   background: #191b29;
+  tab-size: 4;
+  white-space: pre;
+  overflow-wrap: normal;
 }
 
 .markdown-preview pre code {
@@ -827,39 +874,457 @@ button:disabled {
   border-left: 2px solid var(--accent);
 }
 
+.markdown-preview blockquote > :first-child {
+  margin-top: 0;
+}
+
+.markdown-preview blockquote > :last-child {
+  margin-bottom: 0;
+}
+
 .markdown-preview a {
   color: var(--syntax-teal);
+  text-decoration-color: rgb(158 206 106 / 45%);
+  text-underline-offset: 0.18em;
+}
+
+.markdown-preview a:hover {
+  color: #b7f7b0;
+  text-decoration-color: currentColor;
+}
+
+.preview-list {
+  margin: 10px 0;
+  padding-left: 1.65em;
+}
+
+.preview-list .preview-list {
+  margin: 4px 0;
+}
+
+.preview-list > li {
+  padding-left: 0.2em;
+}
+
+.preview-list > li::marker {
+  color: var(--syntax-orange);
+  font-weight: 700;
 }
 
 .preview-task {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 5px 0;
+  align-items: flex-start;
+  gap: 9px;
+  list-style: none;
+}
+
+.preview-task::before {
+  display: none;
 }
 
 .preview-task input {
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  margin: 0.48em 0 0 -1.45em;
   accent-color: var(--accent);
 }
 
-.preview-list {
-  padding-left: 7px;
+.preview-list-content {
+  min-width: 0;
+  flex: 1;
 }
 
-.preview-list.ordered {
-  counter-increment: preview-step;
+.preview-list-content > p:first-child {
+  margin-top: 0;
 }
 
-.preview-list.ordered::before {
-  content: counter(preview-step) ". ";
-  color: var(--syntax-orange);
-  font-weight: 650;
+.preview-list-content > p:last-child {
+  margin-bottom: 0;
 }
 
-.preview-space {
-  height: 7px;
+.preview-table-scroll {
+  margin: 20px 0;
+  overflow-x: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  outline: none;
+  scrollbar-color: #444a73 transparent;
+}
+
+.preview-table-scroll:focus-visible {
+  box-shadow: 0 0 0 2px rgb(130 170 255 / 36%);
+}
+
+.markdown-preview table {
+  width: 100%;
+  min-width: 420px;
+  border-collapse: collapse;
+  background: rgb(25 27 41 / 52%);
+}
+
+.markdown-preview th,
+.markdown-preview td {
+  padding: 9px 12px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.markdown-preview th:last-child,
+.markdown-preview td:last-child {
+  border-right: 0;
+}
+
+.markdown-preview tr:last-child td {
+  border-bottom: 0;
+}
+
+.markdown-preview th {
+  color: var(--syntax-violet);
+  background: #25283b;
+  font-weight: 700;
+}
+
+.preview-code-block {
+  margin: 20px 0;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: #191b29;
+}
+
+.preview-code-block figcaption {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 6px 5px 13px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  background: #25283b;
+  font: 10px/1.4 "Cascadia Code", Consolas, monospace;
+}
+
+.preview-code-block figcaption > span {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.preview-code-block figcaption strong {
+  overflow: hidden;
+  color: var(--syntax-cyan);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview-code-block button {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+}
+
+.preview-code-block button:hover,
+.preview-code-block button:focus-visible {
+  color: var(--ink);
+  border-color: var(--line-strong);
+  background: rgb(130 170 255 / 8%);
+}
+
+.preview-code-block button svg {
+  width: 13px;
+  height: 13px;
+}
+
+.preview-code-meta {
+  padding: 5px 13px;
+  overflow: hidden;
+  color: var(--syntax-comment);
+  border-top: 1px solid var(--line);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 9px/1.4 "Cascadia Code", Consolas, monospace;
+}
+
+.preview-frontmatter {
+  margin: 0 0 24px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgb(25 27 41 / 48%);
+}
+
+.preview-frontmatter summary {
+  padding: 8px 11px;
+  cursor: pointer;
+  color: var(--syntax-comment);
+  font: 10px/1.5 "Cascadia Code", Consolas, monospace;
+}
+
+.preview-frontmatter pre {
+  border-top: 1px solid var(--line);
+}
+
+.preview-callout {
+  --callout-color: var(--syntax-blue);
+  display: block;
+  margin: 19px 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--callout-color) 34%, transparent);
+  border-left: 3px solid var(--callout-color);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--callout-color) 7%, #1e2030);
+}
+
+.preview-callout.is-tip,
+.preview-callout.is-success {
+  --callout-color: var(--syntax-green);
+}
+
+.preview-callout.is-warning,
+.preview-callout.is-caution {
+  --callout-color: var(--syntax-orange);
+}
+
+.preview-callout.is-failure,
+.preview-callout.is-bug {
+  --callout-color: var(--danger);
+}
+
+.preview-callout.is-question,
+.preview-callout.is-example {
+  --callout-color: var(--syntax-violet);
+}
+
+.preview-callout.is-quote {
+  --callout-color: var(--syntax-comment);
+}
+
+.preview-callout-title {
+  padding: 9px 12px;
+  cursor: default;
+  color: var(--callout-color);
+  font-weight: 750;
+}
+
+details.preview-callout > .preview-callout-title {
+  cursor: pointer;
+}
+
+.preview-callout-content {
+  padding: 0 12px 10px;
+}
+
+.preview-callout-content > :first-child {
+  margin-top: 0;
+}
+
+.preview-callout-content > :last-child {
+  margin-bottom: 0;
+}
+
+.preview-wiki-link,
+.preview-wiki-embed,
+.preview-image-placeholder {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 4px;
+  padding: 0.05em 0.3em;
+  border-radius: 4px;
+  vertical-align: baseline;
+}
+
+.preview-wiki-link {
+  color: var(--syntax-teal);
+  background: rgb(158 206 106 / 8%);
+}
+
+.preview-wiki-embed {
+  color: var(--syntax-violet);
+  background: rgb(187 154 247 / 9%);
+}
+
+.preview-wiki-link svg,
+.preview-wiki-embed svg,
+.preview-image-placeholder svg {
+  width: 0.92em;
+  height: 0.92em;
+  flex: 0 0 auto;
+}
+
+.preview-image-placeholder {
+  margin: 0 0.12em;
+  color: var(--syntax-blue);
+  border: 1px dashed rgb(130 170 255 / 32%);
+  background: rgb(130 170 255 / 6%);
+}
+
+.preview-image-placeholder small {
+  overflow: hidden;
+  max-width: 240px;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.72em;
+}
+
+.preview-blocked-link,
+.preview-broken-link {
+  color: var(--syntax-warm);
+  text-decoration: underline dotted;
+  text-underline-offset: 0.18em;
+}
+
+.preview-raw-html {
+  margin: 19px 0;
+  overflow: hidden;
+  border: 1px solid rgb(255 117 127 / 28%);
+  border-radius: 6px;
+  background: rgb(255 117 127 / 4%);
+}
+
+.preview-parse-fallback {
+  margin: 20px 0;
+  padding: 14px;
+  color: var(--syntax-warm);
+  border: 1px solid rgb(255 117 127 / 35%);
+  border-radius: 7px;
+  background: rgb(255 117 127 / 5%);
+}
+
+.preview-parse-fallback p {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.preview-security-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 11px;
+  color: var(--syntax-warm);
+  border-bottom: 1px solid rgb(255 117 127 / 18%);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.preview-security-label svg {
+  width: 15px;
+  height: 15px;
+}
+
+.preview-unknown {
+  margin: 16px 0;
+  color: var(--syntax-comment);
+  border: 1px dashed var(--line-strong);
+  border-radius: 6px;
+}
+
+.preview-footnotes {
+  margin-top: 38px;
+  padding-top: 16px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.preview-footnotes h2 {
+  margin-top: 0;
+  color: var(--syntax-comment);
+  font-size: 15px;
+}
+
+.preview-footnotes ol {
+  padding-left: 1.7em;
+}
+
+.preview-footnote-reference {
+  margin: 0 0.08em;
+  font: 0.68em/1 "Cascadia Code", Consolas, monospace;
+}
+
+.preview-math-inline {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0 0.14em;
+  overflow-x: auto;
+  vertical-align: -0.15em;
+  scrollbar-width: thin;
+}
+
+.preview-math-figure {
+  margin: 18px 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: rgb(25 27 41 / 58%);
+}
+
+.preview-math-figure figcaption {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 6px 4px 12px;
+  color: var(--syntax-violet);
+  border-bottom: 1px solid var(--line);
+  background: #25283b;
+  font: 10px/1.4 "Cascadia Code", Consolas, monospace;
+}
+
+.preview-math-figure button {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  color: var(--muted);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+}
+
+.preview-math-figure button:hover,
+.preview-math-figure button:focus-visible {
+  color: var(--ink);
+  border-color: var(--line-strong);
+  background: rgb(130 170 255 / 8%);
+}
+
+.preview-math-figure button svg {
+  width: 13px;
+  height: 13px;
+}
+
+.preview-math-block {
+  display: block;
+  max-width: 100%;
+  margin: 0;
+  padding: 13px 16px;
+  overflow-x: auto;
+  color: var(--ink);
+  text-align: center;
+  scrollbar-width: thin;
+}
+
+.preview-math-source.is-block {
+  display: block;
+  margin: 18px 0;
+  padding: 13px 16px;
+  overflow-x: auto;
 }
 
 .embedded-lab,
@@ -1278,6 +1743,21 @@ button:disabled {
 }
 
 @container markdown-preview (max-width: 650px) {
+  .preview-code-block button,
+  .preview-math-figure button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .preview-code-block figcaption,
+  .preview-math-figure figcaption {
+    min-height: 48px;
+  }
+
+  .preview-image-placeholder small {
+    display: none;
+  }
+
   .lab-trust {
     display: none;
   }

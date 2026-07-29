@@ -27,7 +27,7 @@
 - [x] `zhiweave-lab` v1 fence、严格 schema、输入上限与失败原文降级。
 - [x] UUID v4/v7 结构实验、128 位视图、复制与安全 AI 生成提示词。
 - [ ] 算法步进/状态流程组件；每个 kind 单独权限、schema、测试与包体预算。
-- [ ] 与统一 Markdown AST、导出、同步、版本差异和移动端无障碍集成。
+- [进行中] 已接入统一 Markdown AST 阅读器；导出、同步、版本差异和移动端无障碍待完成。
 
 ## 阶段 2：真实本地数据
 
@@ -42,7 +42,13 @@ Workspace 打开 → Markdown 列表 → 原子保存 → expected revision 冲�
 
 ## 阶段 3–4：编辑器与代码块
 
-统一 AST、Corpus、Live Preview、Wiki Link、表格、数学、附件、大纲、IME/大文件；随后实现 Language Registry、Tier 1 动态 grammar、缓存、折叠、复制、高亮行和未知语言回退。
+- [x] source-preserving 标准 mdast + ZhiWeave Wiki/嵌入/Callout 扩展第一纵切。
+- [x] 安全阅读器：GFM、脚注、frontmatter、代码元数据/复制、按需 KaTeX、HTML/资源安全降级。
+- [x] Markdown 原文与结构化阅读文本复制；H1/Setext H1 驱动知识节点名。
+- [进行中] Corpus 已有首批结构/安全回归；官方 CommonMark、恶意输入、模糊测试和 2 MiB 基准待扩充。
+- [ ] Lezer/mdast 语义适配与 Typora 式 Live Preview Decoration。
+- [ ] Wiki 目标解析、附件、大纲 UI、搜索/反向链接/导出/版本语义 diff。
+- [ ] Language Registry、Tier 1 动态 grammar、缓存、折叠、高亮行和未知语言回退。
 
 ## 阶段 5–8：知识与学习
 

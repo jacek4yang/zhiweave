@@ -25,6 +25,8 @@ export type CommandId =
   | "edit.selectAll"
   | "edit.undo"
   | "note.copyLearningPrompt"
+  | "note.copyMarkdown"
+  | "note.copyPlainText"
   | "note.copyTitle"
   | "note.open"
   | "note.openSplit"
@@ -165,6 +167,8 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
     "edit.undo",
     "edit.redo",
     "version.save",
+    "note.copyMarkdown",
+    "note.copyPlainText",
     "note.copyLearningPrompt",
     "view.edit",
     "view.split",
@@ -174,6 +178,8 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
   "embedded-lab": [
     "edit.copy",
     "version.save",
+    "note.copyMarkdown",
+    "note.copyPlainText",
     "note.copyLearningPrompt",
     "view.edit",
     "view.split",
@@ -194,6 +200,8 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
     "note.openSplit",
     "note.copyTitle",
     "note.rename",
+    "note.copyMarkdown",
+    "note.copyPlainText",
     "note.copyLearningPrompt",
     "version.save",
     "note.showVersions",
@@ -201,6 +209,8 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
   preview: [
     "edit.copy",
     "version.save",
+    "note.copyMarkdown",
+    "note.copyPlainText",
     "note.copyLearningPrompt",
     "view.edit",
     "view.split",
@@ -219,6 +229,8 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
     "note.openSplit",
     "note.copyTitle",
     "note.rename",
+    "note.copyMarkdown",
+    "note.copyPlainText",
     "note.copyLearningPrompt",
     "version.save",
     "note.showVersions",
@@ -321,6 +333,30 @@ export const COMMANDS: readonly CommandDefinition[] = [
     keywords: ["git", "history", "branch", "历史", "分支"],
     visibleRequires: ["note"],
   }),
+  command(
+    "note.copyMarkdown",
+    "复制当前节点的 Markdown 原文",
+    "文件",
+    "document",
+    95,
+    {
+      contexts: [...DOCUMENT_SCOPES, ...NOTE_SCOPES],
+      keywords: ["copy", "source", "markdown", "原文", "复制"],
+      visibleRequires: ["note"],
+    },
+  ),
+  command(
+    "note.copyPlainText",
+    "复制当前节点的阅读文本",
+    "文件",
+    "document",
+    96,
+    {
+      contexts: [...DOCUMENT_SCOPES, ...NOTE_SCOPES],
+      keywords: ["copy", "plain text", "纯文本", "阅读", "复制"],
+      visibleRequires: ["note"],
+    },
+  ),
   command(
     "note.copyLearningPrompt",
     "复制当前节点的学习提示词",
