@@ -6,6 +6,7 @@ import {
 } from "react";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { Compartment } from "@codemirror/state";
 import {
   redo,
   redoDepth,
@@ -15,7 +16,11 @@ import {
 import { tags } from "@lezer/highlight";
 import { basicSetup, EditorView } from "codemirror";
 
+import { zhiweaveMarkdownExtensions } from "./markdownLezerExtensions";
+import { markdownLivePreview } from "./markdownLivePreview";
+
 interface MarkdownEditorProps {
+  readonly livePreview?: boolean;
   readonly value: string;
   readonly onChange: (value: string) => void;
   readonly onStatusChange?: (status: EditorStatus) => void;
@@ -35,6 +40,7 @@ export interface EditorStatus {
 export interface MarkdownEditorHandle {
   readonly focus: () => void;
   readonly redo: () => boolean;
+  readonly revealOffset: (offset: number) => void;
   readonly undo: () => boolean;
 }
 
@@ -112,12 +118,18 @@ export const MarkdownEditor = forwardRef<
   MarkdownEditorHandle,
   MarkdownEditorProps
 >(function MarkdownEditor({
+    livePreview = true,
     value,
     onChange,
     onStatusChange,
   }, ref) {
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView>(null);
+  const livePreviewCompartmentRef = useRef<Compartment | null>(null);
+  if (livePreviewCompartmentRef.current === null) {
+    livePreviewCompartmentRef.current = new Compartment();
+  }
+  const livePreviewCompartment = livePreviewCompartmentRef.current;
   const onChangeRef = useRef(onChange);
   const onStatusChangeRef = useRef(onStatusChange);
   onChangeRef.current = onChange;
@@ -130,6 +142,18 @@ export const MarkdownEditor = forwardRef<
     redo() {
       const view = viewRef.current;
       return view === null ? false : redo(view);
+    },
+    revealOffset(offset) {
+      const view = viewRef.current;
+      if (view === null) {
+        return;
+      }
+      const anchor = Math.max(0, Math.min(offset, view.state.doc.length));
+      view.dispatch({
+        effects: EditorView.scrollIntoView(anchor, { y: "center" }),
+        selection: { anchor },
+      });
+      view.focus();
     },
     undo() {
       const view = viewRef.current;
@@ -148,8 +172,12 @@ export const MarkdownEditor = forwardRef<
         basicSetup,
         markdown({
           base: markdownLanguage,
+          extensions: zhiweaveMarkdownExtensions,
         }),
         syntaxHighlighting(markdownHighlightStyle),
+        livePreviewCompartment.of(
+          livePreview ? markdownLivePreview() : [],
+        ),
         EditorView.lineWrapping,
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
@@ -171,6 +199,18 @@ export const MarkdownEditor = forwardRef<
 
   useEffect(() => {
     const view = viewRef.current;
+    if (view === null) {
+      return;
+    }
+    view.dispatch({
+      effects: livePreviewCompartment.reconfigure(
+        livePreview ? markdownLivePreview() : [],
+      ),
+    });
+  }, [livePreview, livePreviewCompartment]);
+
+  useEffect(() => {
+    const view = viewRef.current;
     if (view === null || view.state.doc.toString() === value) {
       return;
     }
@@ -183,7 +223,14 @@ export const MarkdownEditor = forwardRef<
     });
   }, [value]);
 
-  return <div className="markdown-editor" data-context="editor" ref={host} />;
+  return (
+    <div
+      className="markdown-editor"
+      data-context="editor"
+      data-live-preview={livePreview ? "on" : "off"}
+      ref={host}
+    />
+  );
 });
 
 function editorStatus(view: EditorView): EditorStatus {

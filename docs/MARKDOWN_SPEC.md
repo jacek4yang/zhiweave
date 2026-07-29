@@ -23,9 +23,11 @@ UTF-8 Markdown source
 
 编辑器和阅读器必须共享语义，不允许继续维护独立的手写逐行正则预览器。
 
-当前第一纵切已经实现 source-preserving mdast 语义层，并让安全阅读视图、结构化复制、H1/
-Setext H1 标题识别和大纲提取使用明确适配器。CodeMirror 的 Lezer 树仍负责输入期增量解析；
-Live Preview Decoration、搜索、反向链接、版本差异和导出尚未全部接入这层 AST。
+当前纵切已经实现 source-preserving mdast 语义层，并让安全阅读视图、结构化复制、H1/
+Setext H1 标题识别和可交互大纲使用明确适配器。CodeMirror 的 Lezer 树负责输入期增量解析，
+新增 frontmatter、Wiki Link/嵌入节点和首批 Live Preview Decoration；Wiki 长度与 Callout
+名称映射由小型共享契约约束。数学、图片、脚注、fence、搜索、反向链接、版本差异和导出尚未
+全部接入同一范围契约。
 
 ## 往返规则
 
@@ -73,9 +75,10 @@ Corpus 至少覆盖 CommonMark 官方示例、GFM、深层列表、表格、脚�
 
 ## 当前差距
 
-逐行正则阅读器已移除，但统一管线仍只完成第一纵切：
+逐行正则阅读器已移除，但统一管线仍在分批完成：
 
-- Live Preview Decoration 尚未接入 mdast/Lezer 语义适配；
+- Live Preview 已覆盖标题、强调/删除线、链接、Wiki、行内代码、任务和 Callout；数学、图片
+  资源、脚注和 fence 仍需专用节点/安全 widget；
 - Wiki/附件仍是安全占位，未连接稳定 ID、反向链接和附件解析器；
 - Mermaid、Graphviz、导出、版本语义 diff、Corpus snapshot/fuzz 和 2 MiB 基准尚未完成；
 - 远程图片默认不加载；后续必须经过工作区资源策略与隐私提示，不能直接恢复任意 `src`；

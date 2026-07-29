@@ -130,6 +130,33 @@ describe("command registry", () => {
       "note.copyPlainText",
       "note.copyLearningPrompt",
     ]);
+    expect(
+      editorCommands
+        .filter((command) => command.id.startsWith("view.toggle"))
+        .map((command) => command.id),
+    ).toEqual(["view.toggleLivePreview", "view.toggleOutline"]);
+  });
+
+  it("gives the semantic outline its own location-aware menu", () => {
+    const outlineCommands = commandsForContext(
+      context(["note"], "outline"),
+    );
+
+    expect(outlineCommands.map((command) => command.id)).toEqual([
+      "view.toggleOutline",
+      "view.toggleLivePreview",
+      "note.copyMarkdown",
+      "note.copyPlainText",
+      "note.copyLearningPrompt",
+      "version.save",
+      "view.edit",
+      "view.split",
+      "view.preview",
+      "note.showVersions",
+    ]);
+    expect(
+      outlineCommands.some((command) => command.id === "edit.undo"),
+    ).toBe(false);
   });
 
   it("searches Chinese and aliases while preserving the registry order", () => {

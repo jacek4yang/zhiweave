@@ -9,19 +9,24 @@ Markdown 主编辑器采用 CodeMirror 6 + Lezer。Tree-sitter WASM 不进入主
 ## 当前实现审计
 
 `MarkdownEditor.tsx` 创建长生命周期 `EditorView`，启用 `basicSetup`、`@codemirror/lang-markdown`、
-自动换行和 update listener，并通过 transaction 同步外部恢复值。阅读侧已新增
+自动换行和 update listener，并通过 transaction 同步外部恢复值。输入侧现有
+`markdownLezerExtensions.ts` 为 YAML frontmatter 与 Wiki Link/嵌入提供增量节点；
+`markdownLivePreview.ts` 以 StateField 记录 composition、以 ViewPlugin 持有 DecorationSet，
+只扫描可见行并让所有选区决定源码揭示。标题、强调、删除线、链接、Wiki、行内代码、任务与
+Callout 已完成第一批装饰；任务切换仍通过普通 transaction 进入撤销历史，不直接改 DOM 或源码。
+阅读侧已有
 `markdownAst.ts`：使用 micromark/mdast 解析 CommonMark、GFM、YAML frontmatter、脚注和数学，
 再提升 Wiki Link、嵌入和 Callout 为 ZhiWeave 扩展节点。`MarkdownPreview.tsx`、大纲/标题
 适配器和结构化复制开始共享这层语义；原始 source 始终与 AST 并存，未知节点按 source 范围
-安全降级。
+安全降级。`DocumentOutline.tsx` 使用 mdast position 导航编辑器或阅读标题，不自行解析标题。
 
 编辑器仍尚未：
 
 - 暴露完整保存、选区、视口或 composition telemetry；
 - 配置主题、国际化、可访问性或移动输入策略；
-- 使用 StateField/ViewPlugin/Decoration 实现 Live Preview；
+- 为数学、图片、脚注、代码围栏和未知嵌入补齐 Live Preview；
 - 动态解析 fenced code language；
-- 覆盖大文件、IME、多光标和恢复测试。
+- 覆盖真实 Windows IME、Android、多光标、大文件和恢复自动化。
 
 ## 目标模块
 
@@ -41,8 +46,8 @@ React 只持有编辑器宿主和跨组件状态，不在每次按键重建编�
 
 阅读 AST 不进入普通编辑首屏，也不在每次按键同步解析：预览、分栏和结构化复制通过动态
 import 加载。CodeMirror/Lezer 继续负责输入期增量语法；mdast 是跨阅读、复制、大纲、链接和
-后续导出的语义边界。后续 Live Preview 必须建立经过测试的节点/范围适配层，不能让两棵树
-分别发明 Markdown 语义。
+后续导出的语义边界。当前适配层共享 Wiki 长度和 Callout 名称/标题契约，并以源码 offset
+连接大纲；其余节点仍须逐项经过 Corpus，不能让两棵树分别发明 Markdown 语义。
 
 ## 工作台命令边界
 
@@ -56,12 +61,12 @@ id，由 `App` 的执行器连接现有工作流；编辑器撤销、重做、�
 
 ## Live Preview
 
-1. 从 Lezer 语法树计算候选语法范围。
-2. 根据主选区、composition 和多选区决定哪些范围揭示源码。
-3. 使用 StateField 保存可映射 decoration set。
-4. 只对 `visibleRanges` 及小幅缓冲生成昂贵 widget。
-5. transaction 映射装饰，禁止直接改 CodeMirror DOM。
-6. 未知节点不替换、不重写。
+1. [已落地] 从 Lezer 语法树计算候选语法范围。
+2. [已落地] 根据 composition 和全部选区决定哪些范围揭示源码。
+3. [已落地] 使用 StateField + ViewPlugin 保存 composition 与 decoration set。
+4. [已落地] 只对 `visibleRanges` 覆盖的完整行生成 widget。
+5. [已落地] 任务交互走 transaction；禁止直接改 CodeMirror 文档 DOM。
+6. [持续约束] 未知节点不替换、不重写；数学、图片、脚注与 fence 仍保持源码显示。
 
 ## React/Rust 保存边界
 

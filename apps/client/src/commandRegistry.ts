@@ -5,6 +5,7 @@ export type CommandScope =
   | "explorer"
   | "input"
   | "note-item"
+  | "outline"
   | "preview"
   | "status"
   | "tab"
@@ -52,6 +53,8 @@ export type CommandId =
   | "view.review"
   | "view.sources"
   | "view.split"
+  | "view.toggleLivePreview"
+  | "view.toggleOutline"
   | "view.today"
   | "view.topics"
   | "view.versions"
@@ -153,6 +156,7 @@ const DOCUMENT_SCOPES: readonly CommandScope[] = [
   "editor",
   "preview",
   "embedded-lab",
+  "outline",
 ];
 const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
   activity: [
@@ -173,6 +177,8 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
     "view.edit",
     "view.split",
     "view.preview",
+    "view.toggleLivePreview",
+    "view.toggleOutline",
     "note.showVersions",
   ],
   "embedded-lab": [
@@ -184,6 +190,8 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
     "view.edit",
     "view.split",
     "view.preview",
+    "view.toggleLivePreview",
+    "view.toggleOutline",
     "note.showVersions",
   ],
   explorer: [
@@ -206,6 +214,18 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
     "version.save",
     "note.showVersions",
   ],
+  outline: [
+    "view.toggleOutline",
+    "view.toggleLivePreview",
+    "note.copyMarkdown",
+    "note.copyPlainText",
+    "note.copyLearningPrompt",
+    "version.save",
+    "view.edit",
+    "view.split",
+    "view.preview",
+    "note.showVersions",
+  ],
   preview: [
     "edit.copy",
     "version.save",
@@ -215,6 +235,8 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
     "view.edit",
     "view.split",
     "view.preview",
+    "view.toggleLivePreview",
+    "view.toggleOutline",
     "note.showVersions",
   ],
   status: [
@@ -409,6 +431,23 @@ export const COMMANDS: readonly CommandDefinition[] = [
     contexts: DOCUMENT_SCOPES,
     keywords: ["preview", "reader", "阅读"],
     shortcut: shortcut("v", "Ctrl+Shift+V", { shift: true }),
+    visibleRequires: ["note"],
+  }),
+  command(
+    "view.toggleLivePreview",
+    "切换编辑器实时预览",
+    "视图",
+    "view",
+    175,
+    {
+      contexts: DOCUMENT_SCOPES,
+      keywords: ["live preview", "typora", "实时预览", "源码"],
+      visibleRequires: ["note"],
+    },
+  ),
+  command("view.toggleOutline", "显示或隐藏文档大纲", "视图", "view", 176, {
+    contexts: DOCUMENT_SCOPES,
+    keywords: ["outline", "heading", "标题", "大纲", "导航"],
     visibleRequires: ["note"],
   }),
   command("tab.close", "关闭当前标签", "标签", "tabs", 180, {
@@ -786,7 +825,11 @@ function commandScore(
       score += 4;
     } else if (keywords.includes(token)) {
       score += 5;
-    } else if (isSubsequence(token, `${title} ${id} ${keywords}`)) {
+    } else if (
+      [title, id, category, ...definition.keywords.map(normalize)].some(
+        (candidate) => isSubsequence(token, candidate),
+      )
+    ) {
       score += 8;
     } else {
       return Number.POSITIVE_INFINITY;

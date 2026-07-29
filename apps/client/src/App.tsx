@@ -21,12 +21,14 @@ import {
   Command as CommandIcon,
   Copy,
   Database,
+  Eye,
   FilePlus2,
   FlaskConical,
   GitFork,
   GitBranch,
   GraduationCap,
   Library,
+  ListTree,
   Maximize2,
   Menu,
   Minus,
@@ -132,10 +134,15 @@ const MarkdownPreview = lazy(async () => {
   const module = await import("./MarkdownPreview");
   return { default: module.MarkdownPreview };
 });
+const DocumentOutline = lazy(async () => {
+  const module = await import("./DocumentOutline");
+  return { default: module.DocumentOutline };
+});
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 type EditorMode = "edit" | "preview" | "split";
+const WORKBENCH_PREFERENCES_KEY = "zhiweave.workbench.preferences.v1";
 type SaveState =
   | "preview"
   | "loading"
@@ -216,6 +223,12 @@ export function App() {
   ]);
   const [closedNoteIds, setClosedNoteIds] = useState<readonly string[]>([]);
   const [editorMode, setEditorMode] = useState<EditorMode>("edit");
+  const [livePreviewEnabled, setLivePreviewEnabled] = useState(
+    () => readWorkbenchPreferences().livePreviewEnabled,
+  );
+  const [outlineOpen, setOutlineOpen] = useState(
+    () => readWorkbenchPreferences().outlineOpen,
+  );
   const [editorStatus, setEditorStatus] =
     useState<EditorStatus>(EMPTY_EDITOR_STATUS);
   const [isSidebarOpen, setIsSidebarOpen] = useState(
@@ -560,6 +573,17 @@ export function App() {
       setToast("本机存储不可用，本次修改可能无法保留。");
     }
   }, [nativeRuntime, workspace]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        WORKBENCH_PREFERENCES_KEY,
+        JSON.stringify({ livePreviewEnabled, outlineOpen }),
+      );
+    } catch {
+      // UI preferences are optional; Markdown persistence is independent.
+    }
+  }, [livePreviewEnabled, outlineOpen]);
 
   useEffect(() => {
     if (
@@ -2297,6 +2321,19 @@ export function App() {
               : "preview",
         );
         return;
+      case "view.toggleLivePreview":
+        setLivePreviewEnabled((enabled) => {
+          setToast(
+            enabled
+              ? "已关闭编辑器实时预览；Markdown 源码保持可见。"
+              : "已开启编辑器实时预览；光标进入语法时会显示源码。",
+          );
+          return !enabled;
+        });
+        return;
+      case "view.toggleOutline":
+        setOutlineOpen((open) => !open);
+        return;
       case "tab.close":
         if (target.noteId === undefined) {
           closeActiveTab();
@@ -2617,7 +2654,9 @@ export function App() {
       ? "预览"
       : editorMode === "split"
         ? "实时分栏"
-        : "Markdown";
+        : livePreviewEnabled
+          ? "Markdown · 实时语法"
+          : "Markdown · 源码";
   const saveStatusLabel = nativeRuntime
     ? {
         loading: "正在打开 Markdown 工作区",
@@ -2967,6 +3006,30 @@ export function App() {
                   </button>
                 </div>
                 <button
+                  aria-pressed={livePreviewEnabled}
+                  className={livePreviewEnabled ? "is-active" : undefined}
+                  onClick={() => runCommand("view.toggleLivePreview")}
+                  title={
+                    livePreviewEnabled
+                      ? "关闭光标感知实时预览"
+                      : "开启光标感知实时预览"
+                  }
+                  type="button"
+                >
+                  <Eye />
+                  <span>实时语法</span>
+                </button>
+                <button
+                  aria-pressed={outlineOpen}
+                  className={outlineOpen ? "is-active" : undefined}
+                  onClick={() => runCommand("view.toggleOutline")}
+                  title={outlineOpen ? "关闭文档大纲" : "打开文档大纲"}
+                  type="button"
+                >
+                  <ListTree />
+                  <span>大纲</span>
+                </button>
+                <button
                   onClick={() => runCommand("workspace.createUuidLab")}
                   title="新建 UUID 交互实验"
                   type="button"
@@ -3100,31 +3163,65 @@ export function App() {
             <EmptyWorkspace
               onCreate={() => runCommand("workspace.createNote")}
             />
-          ) : editorMode === "preview" ? (
-            <Suspense fallback={<MarkdownPreviewLoading />}>
-              <MarkdownPreview markdown={selectedNote.markdown} />
-            </Suspense>
-          ) : editorMode === "split" ? (
-            <div className="editor-split">
-              <MarkdownEditor
-                key={selectedNote.id}
-                onChange={updateMarkdown}
-                onStatusChange={setEditorStatus}
-                ref={editorRef}
-                value={selectedNote.markdown}
-              />
-              <Suspense fallback={<MarkdownPreviewLoading />}>
-                <MarkdownPreview markdown={selectedNote.markdown} />
-              </Suspense>
-            </div>
           ) : (
-            <MarkdownEditor
-              key={selectedNote.id}
-              onChange={updateMarkdown}
-              onStatusChange={setEditorStatus}
-              ref={editorRef}
-              value={selectedNote.markdown}
-            />
+            <div
+              className={`editor-workspace${outlineOpen ? " has-outline" : ""}`}
+            >
+              <div className="editor-surface">
+                {editorMode === "preview" ? (
+                  <Suspense fallback={<MarkdownPreviewLoading />}>
+                    <MarkdownPreview markdown={selectedNote.markdown} />
+                  </Suspense>
+                ) : editorMode === "split" ? (
+                  <div className="editor-split">
+                    <MarkdownEditor
+                      key={selectedNote.id}
+                      livePreview={livePreviewEnabled}
+                      onChange={updateMarkdown}
+                      onStatusChange={setEditorStatus}
+                      ref={editorRef}
+                      value={selectedNote.markdown}
+                    />
+                    <Suspense fallback={<MarkdownPreviewLoading />}>
+                      <MarkdownPreview markdown={selectedNote.markdown} />
+                    </Suspense>
+                  </div>
+                ) : (
+                  <MarkdownEditor
+                    key={selectedNote.id}
+                    livePreview={livePreviewEnabled}
+                    onChange={updateMarkdown}
+                    onStatusChange={setEditorStatus}
+                    ref={editorRef}
+                    value={selectedNote.markdown}
+                  />
+                )}
+              </div>
+              {outlineOpen ? (
+                <Suspense fallback={null}>
+                  <DocumentOutline
+                    markdown={selectedNote.markdown}
+                    noteId={selectedNote.id}
+                    onClose={() => runCommand("view.toggleOutline")}
+                    onNavigate={(item) => {
+                      if (item.offset === null) {
+                        return;
+                      }
+                      if (editorMode === "preview") {
+                        document
+                          .getElementById(`heading-${item.offset}`)
+                          ?.scrollIntoView({
+                            behavior: "smooth",
+                            block: "center",
+                          });
+                      } else {
+                        editorRef.current?.revealOffset(item.offset);
+                      }
+                    }}
+                  />
+                </Suspense>
+              ) : null}
+            </div>
           )}
         </section>
 
@@ -4144,6 +4241,7 @@ function isContextScope(
     case "explorer":
     case "input":
     case "note-item":
+    case "outline":
     case "preview":
     case "status":
     case "tab":
@@ -4168,6 +4266,8 @@ function contextMenuLabel(
       return note === undefined ? "阅读视图" : `阅读：${note.title}`;
     case "embedded-lab":
       return note === undefined ? "交互实验" : `实验：${note.title}`;
+    case "outline":
+      return note === undefined ? "文档大纲" : `大纲：${note.title}`;
     case "note-item":
       return note === undefined ? "知识节点" : note.title;
     case "tab":
@@ -4327,6 +4427,10 @@ function commandIcon(id: CommandId) {
     case "note.openSplit":
     case "view.split":
       return Columns2;
+    case "view.toggleLivePreview":
+      return Eye;
+    case "view.toggleOutline":
+      return ListTree;
     case "note.rename":
     case "view.edit":
       return PencilLine;
@@ -4378,6 +4482,40 @@ function commandIcon(id: CommandId) {
       return Save;
     default:
       return CommandIcon;
+  }
+}
+
+function readWorkbenchPreferences(): {
+  readonly livePreviewEnabled: boolean;
+  readonly outlineOpen: boolean;
+} {
+  const defaults = {
+    livePreviewEnabled: true,
+    outlineOpen: false,
+  };
+  try {
+    const stored = localStorage.getItem(WORKBENCH_PREFERENCES_KEY);
+    if (stored === null) {
+      return defaults;
+    }
+    const parsed: unknown = JSON.parse(stored);
+    if (typeof parsed !== "object" || parsed === null) {
+      return defaults;
+    }
+    return {
+      livePreviewEnabled:
+        "livePreviewEnabled" in parsed &&
+        typeof parsed.livePreviewEnabled === "boolean"
+          ? parsed.livePreviewEnabled
+          : defaults.livePreviewEnabled,
+      outlineOpen:
+        "outlineOpen" in parsed &&
+        typeof parsed.outlineOpen === "boolean"
+          ? parsed.outlineOpen
+          : defaults.outlineOpen,
+    };
+  } catch {
+    return defaults;
   }
 }
 

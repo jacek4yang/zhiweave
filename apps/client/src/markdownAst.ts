@@ -17,7 +17,17 @@ import { frontmatter } from "micromark-extension-frontmatter";
 import { gfm } from "micromark-extension-gfm";
 import { math } from "micromark-extension-math";
 
-export const MAX_WIKI_TARGET_LENGTH = 500;
+import {
+  CALLOUT_TITLES,
+  calloutKindFromName,
+  MAX_WIKI_TARGET_LENGTH,
+  type CalloutKind,
+} from "./markdownSyntaxContract";
+
+export {
+  MAX_WIKI_TARGET_LENGTH,
+  type CalloutKind,
+} from "./markdownSyntaxContract";
 
 export interface WikiLinkNode {
   readonly type: "wikiLink";
@@ -32,20 +42,6 @@ export interface WikiEmbedNode {
   readonly display: string;
   readonly position?: Position | undefined;
 }
-
-export type CalloutKind =
-  | "abstract"
-  | "bug"
-  | "caution"
-  | "example"
-  | "failure"
-  | "info"
-  | "note"
-  | "question"
-  | "quote"
-  | "success"
-  | "tip"
-  | "warning";
 
 export interface CalloutNode {
   readonly type: "callout";
@@ -84,43 +80,6 @@ export interface CodeFenceInfo {
   readonly highlight: string | null;
   readonly rawMeta: string;
 }
-
-const CALLOUT_NAMES: Readonly<Record<string, CalloutKind>> = {
-  abstract: "abstract",
-  bug: "bug",
-  caution: "caution",
-  danger: "caution",
-  error: "failure",
-  example: "example",
-  fail: "failure",
-  failure: "failure",
-  faq: "question",
-  help: "question",
-  info: "info",
-  note: "note",
-  question: "question",
-  quote: "quote",
-  success: "success",
-  summary: "abstract",
-  tip: "tip",
-  todo: "info",
-  warning: "warning",
-};
-
-const CALLOUT_TITLES: Readonly<Record<CalloutKind, string>> = {
-  abstract: "摘要",
-  bug: "问题",
-  caution: "危险",
-  example: "示例",
-  failure: "失败",
-  info: "信息",
-  note: "笔记",
-  question: "问题",
-  quote: "引用",
-  success: "成功",
-  tip: "提示",
-  warning: "警告",
-};
 
 export function parseMarkdownDocument(source: string): MarkdownDocument {
   const root = fromMarkdown(source, {
@@ -314,8 +273,8 @@ function enhanceCallouts(root: Root): void {
     if (marker === null) {
       return node;
     }
-    const kind = CALLOUT_NAMES[(marker[1] ?? "").toLocaleLowerCase()];
-    if (kind === undefined) {
+    const kind = calloutKindFromName(marker[1] ?? "");
+    if (kind === null) {
       return node;
     }
     const remainder = first.value.slice(marker[0].length);

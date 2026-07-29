@@ -23,17 +23,18 @@
 
 环境：当前 Windows 电脑，Vite 直接绑定 `127.0.0.1:1420`，Tauri 2 原生开发壳。
 
-- Vitest：7 files / 35 tests，最近一次约 806 ms。
+- Vitest：8 files / 41 tests，最近一次约 751 ms。
 - Vite production build：最近一次约 500 ms。
-- 主 CSS：48.42 KB（gzip 9.21 KB）。
-- 主 JavaScript：916.80 KB（gzip 305.34 KB）。
+- 主 CSS：53.19 KB（gzip 10.03 KB）。
+- 主 JavaScript：927.07 KB（gzip 308.74 KB）。
 - `EmbeddedLab` 按需 chunk：5.99 KB（gzip 2.46 KB）。
-- `MarkdownPreview` 按需 chunk：11.36 KB（gzip 4.00 KB）。
-- `markdownAst` 按需 chunk：92.42 KB（gzip 26.21 KB）。
+- `MarkdownPreview` 按需 chunk：11.32 KB（gzip 3.98 KB）。
+- `markdownAst` 按需 chunk：92.24 KB（gzip 26.02 KB）。
+- `DocumentOutline` 按需 chunk：1.16 KB（gzip 0.67 KB）。
 - `MathFormula` 按需 chunk：259.54 KB（gzip 77.66 KB），KaTeX CSS 28.83 KB（gzip 7.92 KB）。
 - Vite 仍报告主 chunk 超过 500 KB。
 
-交互实验、Markdown 解析/阅读和公式都不进入无关首屏；主包 gzip 仍超过目标 105.34 KB。
+交互实验、Markdown 解析/阅读、大纲和公式都不进入无关首屏；主包 gzip 仍超过目标 108.74 KB。
 KaTeX 只在遇到公式时加载，但当前上游 CSS 让构建产物同时包含 WOFF2/WOFF/TTF 变体，增加
 安装包体积；后续应验证 WebView2/跨平台字体覆盖后收敛到必要格式。下一步必须用可重复的
 chunk 报告定位 CodeMirror、图标、工作台和命令面板边界；语言 grammar、图谱和 Canvas 继续

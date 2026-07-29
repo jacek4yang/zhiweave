@@ -194,9 +194,10 @@ schema v2 为节点增加可选命名检查点。保留策略始终保护当前 
 
 CodeMirror 6 + Lezer 继续作为编辑输入期的增量语法内核；阅读、结构化复制、大纲、Wiki/
 Callout 扩展和后续导出使用 `mdast-util-from-markdown` 产生的标准 AST，再提升为 ZhiWeave
-扩展节点。两层将通过 source position 和受测适配器对齐，不能让阅读器再维护逐行正则语义，
+扩展节点。两层通过 source position 和受测适配器对齐，不能让阅读器再维护逐行正则语义，
 也不能为了共享 AST 把整篇解析塞进每次按键主线程。标准节点已有精确 position；Wiki 子节点
-的精确范围适配仍随 Live Preview 一起完成。
+已有输入期 Lezer 范围，Callout 名称/标题和 Wiki 长度上限由小型共享契约约束；其余扩展继续
+随 Corpus 扩充范围适配。
 
 `MarkdownDocument` 同时保存 AST 与未改写的 source。未知节点优先按 position 从 source
 降级；解析异常显示转义后的原文。原始 HTML 不经 `dangerouslySetInnerHTML`，图片不自动发起
@@ -205,5 +206,5 @@ Callout 扩展和后续导出使用 `mdast-util-from-markdown` 产生的标准 A
 
 选择 mdast 是为了复用成熟的 CommonMark/GFM/frontmatter/脚注/数学语义，同时保持 Markdown
 事实源和未知扩展保真。代价是编辑器 Lezer 与跨功能 mdast 仍需一层位置/节点契约，以及解析器
-和 KaTeX 的按需包体。Live Preview、搜索、反向链接、版本差异和附件解析只有接入同一契约并
-通过 Corpus 后才能标记完成。
+和 KaTeX 的按需包体。首批 Live Preview 与大纲不能代表整条管线完成；搜索、反向链接、版本
+差异、附件以及数学/图片/fence 编辑装饰只有接入同一契约并通过 Corpus 后才能标记完成。
