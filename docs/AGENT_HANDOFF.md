@@ -14,7 +14,7 @@
 
 - 工作目录：`%USERPROFILE%\Desktop\Projects\zhiweave`
 - 分支：`agent/professional-workbench`
-- Markdown 文件纵切功能提交：`193ce03`（基线 `6693e1a`），尚待通过 Linux 中转推送
+- 远端头：`0d9092e`；Markdown 文件纵切功能提交：`193ce03`（基线 `6693e1a`）
 - Draft PR：[jacek4yang/zhiweave#1](https://github.com/jacek4yang/zhiweave/pull/1)
 - GitHub CI：Frontend 与 Rust 均通过。
 - Windows 原生开发应用和 Vite 已启动；日志在 `%TEMP%\zhiweave-windows-tauri-3.*.log`。
@@ -37,6 +37,7 @@
 - pnpm 类型检查、22 项前端测试和生产构建通过。
 - Rust workspace 21 项测试、fmt、Clippy `-D warnings` 通过。
 - Windows Tauri 进程重编译启动，固定工作区实际生成 6 个 Markdown。
+- GitHub CI run `30482215895`：Frontend 18 s、Rust 3 min 13 s，全部通过；Node 20 actions deprecation annotation 尚待 workflow 维护。
 - Windows Tauri 客户区顶部非客户区仅 1 px，证明系统标题栏已移除。
 - 真实浏览器验证 UUID v4 版本/变体、非法 UUID、AI 提示词、输入框粘贴、编辑器撤销和五类上下文菜单。
 - 交互实验已按需拆为独立 6.22 KB chunk。

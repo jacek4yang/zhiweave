@@ -6,7 +6,7 @@
 
 - 开发、构建、Rust/TypeScript 测试、Tauri 运行和浏览器验收全部在当前 Windows 电脑完成。
 - Linux 上传中转机只承担最终的 GitHub 提交/推送，不运行开发服务或质量门。
-- 当前本地分支：`agent/professional-workbench`；Markdown 文件纵切功能提交 `193ce03` 已形成，尚待通过 Linux 中转推送。
+- 当前本地分支：`agent/professional-workbench`；Markdown 文件纵切功能提交 `193ce03`、交接提交 `0d9092e` 已通过 Linux 中转推送。
 - 用户指定的 SOCKS5 下载代理已按要求尝试，但本机和中转机均无法建立 TCP 连接；已有依赖优先使用本机 pnpm store。代理地址本身不写入仓库。
 
 ## 已完成
@@ -44,7 +44,9 @@
 - 主 JavaScript：876.66 KB（gzip 293.57 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
 - Rust workspace tests：21 项通过；fmt 和全 workspace Clippy `-D warnings` 通过。
 - Windows 原生进程：`知织 · ZhiWeave` 正常运行；固定工作区已生成 6 个真实 Markdown；Vite 绑定 `127.0.0.1:1420`。
-- 提交 `6693e1a` 已在远端；本地功能提交 `193ce03` 已通过门禁，尚待中转推送。
+- 远端头 `0d9092e`；Draft PR #1 已更新。
+- GitHub CI run `30482215895`：Frontend 通过（18 s），Rust 通过（3 min 13 s）。
+- CI 有一项非阻断 annotation：部分 actions 仍声明 Node 20，GitHub runner 已强制 Node 24；列为 workflow 维护项。
 - [Draft PR #1](https://github.com/jacek4yang/zhiweave/pull/1) 已创建。
 - GitHub CI：Frontend 通过（18 s），Rust 通过（3 min 7 s）。
 
