@@ -76,7 +76,8 @@
 - Rust workspace 49 项测试通过，其中 application 4 项、Tauri 4 项、storage 30 项、portable path 5 项；fmt 和全 workspace Clippy `-D warnings` 通过。
 - `pnpm audit --prod --audit-level high`：无已知漏洞；`cargo audit --no-fetch --stale` 扫描 471 个 lockfile 依赖，无已知 vulnerability，17 项既有 allowed warning。
 - Windows 原生进程：`知织 · ZhiWeave` 正常运行；固定工作区有 6 个真实 Markdown、identity v1 的 6 个唯一 ID/路径和有效 SQLite 3 数据库。
-- Draft PR #1 已更新到提交 `baff323` 的持久版本切片；该提交的 GitHub CI run `30489523805` 前端与 Rust 全部通过。
+- Draft PR #1 已更新到统一命令系统提交 `12627b9`；GitHub CI run `30494931475` 的 Frontend 与
+  Rust 全部通过。
 - GitHub CI run `30487216178`：watcher 跨平台修复后的 Frontend 与 Rust 全部通过。
 - CI 有一项非阻断 annotation：部分 actions 仍声明 Node 20，GitHub runner 已强制 Node 24；列为 workflow 维护项。
 - [Draft PR #1](https://github.com/jacek4yang/zhiweave/pull/1) 已创建。
@@ -93,11 +94,10 @@
 
 ## 当前任务
 
-1. 完成统一命令系统切片的最终门禁、审计、提交、Linux 中转推送与 Draft PR/CI。
-2. 替换手写 Markdown 阅读器为共享 AST 管线。
-3. 增加快捷键编辑器，并为预览标签、移动触控入口和剩余复杂面板接入 command registry。
-4. 补 watcher 高频压力、文件锁、磁盘满、只读目录和强杀恢复夹具。
-5. 继续附件、集合、Canvas 与跨设备加密备份/同步设计；现有本机目录备份不能冒充加密云备份。
+1. 替换手写 Markdown 阅读器为共享 AST 管线。
+2. 增加快捷键编辑器，并为预览标签、移动触控入口和剩余复杂面板接入 command registry。
+3. 补 watcher 高频压力、文件锁、磁盘满、只读目录和强杀恢复夹具。
+4. 继续附件、集合、Canvas 与跨设备加密备份/同步设计；现有本机目录备份不能冒充加密云备份。
 
 ## 未解决风险
 

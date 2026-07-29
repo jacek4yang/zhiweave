@@ -15,7 +15,7 @@
 - 工作目录：`%USERPROFILE%\Desktop\Projects\zhiweave`
 - 分支：`agent/professional-workbench`
 - Draft PR：[jacek4yang/zhiweave#1](https://github.com/jacek4yang/zhiweave/pull/1)
-- 前一稳定切片 GitHub CI：Frontend 与 Rust 均通过。
+- 统一命令系统提交 `12627b9` 的 GitHub CI run `30494931475`：Frontend 与 Rust 均通过。
 - Windows 原生验证进程已安全关闭；临时日志只在 `%TEMP%`。
 
 ## 已实现切片
@@ -99,11 +99,10 @@ SQLite/稳定身份稳定切片增加：
 
 ## 下一步顺序
 
-1. 完成统一命令系统切片的全门禁、审计、提交、Linux 中转推送、PR/CI。
-2. 替换共享 Markdown AST，并让编辑/阅读/版本差异使用同一语义来源。
-3. 增加快捷键编辑器、预览标签和移动端命令入口。
-4. 补 watcher 高频压力、休眠恢复、占位强杀、只读目录和卷级磁盘满夹具。
-5. 增加外部备份导入/跨设备恢复演练，再进入客户端加密和同步；持续排除根 `AGENTS.md`、
+1. 替换共享 Markdown AST，并让编辑/阅读/版本差异使用同一语义来源。
+2. 增加快捷键编辑器、预览标签和移动端命令入口。
+3. 补 watcher 高频压力、休眠恢复、占位强杀、只读目录和卷级磁盘满夹具。
+4. 增加外部备份导入/跨设备恢复演练，再进入客户端加密和同步；持续排除根 `AGENTS.md`、
    真实工作区文件、地址、密钥和数据库。
 
 ## 关键风险
