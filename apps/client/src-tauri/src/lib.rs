@@ -435,40 +435,41 @@ mod tests {
 
     #[test]
     fn watcher_ignores_only_application_owned_hidden_metadata() {
-        let root = Path::new(r"C:\workspace");
+        let root = PathBuf::from("workspace");
         assert!(is_hidden_workspace_metadata(
-            root,
-            Path::new(r"C:\workspace\.zhiweave\index.sqlite3")
+            &root,
+            &root.join(".zhiweave").join("index.sqlite3")
         ));
         assert!(!is_hidden_workspace_metadata(
-            root,
-            Path::new(r"C:\workspace\topics\ownership.md")
+            &root,
+            &root.join("topics").join("ownership.md")
         ));
         assert!(!is_hidden_workspace_metadata(
-            root,
-            Path::new(r"C:\workspace\.other\notes.md")
+            &root,
+            &root.join(".other").join("notes.md")
         ));
     }
 
     #[test]
     fn dropped_or_incomplete_watcher_events_always_request_a_verified_rescan() {
-        let root = Path::new(r"C:\workspace");
+        let root = PathBuf::from("workspace");
         let hidden_event =
-            Event::new(EventKind::Any).add_path(root.join(r".zhiweave\index.sqlite3"));
-        let source_event = Event::new(EventKind::Any).add_path(root.join(r"topics\ownership.md"));
+            Event::new(EventKind::Any).add_path(root.join(".zhiweave").join("index.sqlite3"));
+        let source_event =
+            Event::new(EventKind::Any).add_path(root.join("topics").join("ownership.md"));
         let dropped_event = Event::new(EventKind::Any)
-            .add_path(root.join(r".zhiweave\index.sqlite3"))
+            .add_path(root.join(".zhiweave").join("index.sqlite3"))
             .set_flag(Flag::Rescan);
 
-        assert!(!watcher_event_requires_rescan(root, &Ok(hidden_event)));
-        assert!(watcher_event_requires_rescan(root, &Ok(source_event)));
-        assert!(watcher_event_requires_rescan(root, &Ok(dropped_event)));
+        assert!(!watcher_event_requires_rescan(&root, &Ok(hidden_event)));
+        assert!(watcher_event_requires_rescan(&root, &Ok(source_event)));
+        assert!(watcher_event_requires_rescan(&root, &Ok(dropped_event)));
         assert!(watcher_event_requires_rescan(
-            root,
+            &root,
             &Err(Error::generic("platform event loss"))
         ));
         assert!(watcher_event_requires_rescan(
-            root,
+            &root,
             &Ok(Event::new(EventKind::Any))
         ));
     }
