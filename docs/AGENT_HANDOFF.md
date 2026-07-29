@@ -1,6 +1,6 @@
 # Agent 交接
 
-最近更新：2026-07-30 06:57 CST
+最近更新：2026-07-30 07:55 CST
 
 ## 不可改变的用户约束
 
@@ -15,6 +15,8 @@
 - 工作目录：`%USERPROFILE%\Desktop\Projects\zhiweave`
 - 分支：`agent/professional-workbench`
 - Draft PR：[jacek4yang/zhiweave#1](https://github.com/jacek4yang/zhiweave/pull/1)
+- 当前功能提交：`9f85c43 Add safe rich Markdown live preview`；本交接提交完成后需通过 Linux
+  中继推送并等待 GitHub CI。
 - 共享 Markdown AST 功能提交 `27bf009` 对应 GitHub CI run `30497652526`：Frontend 与 Rust
   均通过。
 - Windows 原生验证进程已安全关闭；临时日志只在 `%TEMP%`。
@@ -91,9 +93,17 @@ SQLite/稳定身份稳定切片增加：
 - H1/Setext H1 命名扫描排除 frontmatter 和 fenced code，并保留链接/Wiki 显示名；
 - 阅读器、AST 和 KaTeX 全部按需分包，不进入纯编辑首屏。
 
+当前扩展 Live Preview 切片增加：
+
+- Lezer 数学、脚注与保真 `:::` 指令块节点；未知/截断指令块和未闭合数学/fence 不替换；
+- 行内/块数学按需复用 KaTeX 渲染器且 `trust=false`，图片仅显示安全占位、不生成活动资源；
+- 脚注引用/定义、闭合代码围栏 header/closing marker 和可见行样式；
+- widget 点击回到源码，composition 全局停用替换，全部多光标范围共同决定源码揭示；
+- 2 MiB 窄视口与 10,000 行 fence 自动性能门，原始 CodeMirror 文档逐字符不变。
+
 ## 最近验证
 
-- pnpm lint/typecheck、35 项前端测试和生产构建通过。
+- pnpm lint/typecheck、47 项前端测试和生产构建通过。
 - Rust workspace 49 项、fmt 与 Clippy `-D warnings` 全部通过；storage 30 项覆盖历史、保留、
   完整备份、篡改拒绝和恢复中断。
 - Windows Tauri 原生验收覆盖保存、分支、重启、删除/空间回收和恢复；测试正文与版本均已清理，固定工作区保持 6 个 Markdown。
@@ -112,11 +122,18 @@ SQLite/稳定身份稳定切片增加：
   原始 HTML 安全降级和四类源码/文本复制；1280×720、390×844 无页面级溢出，console 干净。
 - Windows 原生 welcome Markdown 使用新阅读器正常显示；预览右键与命令面板都有两类复制命令，
   验收只读且调试进程/端口已关闭。
+- 扩展 Live Preview 功能提交 `9f85c43`：Windows 全门禁通过；2 MiB 窄视口约 322 ms，
+  10,000 行 fence 可见 24 行用例约 9 ms。
+- Windows Tauri dev profile 7.15 s 编译并启动，原生进程可响应；DWM 1924×1204 截图无窗口
+  裁切。随后已关闭进程和 1420 监听。
+- 应用内浏览器连续两次在导航本机页面时超时，所以本轮不能把真实光标、点击、IME 或窄屏
+  交互标记为通过。
+- pnpm 生产依赖审计无已知漏洞；`cargo audit --no-fetch` 扫描 471 个依赖，无 vulnerability，
+  保留 17 项既有 allowed warning。
 
 ## 下一步顺序
 
-1. 扩展首批 Lezer/Live Preview：补数学、图片、脚注、fence，并完成真实 Windows IME、
-   多光标、2 MiB/恶意输入和 Android 验收。
+1. 完成扩展 Live Preview 的真实 Windows 光标/点击/IME/多光标/窄屏和 Android 验收。
 2. 已有共享 AST 大纲；继续接入 Wiki 目标/反向链接、附件、导出和版本语义 diff。
 3. 增加快捷键编辑器、预览标签和移动端命令入口。
 4. 补 watcher 高频压力、休眠恢复、占位强杀、只读目录和卷级磁盘满夹具。
@@ -129,6 +146,6 @@ Markdown 文件事实源、稳定 ID、可重建 SQLite/FTS、本机 watcher、�
 重启恢复已进入 alpha，但还不能称为完整长期数据保证：启动与每次外部事件仍全量扫描正文，
 备份包尚未加密且缺少外部导入/跨设备演练；底层平台漏报只能依赖 `Rescan`/后续事件或重启发现。
 create 强杀可能留下空占位，安全移动强杀可能留下重复副本，删源前仍有极窄竞态。共享 mdast
-阅读器、首批 Live Preview 与可交互大纲已落地，但数学/图片/fence 编辑装饰及搜索/反向链接/
-附件/版本 diff 尚未接入；快捷键编辑器尚未完成，
-主 bundle gzip 308.74 KB 超预算，KaTeX 字体资产待收敛，同步后端仍只是协议/健康状态骨架。
+阅读器、扩展 Live Preview 与可交互大纲已落地，但真实附件、搜索/反向链接/导出/版本 diff
+尚未接入；快捷键编辑器尚未完成，主 bundle gzip 310.59 KB 超预算，KaTeX 字体资产待收敛，
+同步后端仍只是协议/健康状态骨架。

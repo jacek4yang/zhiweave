@@ -13,7 +13,9 @@ Markdown 主编辑器采用 CodeMirror 6 + Lezer。Tree-sitter WASM 不进入主
 `markdownLezerExtensions.ts` 为 YAML frontmatter 与 Wiki Link/嵌入提供增量节点；
 `markdownLivePreview.ts` 以 StateField 记录 composition、以 ViewPlugin 持有 DecorationSet，
 只扫描可见行并让所有选区决定源码揭示。标题、强调、删除线、链接、Wiki、行内代码、任务与
-Callout 已完成第一批装饰；任务切换仍通过普通 transaction 进入撤销历史，不直接改 DOM 或源码。
+Callout 之外，数学、图片安全占位、脚注和闭合代码围栏也已接入；未知指令块与未闭合结构不
+替换。任务切换仍通过普通 transaction 进入撤销历史，不直接改 DOM 或源码；KaTeX 只在可见
+公式出现时动态加载，`trust=false`。
 阅读侧已有
 `markdownAst.ts`：使用 micromark/mdast 解析 CommonMark、GFM、YAML frontmatter、脚注和数学，
 再提升 Wiki Link、嵌入和 Callout 为 ZhiWeave 扩展节点。`MarkdownPreview.tsx`、大纲/标题
@@ -24,9 +26,8 @@ Callout 已完成第一批装饰；任务切换仍通过普通 transaction 进�
 
 - 暴露完整保存、选区、视口或 composition telemetry；
 - 配置主题、国际化、可访问性或移动输入策略；
-- 为数学、图片、脚注、代码围栏和未知嵌入补齐 Live Preview；
 - 动态解析 fenced code language；
-- 覆盖真实 Windows IME、Android、多光标、大文件和恢复自动化。
+- 覆盖真实 Windows IME、Android、多光标交互和恢复自动化；多光标与大文件目前只有自动回归。
 
 ## 目标模块
 
@@ -66,7 +67,9 @@ id，由 `App` 的执行器连接现有工作流；编辑器撤销、重做、�
 3. [已落地] 使用 StateField + ViewPlugin 保存 composition 与 decoration set。
 4. [已落地] 只对 `visibleRanges` 覆盖的完整行生成 widget。
 5. [已落地] 任务交互走 transaction；禁止直接改 CodeMirror 文档 DOM。
-6. [持续约束] 未知节点不替换、不重写；数学、图片、脚注与 fence 仍保持源码显示。
+6. [已落地] 数学按需安全渲染，图片不主动请求资源，脚注与闭合 fence 使用可点击回源码的
+   widget；任一选区进入结构时不替换。
+7. [持续约束] 未知/截断指令块、未闭合数学或 fence 不替换、不重写；远程图片不自动加载。
 
 ## React/Rust 保存边界
 

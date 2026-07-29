@@ -45,9 +45,11 @@ Workspace 打开 → Markdown 列表 → 原子保存 → expected revision 冲�
 - [x] source-preserving 标准 mdast + ZhiWeave Wiki/嵌入/Callout 扩展第一纵切。
 - [x] 安全阅读器：GFM、脚注、frontmatter、代码元数据/复制、按需 KaTeX、HTML/资源安全降级。
 - [x] Markdown 原文与结构化阅读文本复制；H1/Setext H1 驱动知识节点名。
-- [进行中] Corpus 已有首批结构/安全回归；官方 CommonMark、恶意输入、模糊测试和 2 MiB 基准待扩充。
-- [进行中] Lezer/mdast 语义适配与 Typora 式 Live Preview：首批标题/行内/任务/Callout 装饰、
-  composition 停用和全选区揭示已完成；数学/图片/脚注/fence 与真实 IME/Android 验收待完成。
+- [进行中] Corpus 已有首批结构/安全回归和 2 MiB/10,000 行 fence 自动门；官方 CommonMark、
+  恶意输入、模糊测试和输入延迟/滚动分布待扩充。
+- [进行中] Lezer/mdast 语义适配与 Typora 式 Live Preview：标题/行内/任务/Callout、数学、
+  图片安全占位、脚注、闭合 fence、composition 停用和全选区揭示已完成；真实 IME/Android
+  与点击交互验收待完成。
 - [进行中] mdast offset 驱动的大纲 UI 已完成；Wiki 目标解析、附件、搜索/反向链接/导出/
   版本语义 diff 待完成。
 - [ ] Language Registry、Tier 1 动态 grammar、缓存、折叠、高亮行和未知语言回退。

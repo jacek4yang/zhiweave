@@ -18,10 +18,11 @@
 - `pnpm install --frozen-lockfile`：通过，142 个 lockfile 条目通过供应链策略。
 - `pnpm typecheck`：通过。
 - `pnpm lint`：通过（当前等同 TypeScript noEmit，需加入真实 ESLint）。
-- `pnpm test`：通过，8 files / 41 tests；除原有版本/分支、日记/H1、持久版本 DTO、种子、
+- `pnpm test`：通过，9 files / 47 tests；除原有版本/分支、日记/H1、持久版本 DTO、种子、
   交互实验和保存状态用例外，新增 command id/快捷键唯一性、IME 防误触、上下文矩阵、原生能力
   隔离、禁用条件、中文/别名检索、共享 Markdown AST/安全渲染，以及 Lezer frontmatter/Wiki、
-  光标揭示、composition 停用、任务/Callout 和源码不变回归测试。
+  光标揭示、composition 停用、任务/Callout、数学/图片/脚注/fence、多光标、大输入和源码
+  不变回归测试。
 - `pnpm build`：通过，主 chunk 有 >500 KB 警告。
 - `pnpm audit --prod --audit-level high`：无已知漏洞。
 - 浏览器：搜索、阅读/编辑、分栏、标签、刷新恢复、复制保真、上下文菜单分流、输入粘贴、编辑撤销、UUID 生成/校验/提示词通过；命令面板中文筛选、方向键、Enter、Esc、焦点恢复和 390×844/1280×800 布局通过。
@@ -132,9 +133,13 @@
   容器滚动，窄屏右键菜单边界为 138–386 px，完整位于 390 px 视口内。
 - Windows 原生 welcome Markdown 只读验收确认 H1、4 个正文段落、任务列表、两类复制命令和
   能力矩阵；未修改 Markdown、版本或备份，原生进程与 9335 调试端口均关闭。
+- Live Preview 单元覆盖数学、图片安全占位、脚注、闭合/未闭合 fence、未知/截断指令块、
+  转义美元、货币、超限公式、composition 和四处多光标同时揭示，均核对 source 未改变。
+- Windows 自动性能门覆盖 2 MiB 窄视口（约 322 ms）和 10,000 行 fence 可见行上限
+  （约 9 ms、最多 24 行装饰）。
 
-尚未完成的 Markdown 测试：CommonMark 官方全集快照、round-trip 属性/模糊测试、2 MiB 输入与
-10,000 行代码块基准、IME + Live Preview Decoration、真实附件/Wiki 目标、Mermaid 和导出。
+尚未完成的 Markdown 测试：CommonMark 官方全集快照、round-trip 属性/模糊测试、局部输入
+P95/滚动与内存基准、真实 IME + Live Preview Decoration、真实附件/Wiki 目标、Mermaid 和导出。
 
 尚未完成：稳定 Windows 磁盘满/只读目录故障注入、Tauri IPC 自动 E2E、watcher 高频压力/休眠恢复、
 占位/安全移动强杀恢复、长读事务、10,000 文件性能基准、100,000 条索引查询基准和 Android

@@ -1,6 +1,6 @@
 # 开发进度
 
-最后更新：2026-07-30 06:57 CST
+最后更新：2026-07-30 07:55 CST
 
 ## 执行拓扑
 
@@ -83,18 +83,23 @@
   偏好与 Markdown 数据分离保存。
 - Wiki 长度上限与 Callout 名称/中文标题抽为轻量共享契约，减少 Lezer 输入层和 mdast 阅读层
   漂移；任务 checkbox 修改走正常 CodeMirror transaction，可撤销。
+- Live Preview 第二纵切增加数学、图片安全占位、脚注和闭合代码围栏；公式与阅读视图共享
+  `trust=false` 的按需 KaTeX 渲染器，图片 widget 不生成 `img/src` 或主动网络请求。
+- 未知/截断 `:::` 指令块与未闭合数学/围栏保持原文；点击展示 widget 会把光标送回源码，
+  多光标进入四类结构时均停止对应替换。
+- 自动性能门覆盖 2 MiB 窄视口和 10,000 行代码围栏，只对可见行生成装饰并核对原文不变。
 
 ## 当前质量证据
 
 - `pnpm typecheck`：通过。
-- `pnpm test`：8 files / 41 tests，通过。
-- `pnpm build`：通过，最近一次约 500 ms。
+- `pnpm test`：9 files / 47 tests，通过。
+- `pnpm build`：通过，最近一次约 753 ms。
 - 交互实验独立 chunk：5.99 KB（gzip 2.46 KB）。
 - Markdown 阅读器 / AST 独立 chunk：11.32 / 92.24 KB（gzip 3.98 / 26.02 KB）。
 - 文档大纲独立 chunk：1.16 KB（gzip 0.67 KB）。
-- KaTeX 独立 chunk：259.54 KB（gzip 77.66 KB），只在公式出现时加载。
-- 主 CSS：53.19 KB（gzip 10.03 KB）。
-- 主 JavaScript：927.07 KB（gzip 308.74 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
+- KaTeX/mathRenderer 独立 chunk：259.23 KB（gzip 77.61 KB），只在公式出现时加载。
+- 主 CSS：55.20 KB（gzip 10.32 KB）。
+- 主 JavaScript：934.49 KB（gzip 310.59 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
 - Rust workspace 49 项测试通过，其中 application 4 项、Tauri 4 项、storage 30 项、portable path 5 项；fmt 和全 workspace Clippy `-D warnings` 通过。
 - `pnpm audit --prod --audit-level high`：无已知漏洞；`cargo audit --no-fetch --stale` 扫描 471 个 lockfile 依赖，无已知 vulnerability，17 项既有 allowed warning。
 - Windows 原生进程：`知织 · ZhiWeave` 正常运行；固定工作区有 6 个真实 Markdown、identity v1 的 6 个唯一 ID/路径和有效 SQLite 3 数据库。
@@ -125,13 +130,16 @@
 - 本轮 Live Preview 页面由 Windows Vite 服务以 HTTP 200 提供；应用内浏览器控制连接在导航
   阶段连续超时，因此尚未把本轮光标/大纲视觉交互记为浏览器验收通过。
 - 本轮 Windows Tauri dev profile 重新编译并启动 `知织 · ZhiWeave`，窗口进程正常响应且启动
-  日志无运行期错误；该证据只覆盖原生壳启动，不替代光标、IME 和视觉交互验收。
+  日志无运行期错误；DWM 实际像素窗口截图确认 1924×1204 客户区无裁切。该证据只覆盖原生壳
+  启动与静态布局，不替代光标、IME 和点击交互验收。
+- Live Preview 性能回归：2 MiB 窄视口约 322 ms；10,000 行 fence 可见 24 行用例约 9 ms。
+- `pnpm audit --prod --audit-level high` 无已知漏洞；SOCKS 代理等待无响应后按既有回退策略直连。
+  `cargo audit --no-fetch` 扫描 471 个依赖，无 vulnerability，保留 17 项既有 allowed warning。
 
 ## 当前任务
 
-1. 为首批 Live Preview 完成真实 Windows 光标/IME/多光标与窄屏验收，再补数学、图片、脚注
-   和 fence 装饰。
-2. 扩展 Markdown Corpus、2 MiB/深层/恶意输入基准；大纲已接入，继续 Wiki 目标、反向链接、
+1. 为扩展后的 Live Preview 完成真实 Windows 光标/IME/多光标、点击回源码与窄屏验收。
+2. 扩展 Markdown Corpus、局部输入 P95/深层/恶意输入基准；大纲已接入，继续 Wiki 目标、反向链接、
    附件和版本语义 diff。
 3. 增加快捷键编辑器、预览标签和移动触控入口。
 4. 补 watcher 高频压力、文件锁、磁盘满、只读目录和强杀恢复夹具。
@@ -145,9 +153,9 @@
 - 外部“改名同时改正文”无法仅凭 revision 自动识别为同一节点；应用内显式重命名可以稳定保持身份。
 - watcher 只保证“事件后完整核对”，不保证底层平台一定投递事件；网络文件系统不在当前固定本机工作区支持范围，高频事件压力和进程休眠恢复仍需基准。
 - create 的空占位后若进程强杀可能留下空 Markdown，自动恢复日志未完成。
-- 通用阅读器、输入期首批 Lezer Decoration 和大纲已按 source offset 对齐，但数学、图片、
-  脚注、fence、搜索/反向链接/导出/版本差异尚未统一完成。
-- 首屏 JS gzip 超预算 108.74 KB；CodeMirror/图标/工作台和命令面板需进一步分包和测量。
+- 通用阅读器、Lezer Decoration 和大纲已按 source offset 对齐；数学/脚注/fence 完成当前
+  编辑纵切，但真实附件、搜索/反向链接/导出/版本差异尚未统一完成。
+- 首屏 JS gzip 超预算 110.59 KB；CodeMirror/图标/工作台和命令面板需进一步分包和测量。
 - KaTeX 虽按需加载，但构建仍携带上游 WOFF2/WOFF/TTF 多格式字体，安装包资产需要收敛。
 - 已有可校验完整工作区目录包和重启前目录切换恢复，但尚无系统文件选择器导入、跨设备恢复演练、备份加密或同步加密；本地 SQLite 与备份包目前未加密，不得宣称客户端密码保护已完成。
 - Command registry/命令面板第一纵切已完成，但快捷键编辑器、完整树/属性/反向链接、FSRS 与深度学习 schema 尚未完成。

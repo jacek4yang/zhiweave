@@ -207,4 +207,5 @@ Callout 扩展和后续导出使用 `mdast-util-from-markdown` 产生的标准 A
 选择 mdast 是为了复用成熟的 CommonMark/GFM/frontmatter/脚注/数学语义，同时保持 Markdown
 事实源和未知扩展保真。代价是编辑器 Lezer 与跨功能 mdast 仍需一层位置/节点契约，以及解析器
 和 KaTeX 的按需包体。首批 Live Preview 与大纲不能代表整条管线完成；搜索、反向链接、版本
-差异、附件以及数学/图片/fence 编辑装饰只有接入同一契约并通过 Corpus 后才能标记完成。
+差异和真实附件仍需接入同一契约并通过 Corpus。数学、图片安全占位、脚注与闭合 fence 已完成
+当前输入期范围适配，但真实 IME/Android、附件解析和语义导出未通过前不能标记整条管线完成。
