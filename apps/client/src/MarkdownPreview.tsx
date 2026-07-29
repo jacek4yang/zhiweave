@@ -1,4 +1,16 @@
-import { Fragment, type ReactNode } from "react";
+import {
+  Fragment,
+  lazy,
+  Suspense,
+  type ReactNode,
+} from "react";
+
+import { EMBEDDED_LAB_LANGUAGE } from "./embeddedLabModel";
+
+const EmbeddedLab = lazy(async () => {
+  const module = await import("./EmbeddedLab");
+  return { default: module.EmbeddedLab };
+});
 
 interface MarkdownPreviewProps {
   readonly markdown: string;
@@ -18,12 +30,17 @@ interface Block {
   readonly content: string;
   readonly level?: number;
   readonly checked?: boolean;
+  readonly infoString?: string;
 }
 
 export function MarkdownPreview({ markdown }: MarkdownPreviewProps) {
   const blocks = parseMarkdown(markdown);
   return (
-    <article className="markdown-preview" aria-label="Markdown 阅读视图">
+    <article
+      className="markdown-preview"
+      aria-label="Markdown 阅读视图"
+      data-context="preview"
+    >
       {blocks.map((block, index) => renderBlock(block, index))}
     </article>
   );
@@ -46,7 +63,7 @@ function parseMarkdown(markdown: string): readonly Block[] {
       blocks.push({
         kind: "code",
         content: code.join("\n"),
-        level: language.length,
+        infoString: language,
       });
       continue;
     }
@@ -130,7 +147,28 @@ function renderBlock(block: Block, index: number): ReactNode {
     case "blockquote":
       return <blockquote key={key}>{renderInline(block.content)}</blockquote>;
     case "code":
-      return <pre key={key}><code>{block.content}</code></pre>;
+      return block.infoString === EMBEDDED_LAB_LANGUAGE ? (
+        <Suspense
+          fallback={
+            <div className="lab-loading" key={key} role="status">
+              正在准备本地交互实验…
+            </div>
+          }
+          key={key}
+        >
+          <EmbeddedLab source={block.content} />
+        </Suspense>
+      ) : (
+        <pre key={key}>
+          <code className={
+            block.infoString === undefined || block.infoString.length === 0
+              ? undefined
+              : `language-${safeLanguageName(block.infoString)}`
+          }>
+            {block.content}
+          </code>
+        </pre>
+      );
     case "rule":
       return <hr key={key} />;
     case "blank":
@@ -138,6 +176,10 @@ function renderBlock(block: Block, index: number): ReactNode {
     default:
       return <p key={key}>{renderInline(block.content)}</p>;
   }
+}
+
+function safeLanguageName(infoString: string): string {
+  return infoString.split(/\s+/, 1)[0]?.replaceAll(/[^a-z0-9_-]/gi, "") ?? "";
 }
 
 function renderInline(content: string): ReactNode {

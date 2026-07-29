@@ -1,0 +1,46 @@
+# 路线图
+
+最近更新：2026-07-30
+
+每阶段只推进少量可验证垂直切片，必须通过阶段质量门后再扩大范围。
+
+## 阶段 0：审计（完成，待发布）
+
+- [x] 仓库、GitHub、Windows 工具链与执行拓扑审计。
+- [x] 前端依赖、质量门、真实浏览器与基线截图。
+- [x] localStorage、MarkdownPreview、CodeMirror、字体和持久化审计。
+- [x] 产品、UX、设计、编辑器、语言、Markdown、性能、安全和测试文档。
+- [x] 固定 Rust 1.95.0 基线全门禁。
+- [ ] 基线提交、Draft PR 与 CI。
+
+## 阶段 1：专业外壳
+
+1. [进行中] 设计 token；默认 TokyoNight Moon 语义深色已落地，浅色/高对比/密度待完成。
+2. [进行中] Activity Bar + 主侧栏 + 状态栏已落地，可折叠上下文栏待完成。
+3. [进行中] 多标签与按对象上下文菜单已落地，统一 command registry/预览标签待完成。
+4. 命令面板与快速打开。
+5. 分屏、布局持久化、Zen/Focus/Typewriter。
+6. 浏览器 E2E 和视觉回归。
+
+## 阶段 1.5：声明式交互实验
+
+- [x] `zhiweave-lab` v1 fence、严格 schema、输入上限与失败原文降级。
+- [x] UUID v4/v7 结构实验、128 位视图、复制与安全 AI 生成提示词。
+- [ ] 算法步进/状态流程组件；每个 kind 单独权限、schema、测试与包体预算。
+- [ ] 与统一 Markdown AST、导出、同步、版本差异和移动端无障碍集成。
+
+## 阶段 2：真实本地数据
+
+Workspace 打开 → Markdown 列表 → 原子保存 → expected revision 冲突 → SQLite/FTS → 重建索引 → 文件监控 → 崩溃恢复 → 移除全文 localStorage。
+
+## 阶段 3–4：编辑器与代码块
+
+统一 AST、Corpus、Live Preview、Wiki Link、表格、数学、附件、大纲、IME/大文件；随后实现 Language Registry、Tier 1 动态 grammar、缓存、折叠、复制、高亮行和未知语言回退。
+
+## 阶段 5–8：知识与学习
+
+属性/反向链接/关系/集合/Canvas；学习主题与英语切片；FSRS 复习切片；Prompt Composer 隐私预览与候选差异导入。
+
+## 阶段 9–10：同步、安全与发布
+
+威胁模型、设备和密钥、加密对象、版本 DAG、显式冲突、故障注入；最后完成跨平台矩阵、安装包、性能报告、迁移、离线中文 HTML 手册和 RC。

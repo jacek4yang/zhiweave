@@ -1,19 +1,141 @@
-import { useEffect, useRef } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+} from "react";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
+import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import {
+  redo,
+  redoDepth,
+  undo,
+  undoDepth,
+} from "@codemirror/commands";
+import { tags } from "@lezer/highlight";
 import { basicSetup, EditorView } from "codemirror";
 
 interface MarkdownEditorProps {
   readonly value: string;
   readonly onChange: (value: string) => void;
+  readonly onStatusChange?: (status: EditorStatus) => void;
 }
 
-export function MarkdownEditor({
-  value,
-  onChange,
-}: MarkdownEditorProps) {
+export interface EditorStatus {
+  readonly line: number;
+  readonly column: number;
+  readonly lines: number;
+  readonly characters: number;
+  readonly words: number;
+  readonly selectionLength: number;
+  readonly undoDepth: number;
+  readonly redoDepth: number;
+}
+
+export interface MarkdownEditorHandle {
+  readonly focus: () => void;
+  readonly redo: () => boolean;
+  readonly undo: () => boolean;
+}
+
+const markdownHighlightStyle = HighlightStyle.define([
+  {
+    tag: tags.heading1,
+    color: "var(--syntax-blue)",
+    fontWeight: "750",
+  },
+  {
+    tag: tags.heading2,
+    color: "var(--syntax-violet)",
+    fontWeight: "700",
+  },
+  {
+    tag: [tags.heading3, tags.heading4, tags.heading5, tags.heading6],
+    color: "var(--syntax-cyan)",
+    fontWeight: "650",
+  },
+  {
+    tag: [tags.meta, tags.punctuation, tags.contentSeparator],
+    color: "var(--syntax-punctuation)",
+  },
+  {
+    tag: tags.quote,
+    color: "var(--syntax-comment)",
+    fontStyle: "italic",
+  },
+  {
+    tag: tags.strong,
+    color: "var(--syntax-yellow)",
+    fontWeight: "750",
+  },
+  {
+    tag: tags.emphasis,
+    color: "var(--syntax-warm)",
+    fontStyle: "italic",
+  },
+  {
+    tag: tags.link,
+    color: "var(--syntax-teal)",
+    textDecoration: "underline",
+  },
+  {
+    tag: tags.url,
+    color: "var(--syntax-blue)",
+    textDecoration: "underline",
+  },
+  {
+    tag: [tags.monospace, tags.string],
+    color: "var(--syntax-green)",
+  },
+  {
+    tag: [tags.number, tags.bool, tags.constant(tags.name)],
+    color: "var(--syntax-orange)",
+  },
+  {
+    tag: [tags.keyword, tags.modifier],
+    color: "var(--syntax-magenta)",
+    fontWeight: "650",
+  },
+  {
+    tag: tags.comment,
+    color: "var(--syntax-comment)",
+    fontStyle: "italic",
+  },
+  {
+    tag: tags.invalid,
+    color: "var(--danger)",
+    textDecoration: "underline wavy",
+  },
+]);
+
+export const MarkdownEditor = forwardRef<
+  MarkdownEditorHandle,
+  MarkdownEditorProps
+>(function MarkdownEditor({
+    value,
+    onChange,
+    onStatusChange,
+  }, ref) {
   const host = useRef<HTMLDivElement>(null);
+  const viewRef = useRef<EditorView>(null);
   const onChangeRef = useRef(onChange);
+  const onStatusChangeRef = useRef(onStatusChange);
   onChangeRef.current = onChange;
+  onStatusChangeRef.current = onStatusChange;
+
+  useImperativeHandle(ref, () => ({
+    focus() {
+      viewRef.current?.focus();
+    },
+    redo() {
+      const view = viewRef.current;
+      return view === null ? false : redo(view);
+    },
+    undo() {
+      const view = viewRef.current;
+      return view === null ? false : undo(view);
+    },
+  }), []);
 
   useEffect(() => {
     if (host.current === null) {
@@ -27,18 +149,64 @@ export function MarkdownEditor({
         markdown({
           base: markdownLanguage,
         }),
+        syntaxHighlighting(markdownHighlightStyle),
         EditorView.lineWrapping,
         EditorView.updateListener.of((update) => {
           if (update.docChanged) {
             onChangeRef.current(update.state.doc.toString());
           }
+          if (update.docChanged || update.selectionSet) {
+            onStatusChangeRef.current?.(editorStatus(update.view));
+          }
         }),
       ],
     });
+    viewRef.current = view;
+    onStatusChangeRef.current?.(editorStatus(view));
     return () => {
+      viewRef.current = null;
       view.destroy();
     };
   }, []);
 
-  return <div className="markdown-editor" ref={host} />;
+  useEffect(() => {
+    const view = viewRef.current;
+    if (view === null || view.state.doc.toString() === value) {
+      return;
+    }
+    view.dispatch({
+      changes: {
+        from: 0,
+        to: view.state.doc.length,
+        insert: value,
+      },
+    });
+  }, [value]);
+
+  return <div className="markdown-editor" data-context="editor" ref={host} />;
+});
+
+function editorStatus(view: EditorView): EditorStatus {
+  const document = view.state.doc;
+  const selection = view.state.selection.main;
+  const line = document.lineAt(selection.head);
+  const text = document.toString();
+  return {
+    line: line.number,
+    column: selection.head - line.from + 1,
+    lines: document.lines,
+    characters: text.length,
+    words: countWords(text),
+    selectionLength: Math.abs(selection.to - selection.from),
+    undoDepth: undoDepth(view.state),
+    redoDepth: redoDepth(view.state),
+  };
+}
+
+function countWords(value: string): number {
+  return (
+    value.match(
+      /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]|[\p{L}\p{N}_'-]+/gu,
+    )?.length ?? 0
+  );
 }

@@ -13,7 +13,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@codemirror/commands": "6.10.4",
     "@codemirror/lang-markdown": "6.5.1",
+    "@codemirror/language": "6.12.4",
+    "@lezer/highlight": "1.2.3",
     "@tauri-apps/api": "2.11.1",
     "codemirror": "6.0.2",
     "lucide-react": "1.27.0",

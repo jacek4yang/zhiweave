@@ -1,29 +1,38 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
 import {
   BookOpenText,
   BrainCircuit,
   CalendarDays,
-  Check,
   CheckCircle2,
   Clock3,
+  Columns2,
+  Copy,
+  Database,
   FilePlus2,
   FlaskConical,
+  GitFork,
   GitBranch,
   GraduationCap,
   Library,
-  LockKeyhole,
+  Maximize2,
+  Menu,
+  Minus,
   Network,
+  NotebookPen,
   PencilLine,
   Plus,
   RotateCcw,
   Save,
   Search,
   Sparkles,
+  Trash2,
   X,
 } from "lucide-react";
 
@@ -34,37 +43,78 @@ import {
   createBlankNote,
   createInitialWorkspace,
   createLearningPrompt,
+  deleteSnapshot,
   notesForView,
+  openOrCreateDailyJournal,
   parseWorkspace,
+  resolveSnapshotMarkdown,
   restoreSnapshot,
   searchNotes,
+  snapshotStorageBytes,
+  titleFromMarkdown,
   type LearningNote,
   type NoteSnapshot,
   type ViewKey,
   type WorkspaceState,
 } from "./appModel";
-import { MarkdownEditor } from "./MarkdownEditor";
+import {
+  MarkdownEditor,
+  type EditorStatus,
+  type MarkdownEditorHandle,
+} from "./MarkdownEditor";
 import { MarkdownPreview } from "./MarkdownPreview";
+import { createUuidLabMarkdown } from "./embeddedLabModel";
 import { loadSystemStatus, type SystemStatus } from "./system";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
-const NAVIGATION = [
+type EditorMode = "edit" | "preview" | "split";
+
+interface ContextMenuState {
+  readonly x: number;
+  readonly y: number;
+  readonly scope:
+    | "activity"
+    | "editor"
+    | "embedded-lab"
+    | "explorer"
+    | "input"
+    | "note-item"
+    | "preview"
+    | "status"
+    | "tab"
+    | "titlebar"
+    | "version-node"
+    | "workspace";
+  readonly hasSelection: boolean;
+  readonly noteId?: string;
+  readonly snapshotId?: string;
+}
+
+const EMPTY_EDITOR_STATUS: EditorStatus = {
+  line: 1,
+  column: 1,
+  lines: 1,
+  characters: 0,
+  words: 0,
+  selectionLength: 0,
+  undoDepth: 0,
+  redoDepth: 0,
+};
+
+const PRIMARY_NAVIGATION = [
   { key: "today", icon: CalendarDays },
   { key: "continue", icon: GraduationCap },
   { key: "topics", icon: Network },
-  { key: "sources", icon: Library },
-  { key: "experiments", icon: FlaskConical },
   { key: "review", icon: CheckCircle2 },
+  { key: "sources", icon: Library },
+] as const;
+
+const SECONDARY_NAVIGATION = [
+  { key: "experiments", icon: FlaskConical },
   { key: "versions", icon: GitBranch },
 ] as const;
 
-const COMPLETION_CHECKS = [
-  { id: "windows-input", label: "Windows 输入与保存" },
-  { id: "android-input", label: "Android 中文输入" },
-  { id: "stronghold-unlock", label: "Stronghold 重启解锁" },
-  { id: "sqlite-search", label: "SQLite 检索" },
-] as const;
-
-const NOTE_VIEWS = NAVIGATION
+const NOTE_VIEWS = [...PRIMARY_NAVIGATION, ...SECONDARY_NAVIGATION]
   .filter((item) => item.key !== "versions")
   .map((item) => item.key);
 
@@ -77,7 +127,19 @@ export function App() {
       workspace.notes.find((note) => note.id === workspace.selectedNoteId)
         ?.view ?? "continue",
   );
-  const [isReading, setIsReading] = useState(false);
+  const [activeNoteId, setActiveNoteId] = useState<string | null>(
+    workspace.selectedNoteId,
+  );
+  const [openNoteIds, setOpenNoteIds] = useState<readonly string[]>([
+    workspace.selectedNoteId,
+  ]);
+  const [closedNoteIds, setClosedNoteIds] = useState<readonly string[]>([]);
+  const [editorMode, setEditorMode] = useState<EditorMode>("edit");
+  const [editorStatus, setEditorStatus] =
+    useState<EditorStatus>(EMPTY_EDITOR_STATUS);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(
+    () => window.innerWidth > 960,
+  );
   const [isNewNoteOpen, setIsNewNoteOpen] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newView, setNewView] =
@@ -85,18 +147,22 @@ export function App() {
   const [query, setQuery] = useState("");
   const [toast, setToast] = useState("");
   const [status, setStatus] = useState<SystemStatus>();
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const editorRef = useRef<MarkdownEditorHandle>(null);
+  const contextTargetRef = useRef<HTMLElement | null>(null);
 
   const selectedNote = workspace.notes.find(
-    (note) => note.id === workspace.selectedNoteId,
+    (note) => note.id === activeNoteId,
   );
+  const openNotes = openNoteIds
+    .map((id) => workspace.notes.find((note) => note.id === id))
+    .filter((note): note is LearningNote => note !== undefined);
   const visibleNotes = notesForView(workspace.notes, activeView);
   const results = useMemo(
     () => searchNotes(workspace.notes, query),
     [query, workspace.notes],
   );
-  const completedCount = COMPLETION_CHECKS.filter(
-    (item) => workspace.completedChecks[item.id] === true,
-  ).length;
 
   useEffect(() => {
     void loadSystemStatus().then(setStatus);
@@ -131,30 +197,46 @@ export function App() {
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [isNewNoteOpen]);
 
+  useEffect(() => {
+    const compactWindow = window.matchMedia("(max-width: 960px)");
+    const closeSidebarInCompactWindow = () => {
+      if (compactWindow.matches) {
+        setIsSidebarOpen(false);
+      }
+    };
+    compactWindow.addEventListener("change", closeSidebarInCompactWindow);
+    return () =>
+      compactWindow.removeEventListener("change", closeSidebarInCompactWindow);
+  }, []);
+
   function navigate(view: ViewKey) {
     setActiveView(view);
     setQuery("");
-    setIsReading(false);
     if (view === "versions") {
       return;
     }
     const first = notesForView(workspace.notes, view)[0];
     if (first !== undefined) {
-      setWorkspace((current) => ({
-        ...current,
-        selectedNoteId: first.id,
-      }));
+      activateNote(first);
     }
   }
 
-  function selectNote(note: LearningNote) {
+  function activateNote(note: LearningNote) {
+    setActiveNoteId(note.id);
+    setOpenNoteIds((current) =>
+      current.includes(note.id) ? current : [...current, note.id],
+    );
+    setClosedNoteIds((current) => current.filter((id) => id !== note.id));
     setWorkspace((current) => ({
       ...current,
       selectedNoteId: note.id,
     }));
     setActiveView(note.view);
+  }
+
+  function selectNote(note: LearningNote) {
+    activateNote(note);
     setQuery("");
-    setIsReading(false);
   }
 
   function updateMarkdown(markdown: string) {
@@ -165,7 +247,14 @@ export function App() {
     setWorkspace((current) => ({
       ...current,
       notes: current.notes.map((note) =>
-        note.id === selectedNote.id ? { ...note, markdown, updatedAt } : note,
+        note.id === selectedNote.id
+          ? {
+              ...note,
+              title: titleFromMarkdown(markdown, note.title),
+              markdown,
+              updatedAt,
+            }
+          : note,
       ),
     }));
   }
@@ -174,6 +263,37 @@ export function App() {
     setNewTitle("");
     setNewView(activeView === "versions" ? "topics" : activeView);
     setIsNewNoteOpen(true);
+  }
+
+  function openTodayJournal() {
+    const result = openOrCreateDailyJournal(workspace);
+    setWorkspace(result.workspace);
+    activateNote(result.note);
+    setQuery("");
+    setToast(`已打开 ${result.note.title}。`);
+  }
+
+  function createUuidLab() {
+    const title = "UUID 结构实验室";
+    const note: LearningNote = {
+      ...createBlankNote(title, "experiments"),
+      kind: "learning_node",
+      markdown: createUuidLabMarkdown(title),
+    };
+    setWorkspace((current) => ({
+      ...current,
+      notes: [note, ...current.notes],
+      selectedNoteId: note.id,
+    }));
+    setActiveNoteId(note.id);
+    setOpenNoteIds((current) =>
+      current.includes(note.id) ? current : [...current, note.id],
+    );
+    setClosedNoteIds((current) => current.filter((id) => id !== note.id));
+    setActiveView("experiments");
+    setEditorMode("split");
+    setQuery("");
+    setToast("UUID 交互实验已创建；左侧可编辑，右侧会实时运行。");
   }
 
   function createNote(event: FormEvent<HTMLFormElement>) {
@@ -187,21 +307,81 @@ export function App() {
       notes: [note, ...current.notes],
       selectedNoteId: note.id,
     }));
+    setActiveNoteId(note.id);
+    setOpenNoteIds((current) => [...current, note.id]);
+    setClosedNoteIds((current) => current.filter((id) => id !== note.id));
     setActiveView(note.view);
-    setIsReading(false);
     setIsNewNoteOpen(false);
     setToast(`已创建“${note.title}”，草稿已保存在本机。`);
   }
 
-  async function copyForAi() {
-    if (selectedNote === undefined) {
+  async function copyForAi(note = selectedNote) {
+    if (note === undefined) {
       return;
     }
     try {
-      await copyText(createLearningPrompt(selectedNote));
-      setToast("学习提示词和当前笔记已复制，可以粘贴到网页 AI。");
+      await copyText(createLearningPrompt(note));
+      setToast("学习提示词和当前笔记已复制。");
     } catch {
       setToast("复制失败，请检查系统剪贴板权限。");
+    }
+  }
+
+  async function copyNoteTitle(note: LearningNote) {
+    try {
+      await copyText(note.title);
+      setToast(`已复制“${note.title}”的标题。`);
+    } catch {
+      setToast("复制失败，请检查系统剪贴板权限。");
+    }
+  }
+
+  async function copySnapshotMarkdown(snapshot: NoteSnapshot) {
+    const markdown = resolveSnapshotMarkdown(workspace, snapshot.id);
+    if (markdown === undefined) {
+      setToast("这个版本无法安全重建，未执行复制。");
+      return;
+    }
+    try {
+      await copyText(markdown);
+      setToast("所选版本的 Markdown 已复制。");
+    } catch {
+      setToast("复制失败，请检查系统剪贴板权限。");
+    }
+  }
+
+  async function pasteIntoContextInput() {
+    const target = contextTargetRef.current;
+    if (
+      !(target instanceof HTMLInputElement) &&
+      !(target instanceof HTMLTextAreaElement)
+    ) {
+      return;
+    }
+    try {
+      const text = await navigator.clipboard.readText();
+      const start = target.selectionStart ?? target.value.length;
+      const end = target.selectionEnd ?? start;
+      const next =
+        target.value.slice(0, start) +
+        text +
+        target.value.slice(end);
+      const descriptor = Object.getOwnPropertyDescriptor(
+        target instanceof HTMLInputElement
+          ? HTMLInputElement.prototype
+          : HTMLTextAreaElement.prototype,
+        "value",
+      );
+      descriptor?.set?.call(target, next);
+      target.dispatchEvent(new InputEvent("input", {
+        bubbles: true,
+        inputType: "insertFromPaste",
+        data: text,
+      }));
+      target.focus();
+      target.setSelectionRange(start + text.length, start + text.length);
+    } catch {
+      setToast("无法读取剪贴板；请使用 Ctrl+V。");
     }
   }
 
@@ -211,6 +391,11 @@ export function App() {
     }
     setWorkspace((current) => addSnapshot(current, selectedNote));
     setToast(`已保存“${selectedNote.title}”的手动版本。`);
+  }
+
+  function saveVersionFor(note: LearningNote) {
+    setWorkspace((current) => addSnapshot(current, note));
+    setToast(`已保存“${note.title}”的手动版本。`);
   }
 
   function restoreVersion(snapshot: NoteSnapshot) {
@@ -226,20 +411,38 @@ export function App() {
     });
     const note = workspace.notes.find((item) => item.id === snapshot.noteId);
     if (note !== undefined) {
-      setActiveView(note.view);
+      activateNote(note);
     }
-    setIsReading(false);
     setToast("已恢复所选版本；恢复前内容已自动备份。");
   }
 
-  function toggleCheck(id: string) {
-    setWorkspace((current) => ({
-      ...current,
-      completedChecks: {
-        ...current.completedChecks,
-        [id]: current.completedChecks[id] !== true,
-      },
-    }));
+  function deleteVersion(snapshot: NoteSnapshot) {
+    const confirmed = window.confirm(
+      `删除“${snapshot.noteTitle}”在 ${formatDate(snapshot.createdAt)} 的版本节点？后续分支会自动重接，笔记正文不会被删除。`,
+    );
+    if (!confirmed) {
+      return;
+    }
+    const before = workspace.snapshots.reduce(
+      (total, item) => total + snapshotStorageBytes(item),
+      0,
+    );
+    const next = deleteSnapshot(workspace, snapshot.id);
+    if (next === workspace) {
+      setToast("版本图未改变：节点数据无法安全重接。");
+      return;
+    }
+    const after = next.snapshots.reduce(
+      (total, item) => total + snapshotStorageBytes(item),
+      0,
+    );
+    setWorkspace(next);
+    const released = Math.max(0, before - after);
+    setToast(
+      released > 0
+        ? `版本节点已删除，释放约 ${formatBytes(released)}。`
+        : "版本节点已删除；子分支已重接并保持可恢复。",
+    );
   }
 
   function resetDemoData() {
@@ -251,38 +454,355 @@ export function App() {
     }
     const initial = createInitialWorkspace();
     setWorkspace(initial);
+    setActiveNoteId(initial.selectedNoteId);
+    setOpenNoteIds([initial.selectedNoteId]);
+    setClosedNoteIds([]);
     setActiveView("continue");
-    setIsReading(false);
+    setEditorMode("edit");
     setQuery("");
     setToast("本机演示数据已重置。");
   }
 
+  function closeTab(noteId: string) {
+    const index = openNoteIds.indexOf(noteId);
+    if (index < 0) {
+      return;
+    }
+    const remaining = openNoteIds.filter((id) => id !== noteId);
+    setOpenNoteIds(remaining);
+    setClosedNoteIds((current) => [
+      noteId,
+      ...current.filter((id) => id !== noteId),
+    ].slice(0, 20));
+    if (activeNoteId !== noteId) {
+      return;
+    }
+    const nextId = remaining[Math.min(index, remaining.length - 1)] ?? null;
+    setActiveNoteId(nextId);
+    const next = workspace.notes.find((note) => note.id === nextId);
+    if (next !== undefined) {
+      setWorkspace((current) => ({
+        ...current,
+        selectedNoteId: next.id,
+      }));
+      setActiveView(next.view);
+    }
+  }
+
+  function closeActiveTab() {
+    if (activeView === "versions") {
+      if (selectedNote !== undefined) {
+        setActiveView(selectedNote.view);
+      } else {
+        setActiveView("continue");
+      }
+      return;
+    }
+    if (activeNoteId !== null) {
+      closeTab(activeNoteId);
+    }
+  }
+
+  function closeOtherTabs(note: LearningNote) {
+    const closed = openNoteIds.filter((id) => id !== note.id);
+    activateNote(note);
+    setOpenNoteIds([note.id]);
+    setClosedNoteIds((current) => [
+      ...closed,
+      ...current.filter((id) => id !== note.id && !closed.includes(id)),
+    ].slice(0, 20));
+  }
+
+  function openVersionsFor(note: LearningNote) {
+    activateNote(note);
+    setActiveView("versions");
+  }
+
+  function openSplitFor(note: LearningNote) {
+    activateNote(note);
+    setEditorMode("split");
+  }
+
+  function reopenClosedTab() {
+    const id = closedNoteIds[0];
+    const note = workspace.notes.find((item) => item.id === id);
+    if (note === undefined) {
+      return;
+    }
+    setClosedNoteIds((current) => current.slice(1));
+    activateNote(note);
+  }
+
+  function cycleTab(direction: 1 | -1) {
+    if (openNoteIds.length === 0) {
+      return;
+    }
+    const currentIndex = Math.max(0, openNoteIds.indexOf(activeNoteId ?? ""));
+    const nextIndex =
+      (currentIndex + direction + openNoteIds.length) % openNoteIds.length;
+    const note = workspace.notes.find(
+      (item) => item.id === openNoteIds[nextIndex],
+    );
+    if (note !== undefined) {
+      activateNote(note);
+    }
+  }
+
+  function openContextMenu(event: ReactMouseEvent<HTMLElement>) {
+    event.preventDefault();
+    const target = event.target instanceof HTMLElement
+      ? event.target
+      : event.currentTarget;
+    const contextElement = target.closest<HTMLElement>("[data-context]");
+    const nativeInput = target.closest("input, textarea");
+    contextTargetRef.current =
+      nativeInput instanceof HTMLElement ? nativeInput : target;
+    const dataScope = contextElement?.dataset.context;
+    const scope: ContextMenuState["scope"] =
+      nativeInput !== null
+        ? "input"
+        : isContextScope(dataScope)
+          ? dataScope
+          : "workspace";
+    const nativeSelection =
+      nativeInput instanceof HTMLInputElement ||
+      nativeInput instanceof HTMLTextAreaElement
+        ? Math.abs(
+            (nativeInput.selectionEnd ?? 0) -
+            (nativeInput.selectionStart ?? 0),
+          )
+        : 0;
+    const hasSelection =
+      nativeSelection > 0 ||
+      (scope === "editor" && editorStatus.selectionLength > 0) ||
+      (window.getSelection()?.toString().length ?? 0) > 0;
+    const width = 248;
+    const height = 480;
+    setContextMenu({
+      x: Math.max(4, Math.min(event.clientX, window.innerWidth - width - 4)),
+      y: Math.max(34, Math.min(event.clientY, window.innerHeight - height - 4)),
+      scope,
+      hasSelection,
+      ...(contextElement?.dataset.noteId === undefined
+        ? {}
+        : { noteId: contextElement.dataset.noteId }),
+      ...(contextElement?.dataset.snapshotId === undefined
+        ? {}
+        : { snapshotId: contextElement.dataset.snapshotId }),
+    });
+  }
+
+  useEffect(() => {
+    const closeMenu = () => setContextMenu(null);
+    window.addEventListener("click", closeMenu);
+    window.addEventListener("resize", closeMenu);
+    return () => {
+      window.removeEventListener("click", closeMenu);
+      window.removeEventListener("resize", closeMenu);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleShortcut = (event: KeyboardEvent) => {
+      const commandKey = event.ctrlKey || event.metaKey;
+      if (!commandKey) {
+        if (event.key === "Escape") {
+          setContextMenu(null);
+        }
+        return;
+      }
+      const key = event.key.toLocaleLowerCase();
+      if (key === "b" && !event.shiftKey && !event.altKey) {
+        event.preventDefault();
+        setIsSidebarOpen((value) => !value);
+      } else if (key === "p" && !event.shiftKey) {
+        event.preventDefault();
+        setIsSidebarOpen(true);
+        window.setTimeout(() => searchInputRef.current?.focus(), 0);
+      } else if (key === "s" && !event.shiftKey) {
+        event.preventDefault();
+        saveVersion();
+      } else if (key === "n" && !event.shiftKey) {
+        event.preventDefault();
+        openNewNote();
+      } else if (key === "w" && !event.shiftKey) {
+        event.preventDefault();
+        closeActiveTab();
+      } else if (key === "tab") {
+        event.preventDefault();
+        cycleTab(event.shiftKey ? -1 : 1);
+      } else if (key === "t" && event.shiftKey) {
+        event.preventDefault();
+        reopenClosedTab();
+      } else if (key === "v" && event.shiftKey) {
+        event.preventDefault();
+        setEditorMode("preview");
+      } else if (key === "\\" && !event.shiftKey) {
+        event.preventDefault();
+        setEditorMode("split");
+      }
+    };
+    window.addEventListener("keydown", handleShortcut);
+    return () => window.removeEventListener("keydown", handleShortcut);
+  });
+
   const pageTitle =
     activeView === "versions"
       ? "本地版本历史"
-      : selectedNote?.title ?? VIEW_COPY[activeView].label;
+      : selectedNote?.title ?? "没有打开的笔记";
+  const editorLabel = activeView === "versions"
+    ? "版本"
+    : editorMode === "preview"
+      ? "预览"
+      : editorMode === "split"
+        ? "实时分栏"
+        : "Markdown";
+  const contextNote =
+    contextMenu?.noteId === undefined
+      ? selectedNote
+      : workspace.notes.find((note) => note.id === contextMenu.noteId);
+  const contextSnapshot =
+    contextMenu?.snapshotId === undefined
+      ? undefined
+      : workspace.snapshots.find(
+          (snapshot) => snapshot.id === contextMenu.snapshotId,
+        );
 
   return (
-    <main className="app-shell">
-      <aside className="navigation">
-        <div className="brand">
-          <span className="brand-mark"><BrainCircuit /></span>
-          <span>
-            <strong>知织</strong>
-            <small>ZhiWeave</small>
-          </span>
-          <button onClick={openNewNote} type="button" aria-label="新建笔记">
-            <Plus />
+    <main
+      className={`app-shell${isSidebarOpen ? "" : " is-sidebar-collapsed"}`}
+      onContextMenu={openContextMenu}
+    >
+      <header
+        className="app-titlebar"
+        data-context="titlebar"
+        data-tauri-drag-region
+        onDoubleClick={() => void runWindowAction("maximize")}
+      >
+        <div className="titlebar-identity" data-tauri-drag-region>
+          <BrainCircuit />
+          <span data-tauri-drag-region>知织</span>
+          <small data-tauri-drag-region>
+            {selectedNote?.title ?? VIEW_COPY[activeView].label}
+          </small>
+        </div>
+        <div className="window-controls">
+          <button
+            aria-label="最小化窗口"
+            onClick={() => void runWindowAction("minimize")}
+            title="最小化"
+            type="button"
+          >
+            <Minus />
+          </button>
+          <button
+            aria-label="最大化或还原窗口"
+            onClick={() => void runWindowAction("maximize")}
+            title="最大化或还原"
+            type="button"
+          >
+            <Maximize2 />
+          </button>
+          <button
+            aria-label="关闭窗口"
+            className="close-window"
+            onClick={() => void runWindowAction("close")}
+            title="关闭"
+            type="button"
+          >
+            <X />
           </button>
         </div>
+      </header>
 
-        <div className="search-wrap">
-          <label className="search">
+      <aside
+        className="activity-bar"
+        aria-label="主要区域"
+        data-context="activity"
+      >
+        <button
+          aria-label="显示或隐藏笔记栏"
+          className="activity-brand"
+          onClick={() => setIsSidebarOpen((value) => !value)}
+          title="显示或隐藏笔记栏"
+          type="button"
+        >
+          <BrainCircuit />
+        </button>
+
+        <nav aria-label="学习导航">
+          {PRIMARY_NAVIGATION.map(({ key, icon: Icon }) => (
+            <button
+              aria-current={activeView === key ? "page" : undefined}
+              aria-label={VIEW_COPY[key].label}
+              className={activeView === key ? "is-active" : ""}
+              key={key}
+              onClick={() => navigate(key)}
+              title={VIEW_COPY[key].label}
+              type="button"
+            >
+              <Icon />
+            </button>
+          ))}
+        </nav>
+
+        <nav className="activity-secondary" aria-label="工作区工具">
+          {SECONDARY_NAVIGATION.map(({ key, icon: Icon }) => (
+            <button
+              aria-current={activeView === key ? "page" : undefined}
+              aria-label={VIEW_COPY[key].label}
+              className={activeView === key ? "is-active" : ""}
+              key={key}
+              onClick={() => navigate(key)}
+              title={VIEW_COPY[key].label}
+              type="button"
+            >
+              <Icon />
+            </button>
+          ))}
+        </nav>
+      </aside>
+
+      <aside
+        className="explorer"
+        aria-label="笔记栏"
+        data-context="explorer"
+      >
+        <header className="explorer-header">
+          <div>
+            <span>{VIEW_COPY[activeView].label}</span>
+            <small>{visibleNotes.length} 条笔记</small>
+          </div>
+          <div className="explorer-actions">
+            {activeView === "today" && (
+              <button
+                aria-label="打开今日日记"
+                onClick={openTodayJournal}
+                title="打开今日日记"
+                type="button"
+              >
+                <NotebookPen />
+              </button>
+            )}
+            <button
+              aria-label="新建笔记"
+              onClick={openNewNote}
+              title="新建笔记"
+              type="button"
+            >
+              <Plus />
+            </button>
+          </div>
+        </header>
+
+        <div className="sidebar-search">
+          <label>
             <Search />
             <input
-              aria-label="搜索"
+              aria-label="搜索笔记"
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="搜索标题或正文…"
+              placeholder="搜索笔记"
+              ref={searchInputRef}
               value={query}
             />
             {query.length > 0 && (
@@ -295,73 +815,52 @@ export function App() {
               </button>
             )}
           </label>
-          {query.trim().length > 0 && (
-            <div className="search-results" aria-label="搜索结果">
-              {results.length === 0 ? (
-                <p>没有找到匹配内容</p>
-              ) : (
-                results.map((note) => (
-                  <button
-                    key={note.id}
-                    onClick={() => selectNote(note)}
-                    type="button"
-                  >
-                    <strong>{note.title}</strong>
-                    <small>{VIEW_COPY[note.view].label}</small>
-                  </button>
-                ))
-              )}
-            </div>
-          )}
         </div>
 
-        <nav aria-label="学习导航">
-          {NAVIGATION.map(({ key, icon: Icon }) => (
+        <section className="note-list" aria-label="笔记列表">
+          <h2>{query.trim().length > 0 ? "搜索结果" : "笔记"}</h2>
+          {(query.trim().length > 0 ? results : visibleNotes).map((note) => (
             <button
-              aria-current={activeView === key ? "page" : undefined}
-              className={activeView === key ? "is-active" : ""}
-              key={key}
-              onClick={() => navigate(key)}
+              className={note.id === selectedNote?.id ? "is-current" : ""}
+              data-context="note-item"
+              data-note-id={note.id}
+              key={note.id}
+              onClick={() => selectNote(note)}
               type="button"
             >
-              <Icon />
-              <span>{VIEW_COPY[key].label}</span>
-              {key !== "versions" && (
-                <small>{notesForView(workspace.notes, key).length}</small>
-              )}
+              <span>{note.title}</span>
+              <small>{formatRelativeDate(note.updatedAt)}</small>
             </button>
           ))}
-        </nav>
+          {query.trim().length > 0 && results.length === 0 && (
+            <p className="sidebar-empty">没有匹配的笔记</p>
+          )}
+          {query.trim().length === 0 && visibleNotes.length === 0 && (
+            <p className="sidebar-empty">这个区域还没有笔记</p>
+          )}
+        </section>
 
-        <button
-          className="topic-progress"
-          onClick={() => navigate("continue")}
-          type="button"
-        >
-          <span>当前主题</span>
-          <strong>构建 ZhiWeave</strong>
-          <div>
-            <i style={{ width: `${(completedCount / COMPLETION_CHECKS.length) * 100}%` }} />
-          </div>
-          <small>{completedCount} / {COMPLETION_CHECKS.length} 项已完成</small>
-        </button>
-
-        <div className="build-identity">
-          <LockKeyhole />
-          <span>
-            <strong>{status?.protocol ?? "正在读取核心…"}</strong>
-            <small>本机草稿 · {status?.stage ?? "architecture spike"}</small>
-          </span>
-        </div>
+        <footer className="explorer-footer">
+          <span>所有内容保存在本机</span>
+        </footer>
       </aside>
 
       <section className="workspace">
-        <header className="workspace-header">
-          <div>
-            <span className="eyebrow">{VIEW_COPY[activeView].label}</span>
-            <h1>{pageTitle}</h1>
-            <p>{VIEW_COPY[activeView].description}</p>
+        <header className="workbench-toolbar">
+          <div className="document-trail">
+            <button
+              aria-label="显示或隐藏笔记栏"
+              onClick={() => setIsSidebarOpen((value) => !value)}
+              title="显示或隐藏笔记栏"
+              type="button"
+            >
+              <Menu />
+            </button>
+            <span>{VIEW_COPY[activeView].label}</span>
+            <i>/</i>
+            <strong title={pageTitle}>{pageTitle}</strong>
           </div>
+
           <div className="header-actions">
             {activeView === "versions" ? (
               <button
@@ -370,96 +869,195 @@ export function App() {
                 onClick={saveVersion}
                 type="button"
               >
-                <Save /> 保存当前版本
+                <Save />
+                <span>保存当前版本</span>
               </button>
             ) : (
               <>
-                <button onClick={() => setIsReading((value) => !value)} type="button">
-                  {isReading ? <PencilLine /> : <BookOpenText />}
-                  {isReading ? "编辑" : "阅读"}
+                <div className="editor-mode-switch" aria-label="编辑器显示模式">
+                  <button
+                    aria-pressed={editorMode === "edit"}
+                    className={editorMode === "edit" ? "is-active" : ""}
+                    onClick={() => setEditorMode("edit")}
+                    title="编辑"
+                    type="button"
+                  >
+                    <PencilLine />
+                    <span>编辑</span>
+                  </button>
+                  <button
+                    aria-pressed={editorMode === "split"}
+                    className={editorMode === "split" ? "is-active" : ""}
+                    onClick={() => setEditorMode("split")}
+                    title="实时分栏预览 (Ctrl+\\)"
+                    type="button"
+                  >
+                    <Columns2 />
+                    <span>分栏</span>
+                  </button>
+                  <button
+                    aria-pressed={editorMode === "preview"}
+                    className={editorMode === "preview" ? "is-active" : ""}
+                    onClick={() => setEditorMode("preview")}
+                    title="Markdown 预览 (Ctrl+Shift+V)"
+                    type="button"
+                  >
+                    <BookOpenText />
+                    <span>预览</span>
+                  </button>
+                </div>
+                <button
+                  onClick={createUuidLab}
+                  title="新建 UUID 交互实验"
+                  type="button"
+                >
+                  <FlaskConical />
+                  <span>交互实验</span>
                 </button>
-                <button onClick={saveVersion} type="button">
-                  <Save /> 保存版本
+                <button onClick={saveVersion} title="保存版本" type="button">
+                  <Save />
+                  <span>保存版本</span>
                 </button>
-                <button className="primary" onClick={() => void copyForAi()} type="button">
-                  <Sparkles /> 复制给 AI
+                <button
+                  className="primary"
+                  onClick={() => void copyForAi()}
+                  title="复制给 AI"
+                  type="button"
+                >
+                  <Sparkles />
+                  <span>复制给 AI</span>
                 </button>
               </>
             )}
           </div>
         </header>
 
-        {activeView === "versions" ? (
-          <VersionHistory
-            currentNote={selectedNote}
-            onReset={resetDemoData}
-            onRestore={restoreVersion}
-            snapshots={workspace.snapshots}
-          />
-        ) : selectedNote === undefined ? (
-          <EmptyWorkspace onCreate={openNewNote} />
-        ) : isReading ? (
-          <MarkdownPreview markdown={selectedNote.markdown} />
-        ) : (
-          <MarkdownEditor
-            key={selectedNote.id}
-            value={selectedNote.markdown}
-            onChange={updateMarkdown}
-          />
-        )}
-      </section>
-
-      <aside className="context-panel">
-        <span className="eyebrow">当前区域</span>
-        <h2>{VIEW_COPY[activeView].label}</h2>
-        <p>{VIEW_COPY[activeView].description}</p>
-
-        {activeView !== "versions" && (
-          <section className="note-switcher">
-            <h3>这里的内容</h3>
-            {visibleNotes.map((note) => (
+        <div className="editor-tabs" role="tablist" aria-label="打开的笔记">
+          {activeView === "versions" ? (
+            <div aria-selected="true" className="is-active" role="tab">
               <button
-                className={note.id === selectedNote?.id ? "is-current" : ""}
-                key={note.id}
-                onClick={() => selectNote(note)}
+                className="tab-main"
+                onClick={() => undefined}
                 type="button"
               >
-                <span>{note.title}</span>
-                {note.id === selectedNote?.id && <Check />}
+                <GitBranch />
+                <strong>本地版本历史</strong>
               </button>
-            ))}
-            <button className="add-note-inline" onClick={openNewNote} type="button">
-              <FilePlus2 /> 新建此类笔记
-            </button>
-          </section>
-        )}
+              <button
+                aria-label="关闭版本标签"
+                className="tab-close"
+                onClick={closeActiveTab}
+                title="关闭 (Ctrl+W)"
+                type="button"
+              >
+                <X />
+              </button>
+            </div>
+          ) : (
+            openNotes.map((note) => (
+              <div
+                aria-selected={note.id === activeNoteId}
+                className={note.id === activeNoteId ? "is-active" : ""}
+                data-context="tab"
+                data-note-id={note.id}
+                key={note.id}
+                role="tab"
+              >
+                <button
+                  className="tab-main"
+                  onClick={() => activateNote(note)}
+                  title={note.title}
+                  type="button"
+                >
+                  <span>#</span>
+                  <strong>{note.title}</strong>
+                </button>
+                <button
+                  aria-label={`关闭 ${note.title}`}
+                  className="tab-close"
+                  onClick={() => closeTab(note.id)}
+                  title="关闭 (Ctrl+W)"
+                  type="button"
+                >
+                  <X />
+                </button>
+              </div>
+            ))
+          )}
+        </div>
 
-        <section>
-          <h3>产品验证进度</h3>
-          {COMPLETION_CHECKS.map((item) => (
-            <label key={item.id}>
-              <input
-                checked={workspace.completedChecks[item.id] === true}
-                onChange={() => toggleCheck(item.id)}
-                type="checkbox"
+        <section className="editor-stage" data-context="workspace">
+          {activeView === "versions" ? (
+            <VersionHistory
+              currentNote={selectedNote}
+              onDelete={deleteVersion}
+              onReset={resetDemoData}
+              onRestore={restoreVersion}
+              workspace={workspace}
+            />
+          ) : selectedNote === undefined ? (
+            <EmptyWorkspace onCreate={openNewNote} />
+          ) : editorMode === "preview" ? (
+            <MarkdownPreview markdown={selectedNote.markdown} />
+          ) : editorMode === "split" ? (
+            <div className="editor-split">
+              <MarkdownEditor
+                key={selectedNote.id}
+                onChange={updateMarkdown}
+                onStatusChange={setEditorStatus}
+                ref={editorRef}
+                value={selectedNote.markdown}
               />
-              {item.label}
-            </label>
-          ))}
+              <MarkdownPreview markdown={selectedNote.markdown} />
+            </div>
+          ) : (
+            <MarkdownEditor
+              key={selectedNote.id}
+              onChange={updateMarkdown}
+              onStatusChange={setEditorStatus}
+              ref={editorRef}
+              value={selectedNote.markdown}
+            />
+          )}
         </section>
 
-        <section className="architecture-card">
-          <BrainCircuit />
-          <div>
-            <h3>真正独立</h3>
-            <p>
-              {status?.obsidianDependency === false
-                ? "Rust 核心确认：不依赖 Obsidian。"
-                : "正在验证独立核心…"}
-            </p>
-          </div>
-        </section>
-      </aside>
+        <footer className="status-bar" data-context="status">
+          <span className="save-status">
+            <i />
+            已在本机自动保存
+          </span>
+          <span className="status-version" title="当前版本节点数">
+            <GitBranch />
+            {selectedNote === undefined
+              ? 0
+              : workspace.snapshots.filter(
+                  (snapshot) => snapshot.noteId === selectedNote.id,
+                ).length}
+          </span>
+          {editorStatus.selectionLength > 0 && (
+            <span className="status-selection">
+              已选择 {editorStatus.selectionLength} 字符
+            </span>
+          )}
+          <span className="status-cursor">
+            行 {editorStatus.line}，列 {editorStatus.column}
+          </span>
+          <span className="status-lines">{editorStatus.lines} 行</span>
+          <span className="status-words">{editorStatus.words} 词</span>
+          <span className="status-characters">
+            {editorStatus.characters} 字符
+          </span>
+          <span className="status-encoding">UTF-8</span>
+          <span className="status-line-ending">LF</span>
+          <span className="status-mode">{editorLabel}</span>
+          <span className="status-sync" title="同步服务尚未连接">
+            同步：本机
+          </span>
+          <span className="status-protocol">
+            {status?.protocol ?? "ZHIWEAVE/1"}
+          </span>
+        </footer>
+      </section>
 
       {isNewNoteOpen && (
         <div className="modal-backdrop">
@@ -471,8 +1069,8 @@ export function App() {
           >
             <header>
               <div>
-                <span className="eyebrow">开始一条学习路径</span>
-                <h2 id="new-note-title">新建学习内容</h2>
+                <span className="eyebrow">新建笔记</span>
+                <h2 id="new-note-title">从一个问题开始</h2>
               </div>
               <button
                 aria-label="关闭新建窗口"
@@ -493,7 +1091,7 @@ export function App() {
                 />
               </label>
               <label>
-                放在哪里
+                位置
                 <select
                   onChange={(event) =>
                     setNewView(
@@ -502,11 +1100,13 @@ export function App() {
                   value={newView}
                 >
                   {NOTE_VIEWS.map((view) => (
-                    <option key={view} value={view}>{VIEW_COPY[view].label}</option>
+                    <option key={view} value={view}>
+                      {VIEW_COPY[view].label}
+                    </option>
                   ))}
                 </select>
               </label>
-              <p>知织会自动生成“问题、理解、证据、下一步”结构，并保存到本机。</p>
+              <p>创建后立即保存在本机，可随时导出为 Markdown。</p>
               <footer>
                 <button onClick={() => setIsNewNoteOpen(false)} type="button">
                   取消
@@ -516,7 +1116,8 @@ export function App() {
                   disabled={newTitle.trim().length === 0}
                   type="submit"
                 >
-                  <Plus /> 创建并开始
+                  <Plus />
+                  创建笔记
                 </button>
               </footer>
             </form>
@@ -530,60 +1131,489 @@ export function App() {
           <span>{toast}</span>
         </div>
       )}
+
+      {contextMenu !== null && (
+        <section
+          aria-label="知织命令菜单"
+          className="context-menu"
+          onContextMenu={(event) => event.preventDefault()}
+          onMouseDown={(event) => {
+            if (contextMenu.hasSelection) {
+              event.preventDefault();
+            }
+          }}
+          role="menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <span className="context-heading">
+            {contextMenuLabel(contextMenu.scope, contextNote, contextSnapshot)}
+          </span>
+
+          {contextMenu.hasSelection && (
+            <>
+              <span className="context-label">选中内容</span>
+              <button
+                onClick={() => document.execCommand("copy")}
+                role="menuitem"
+              >
+                <Copy />
+                复制选中内容
+                <kbd>Ctrl+C</kbd>
+              </button>
+              {contextMenu.scope === "input" && (
+                <button
+                  onClick={() => document.execCommand("cut")}
+                  role="menuitem"
+                >
+                  <Trash2 />
+                  剪切选中内容
+                  <kbd>Ctrl+X</kbd>
+                </button>
+              )}
+            </>
+          )}
+
+          {contextMenu.scope === "input" && (
+            <>
+              <span className="context-label">文本输入</span>
+              <button
+                onClick={() => void pasteIntoContextInput()}
+                role="menuitem"
+              >
+                <NotebookPen />
+                粘贴
+                <kbd>Ctrl+V</kbd>
+              </button>
+              <button
+                onClick={() => document.execCommand("selectAll")}
+                role="menuitem"
+              >
+                <CheckCircle2 />
+                全选
+                <kbd>Ctrl+A</kbd>
+              </button>
+            </>
+          )}
+
+          {(contextMenu.scope === "editor" ||
+            contextMenu.scope === "preview" ||
+            contextMenu.scope === "embedded-lab" ||
+            contextMenu.scope === "status") && (
+            <>
+              <span className="context-label">
+                {contextMenu.scope === "embedded-lab" ? "当前实验" : "当前笔记"}
+              </span>
+              {contextMenu.scope === "editor" && (
+                <>
+                  <button
+                    disabled={editorStatus.undoDepth === 0}
+                    onClick={() => editorRef.current?.undo()}
+                    role="menuitem"
+                  >
+                    <RotateCcw />
+                    撤销
+                    <kbd>Ctrl+Z</kbd>
+                  </button>
+                  <button
+                    disabled={editorStatus.redoDepth === 0}
+                    onClick={() => editorRef.current?.redo()}
+                    role="menuitem"
+                  >
+                    <RotateCcw />
+                    重做
+                    <kbd>Ctrl+Y</kbd>
+                  </button>
+                </>
+              )}
+              <button
+                disabled={contextNote === undefined}
+                onClick={() => {
+                  if (contextNote !== undefined) {
+                    saveVersionFor(contextNote);
+                  }
+                }}
+                role="menuitem"
+              >
+                <Save />
+                保存版本节点
+                <kbd>Ctrl+S</kbd>
+              </button>
+              <button
+                disabled={contextNote === undefined}
+                onClick={() => void copyForAi(contextNote)}
+                role="menuitem"
+              >
+                <Sparkles />
+                复制节点学习提示词
+              </button>
+              <button onClick={() => setEditorMode("edit")} role="menuitem">
+                <PencilLine />
+                切换到编辑
+              </button>
+              <button onClick={() => setEditorMode("split")} role="menuitem">
+                <Columns2 />
+                实时分栏预览
+                <kbd>Ctrl+\</kbd>
+              </button>
+              <button onClick={() => setEditorMode("preview")} role="menuitem">
+                <BookOpenText />
+                切换到阅读预览
+                <kbd>Ctrl+⇧V</kbd>
+              </button>
+              <button
+                disabled={contextNote === undefined}
+                onClick={() => {
+                  if (contextNote !== undefined) {
+                    openVersionsFor(contextNote);
+                  }
+                }}
+                role="menuitem"
+              >
+                <GitBranch />
+                查看这个节点的版本图
+              </button>
+            </>
+          )}
+
+          {(contextMenu.scope === "note-item" ||
+            contextMenu.scope === "tab") && contextNote !== undefined && (
+            <>
+              <span className="context-label">
+                {contextMenu.scope === "tab" ? "标签" : "知识节点"}
+              </span>
+              <button
+                onClick={() => activateNote(contextNote)}
+                role="menuitem"
+              >
+                <BookOpenText />
+                打开“{contextNote.title}”
+              </button>
+              <button
+                onClick={() => openSplitFor(contextNote)}
+                role="menuitem"
+              >
+                <Columns2 />
+                打开并实时预览
+              </button>
+              <button
+                onClick={() => void copyNoteTitle(contextNote)}
+                role="menuitem"
+              >
+                <Copy />
+                复制节点名称
+              </button>
+              <button
+                onClick={() => void copyForAi(contextNote)}
+                role="menuitem"
+              >
+                <Sparkles />
+                复制学习提示词
+              </button>
+              <button
+                onClick={() => saveVersionFor(contextNote)}
+                role="menuitem"
+              >
+                <Save />
+                保存这个节点的版本
+              </button>
+              <button
+                onClick={() => openVersionsFor(contextNote)}
+                role="menuitem"
+              >
+                <GitBranch />
+                查看版本分支图
+              </button>
+              {contextMenu.scope === "tab" && (
+                <>
+                  <span className="context-label">标签管理</span>
+                  <button
+                    onClick={() => closeTab(contextNote.id)}
+                    role="menuitem"
+                  >
+                    <X />
+                    关闭这个标签
+                    <kbd>Ctrl+W</kbd>
+                  </button>
+                  <button
+                    disabled={openNoteIds.length < 2}
+                    onClick={() => closeOtherTabs(contextNote)}
+                    role="menuitem"
+                  >
+                    <X />
+                    关闭其他标签
+                  </button>
+                  <button
+                    disabled={closedNoteIds.length === 0}
+                    onClick={reopenClosedTab}
+                    role="menuitem"
+                  >
+                    <RotateCcw />
+                    重新打开已关闭标签
+                    <kbd>Ctrl+⇧T</kbd>
+                  </button>
+                </>
+              )}
+            </>
+          )}
+
+          {contextMenu.scope === "version-node" &&
+            contextSnapshot !== undefined && (
+              <>
+                <span className="context-label">所选版本节点</span>
+                <button
+                  onClick={() => restoreVersion(contextSnapshot)}
+                  role="menuitem"
+                >
+                  <RotateCcw />
+                  恢复到这个版本
+                </button>
+                <button
+                  onClick={() => void copySnapshotMarkdown(contextSnapshot)}
+                  role="menuitem"
+                >
+                  <Copy />
+                  复制这个版本的 Markdown
+                </button>
+                {contextNote !== undefined && (
+                  <button
+                    onClick={() => activateNote(contextNote)}
+                    role="menuitem"
+                  >
+                    <BookOpenText />
+                    打开所属知识节点
+                  </button>
+                )}
+                <button
+                  className="danger"
+                  onClick={() => deleteVersion(contextSnapshot)}
+                  role="menuitem"
+                >
+                  <Trash2 />
+                  删除这个版本节点
+                </button>
+              </>
+            )}
+
+          {(contextMenu.scope === "workspace" ||
+            contextMenu.scope === "activity" ||
+            contextMenu.scope === "explorer") && (
+            <>
+              <span className="context-label">工作区</span>
+              <button onClick={openNewNote} role="menuitem">
+                <Plus />
+                新建知识节点
+                <kbd>Ctrl+N</kbd>
+              </button>
+              <button onClick={openTodayJournal} role="menuitem">
+                <NotebookPen />
+                打开今日日记
+              </button>
+              <button onClick={createUuidLab} role="menuitem">
+                <FlaskConical />
+                新建 UUID 交互实验
+              </button>
+              {contextMenu.scope === "explorer" && (
+                <button
+                  onClick={() => searchInputRef.current?.focus()}
+                  role="menuitem"
+                >
+                  <Search />
+                  搜索知识节点
+                  <kbd>Ctrl+P</kbd>
+                </button>
+              )}
+              <button
+                onClick={() => setIsSidebarOpen((value) => !value)}
+                role="menuitem"
+              >
+                <Menu />
+                显示或隐藏笔记栏
+                <kbd>Ctrl+B</kbd>
+              </button>
+            </>
+          )}
+
+          {contextMenu.scope === "titlebar" && (
+            <>
+              <span className="context-label">窗口</span>
+              <button
+                onClick={() => void runWindowAction("minimize")}
+                role="menuitem"
+              >
+                <Minus />
+                最小化
+              </button>
+              <button
+                onClick={() => void runWindowAction("maximize")}
+                role="menuitem"
+              >
+                <Maximize2 />
+                最大化或还原
+              </button>
+              <button
+                className="danger"
+                onClick={() => void runWindowAction("close")}
+                role="menuitem"
+              >
+                <X />
+                关闭知织
+              </button>
+            </>
+          )}
+        </section>
+      )}
     </main>
   );
 }
 
 interface VersionHistoryProps {
   readonly currentNote: LearningNote | undefined;
-  readonly snapshots: readonly NoteSnapshot[];
+  readonly workspace: WorkspaceState;
+  readonly onDelete: (snapshot: NoteSnapshot) => void;
   readonly onReset: () => void;
   readonly onRestore: (snapshot: NoteSnapshot) => void;
 }
 
 function VersionHistory({
   currentNote,
-  snapshots,
+  workspace,
+  onDelete,
   onReset,
   onRestore,
 }: VersionHistoryProps) {
+  const snapshots = workspace.snapshots;
   const relevant = currentNote === undefined
     ? snapshots
     : snapshots.filter((snapshot) => snapshot.noteId === currentNote.id);
+  const graph = buildVersionGraph(
+    relevant,
+    currentNote === undefined
+      ? undefined
+      : workspace.versionHeads[currentNote.id],
+  );
+  const storedBytes = relevant.reduce(
+    (total, snapshot) => total + snapshotStorageBytes(snapshot),
+    0,
+  );
+  const fullBytes = relevant.reduce(
+    (total, snapshot) => total + snapshot.contentLength,
+    0,
+  );
+  const savedPercent =
+    fullBytes === 0
+      ? 0
+      : Math.max(0, Math.round((1 - storedBytes / fullBytes) * 100));
   return (
     <section className="version-history" aria-label="本地版本历史">
       <div className="version-intro">
         <GitBranch />
         <div>
           <h2>{currentNote?.title ?? "当前笔记"}</h2>
-          <p>版本只在你点击“保存版本”时创建。恢复前会自动备份当前内容。</p>
+          <p>版本按父节点增量保存；从旧节点恢复后继续保存会形成分支。</p>
         </div>
         <button className="reset-workspace" onClick={onReset} type="button">
           重置演示数据
         </button>
       </div>
+      <div className="version-metrics" aria-label="版本存储摘要">
+        <span>
+          <GitFork />
+          <strong>{relevant.length}</strong>
+          个节点
+        </span>
+        <span>
+          <Database />
+          增量约 <strong>{formatBytes(storedBytes)}</strong>
+        </span>
+        <span>
+          相比完整副本节省 <strong>{savedPercent}%</strong>
+        </span>
+      </div>
       {relevant.length === 0 ? (
         <div className="empty-state compact">
           <Clock3 />
           <h3>还没有手动版本</h3>
-          <p>点击右上角“保存当前版本”，为现在的内容建立一个可恢复节点。</p>
+          <p>点击工具栏中的“保存当前版本”，建立一个可恢复节点。</p>
         </div>
       ) : (
-        <ol>
-          {relevant.map((snapshot) => (
-            <li key={snapshot.id}>
-              <span className="version-dot" />
-              <div>
-                <strong>{snapshot.noteTitle}</strong>
-                <small>{formatDate(snapshot.createdAt)}</small>
-                <p>{snapshot.markdown.slice(0, 100).replaceAll("\n", " ")}</p>
-                <button onClick={() => onRestore(snapshot)} type="button">
-                  <RotateCcw /> 恢复此版本
-                </button>
-              </div>
-            </li>
-          ))}
-        </ol>
+        <div
+          className="version-graph"
+          style={{
+            gridTemplateColumns: `${graph.width}px minmax(0, 1fr)`,
+            minHeight: `${graph.height}px`,
+          }}
+        >
+          <svg
+            aria-label="版本分支关系"
+            height={graph.height}
+            role="img"
+            viewBox={`0 0 ${graph.width} ${graph.height}`}
+            width={graph.width}
+          >
+            {graph.edges.map((edge) => (
+              <path
+                className={`version-lane lane-${edge.lane % 7}`}
+                d={edge.path}
+                key={`${edge.from}-${edge.to}`}
+              />
+            ))}
+            {graph.rows.map((row) => (
+              <circle
+                className={`version-node lane-${row.lane % 7}`}
+                cx={row.x}
+                cy={row.y}
+                key={row.snapshot.id}
+                r={row.isHead ? 6 : 5}
+              />
+            ))}
+          </svg>
+          <div className="version-cards">
+            {graph.rows.map((row) => {
+              const markdown =
+                resolveSnapshotMarkdown(workspace, row.snapshot.id) ?? "";
+              return (
+                <article
+                  className={row.isHead ? "is-head" : ""}
+                  data-context="version-node"
+                  data-note-id={row.snapshot.noteId}
+                  data-snapshot-id={row.snapshot.id}
+                  key={row.snapshot.id}
+                  style={{ height: `${VERSION_GRAPH_ROW_HEIGHT}px` }}
+                >
+                  <header>
+                    <div>
+                      <strong>{row.snapshot.noteTitle}</strong>
+                      {row.isHead && <span>当前分支头</span>}
+                      {row.childCount > 1 && <span>分支节点</span>}
+                    </div>
+                    <small>{formatDate(row.snapshot.createdAt)}</small>
+                  </header>
+                  <p>{markdown.slice(0, 110).replaceAll("\n", " ")}</p>
+                  <footer>
+                    <span>
+                      增量 {formatBytes(snapshotStorageBytes(row.snapshot))}
+                    </span>
+                    <button
+                      onClick={() => onRestore(row.snapshot)}
+                      type="button"
+                    >
+                      <RotateCcw />
+                      恢复
+                    </button>
+                    <button
+                      className="danger"
+                      onClick={() => onDelete(row.snapshot)}
+                      type="button"
+                    >
+                      <Trash2 />
+                      删除
+                    </button>
+                  </footer>
+                </article>
+              );
+            })}
+          </div>
+        </div>
       )}
     </section>
   );
@@ -594,12 +1624,123 @@ function EmptyWorkspace({ onCreate }: { readonly onCreate: () => void }) {
     <section className="empty-state">
       <FilePlus2 />
       <h2>这里还没有内容</h2>
-      <p>创建一条笔记，知织会为你准备清晰的学习结构。</p>
+      <p>创建一条笔记，从问题、证据和下一步开始。</p>
       <button className="primary" onClick={onCreate} type="button">
-        <Plus /> 新建学习内容
+        <Plus />
+        新建笔记
       </button>
     </section>
   );
+}
+
+const VERSION_GRAPH_ROW_HEIGHT = 112;
+
+interface VersionGraphRow {
+  readonly snapshot: NoteSnapshot;
+  readonly lane: number;
+  readonly x: number;
+  readonly y: number;
+  readonly isHead: boolean;
+  readonly childCount: number;
+}
+
+interface VersionGraphEdge {
+  readonly from: string;
+  readonly to: string;
+  readonly lane: number;
+  readonly path: string;
+}
+
+function buildVersionGraph(
+  snapshots: readonly NoteSnapshot[],
+  headId: string | undefined,
+): {
+  readonly rows: readonly VersionGraphRow[];
+  readonly edges: readonly VersionGraphEdge[];
+  readonly width: number;
+  readonly height: number;
+} {
+  const chronological = [...snapshots].sort((left, right) =>
+    left.createdAt.localeCompare(right.createdAt),
+  );
+  const children = new Map<string, NoteSnapshot[]>();
+  for (const snapshot of chronological) {
+    if (snapshot.parentId === null) {
+      continue;
+    }
+    const items = children.get(snapshot.parentId) ?? [];
+    items.push(snapshot);
+    children.set(snapshot.parentId, items);
+  }
+
+  const laneById = new Map<string, number>();
+  let nextLane = 0;
+  const assignLane = (snapshot: NoteSnapshot, lane: number) => {
+    if (laneById.has(snapshot.id)) {
+      return;
+    }
+    laneById.set(snapshot.id, lane);
+    const descendants = children.get(snapshot.id) ?? [];
+    descendants.forEach((child, index) => {
+      const childLane = index === 0 ? lane : ++nextLane;
+      assignLane(child, childLane);
+    });
+  };
+  for (const root of chronological.filter(
+    (snapshot) =>
+      snapshot.parentId === null ||
+      !chronological.some((item) => item.id === snapshot.parentId),
+  )) {
+    const rootLane = laneById.size === 0 ? 0 : ++nextLane;
+    assignLane(root, rootLane);
+  }
+  for (const snapshot of chronological) {
+    if (!laneById.has(snapshot.id)) {
+      assignLane(snapshot, ++nextLane);
+    }
+  }
+
+  const newestFirst = [...chronological].reverse();
+  const rows: VersionGraphRow[] = newestFirst.map((snapshot, index) => {
+    const lane = laneById.get(snapshot.id) ?? 0;
+    return {
+      snapshot,
+      lane,
+      x: 14 + lane * 20,
+      y: index * VERSION_GRAPH_ROW_HEIGHT + 20,
+      isHead: snapshot.id === headId,
+      childCount: children.get(snapshot.id)?.length ?? 0,
+    };
+  });
+  const rowById = new Map(rows.map((row) => [row.snapshot.id, row]));
+  const edges: VersionGraphEdge[] = [];
+  for (const row of rows) {
+    if (row.snapshot.parentId === null) {
+      continue;
+    }
+    const parent = rowById.get(row.snapshot.parentId);
+    if (parent === undefined) {
+      continue;
+    }
+    const bendY = parent.y - 18;
+    const path =
+      row.x === parent.x
+        ? `M ${row.x} ${row.y} L ${parent.x} ${parent.y}`
+        : `M ${row.x} ${row.y} L ${row.x} ${bendY - 8} Q ${row.x} ${bendY} ${row.x + Math.sign(parent.x - row.x) * 8} ${bendY} L ${parent.x} ${bendY} L ${parent.x} ${parent.y}`;
+    edges.push({
+      from: row.snapshot.id,
+      to: parent.snapshot.id,
+      lane: row.lane,
+      path,
+    });
+  }
+
+  return {
+    rows,
+    edges,
+    width: Math.max(42, (nextLane + 1) * 20 + 20),
+    height: rows.length * VERSION_GRAPH_ROW_HEIGHT,
+  };
 }
 
 function readStoredWorkspace(): string | null {
@@ -634,4 +1775,105 @@ function formatDate(value: string): string {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function formatRelativeDate(value: string): string {
+  const timestamp = new Date(value).getTime();
+  const today = new Date();
+  const sameDay =
+    new Date(value).toDateString() === today.toDateString();
+  if (sameDay) {
+    return new Intl.DateTimeFormat("zh-CN", {
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(timestamp);
+  }
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+  }).format(timestamp);
+}
+
+function formatBytes(value: number): string {
+  if (value < 1_024) {
+    return `${value} B`;
+  }
+  if (value < 1_048_576) {
+    return `${(value / 1_024).toFixed(1)} KB`;
+  }
+  return `${(value / 1_048_576).toFixed(1)} MB`;
+}
+
+function isContextScope(
+  value: string | undefined,
+): value is ContextMenuState["scope"] {
+  switch (value) {
+    case "activity":
+    case "editor":
+    case "embedded-lab":
+    case "explorer":
+    case "input":
+    case "note-item":
+    case "preview":
+    case "status":
+    case "tab":
+    case "titlebar":
+    case "version-node":
+    case "workspace":
+      return true;
+    default:
+      return false;
+  }
+}
+
+function contextMenuLabel(
+  scope: ContextMenuState["scope"],
+  note: LearningNote | undefined,
+  snapshot: NoteSnapshot | undefined,
+): string {
+  switch (scope) {
+    case "editor":
+      return note === undefined ? "编辑器" : `编辑：${note.title}`;
+    case "preview":
+      return note === undefined ? "阅读视图" : `阅读：${note.title}`;
+    case "embedded-lab":
+      return note === undefined ? "交互实验" : `实验：${note.title}`;
+    case "note-item":
+      return note === undefined ? "知识节点" : note.title;
+    case "tab":
+      return note === undefined ? "标签" : `标签：${note.title}`;
+    case "version-node":
+      return snapshot === undefined
+        ? "版本节点"
+        : `版本：${formatDate(snapshot.createdAt)}`;
+    case "input":
+      return "文本输入";
+    case "explorer":
+      return "笔记栏";
+    case "activity":
+      return "学习工作区";
+    case "status":
+      return "当前文档状态";
+    case "titlebar":
+      return "知织窗口";
+    case "workspace":
+      return "工作区";
+  }
+}
+
+async function runWindowAction(
+  action: "close" | "maximize" | "minimize",
+): Promise<void> {
+  try {
+    const currentWindow = getCurrentWindow();
+    if (action === "close") {
+      await currentWindow.close();
+    } else if (action === "maximize") {
+      await currentWindow.toggleMaximize();
+    } else {
+      await currentWindow.minimize();
+    }
+  } catch {
+    // Browser preview has no native Tauri window. The controls remain inert.
+  }
 }
