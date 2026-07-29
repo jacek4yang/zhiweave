@@ -1,0 +1,16 @@
+[package]
+name = "zhiweave-application"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+zhiweave-domain = { path = "../zhiweave-domain" }
+zhiweave-protocol = { path = "../zhiweave-protocol" }
+
+[lints]
+workspace = true

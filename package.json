@@ -1,0 +1,20 @@
+{
+  "name": "zhiweave",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Offline-first, end-to-end encrypted Markdown learning workspace",
+  "license": "AGPL-3.0-or-later",
+  "repository": "https://github.com/jacek4yang/zhiweave",
+  "packageManager": "pnpm@11.9.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "pnpm --filter @zhiweave/client build",
+    "dev": "pnpm --filter @zhiweave/client tauri dev",
+    "lint": "pnpm --filter @zhiweave/client lint",
+    "test": "pnpm --filter @zhiweave/client test",
+    "typecheck": "pnpm --filter @zhiweave/client typecheck",
+    "tauri": "pnpm --filter @zhiweave/client tauri"
+  }
+}

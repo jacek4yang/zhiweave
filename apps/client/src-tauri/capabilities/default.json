@@ -1,0 +1,6 @@
+{
+  "identifier": "main-window",
+  "description": "The minimum capability set for the ZhiWeave main window.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

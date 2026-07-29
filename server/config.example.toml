@@ -1,0 +1,3 @@
+# Architecture spike only. Persistent encrypted storage is not implemented yet.
+listen = "127.0.0.1:8787"
+data_dir = "/absolute/path/to/new-empty-zhiweave-data"

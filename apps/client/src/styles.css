@@ -1,0 +1,480 @@
+@import url("https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,500;8..60,650&display=swap");
+
+:root {
+  color: #26241f;
+  background: #f3f0e9;
+  font-family: "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --paper: #fffdf8;
+  --paper-soft: #faf7f0;
+  --ink: #26241f;
+  --muted: #777168;
+  --line: #e7e0d5;
+  --violet: #7255d9;
+  --violet-soft: #eee9ff;
+  --green: #28705d;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 320px;
+  height: 100%;
+  margin: 0;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  color: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+.cm-editor.cm-focused {
+  outline: 3px solid rgb(114 85 217 / 22%);
+  outline-offset: 2px;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 264px minmax(0, 1fr) 312px;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 15% 0%, rgb(128 102 215 / 8%), transparent 33%),
+    var(--paper);
+}
+
+.navigation,
+.context-panel {
+  min-width: 0;
+  background: rgb(250 247 240 / 78%);
+  backdrop-filter: blur(18px);
+}
+
+.navigation {
+  display: flex;
+  flex-direction: column;
+  padding: 26px 18px 20px;
+  border-right: 1px solid var(--line);
+}
+
+.brand {
+  display: grid;
+  grid-template-columns: 42px 1fr 34px;
+  gap: 11px;
+  align-items: center;
+  padding: 0 6px 22px;
+}
+
+.brand-mark {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  color: white;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #8067e9, #6747cd);
+  box-shadow: 0 9px 24px rgb(102 71 205 / 25%);
+}
+
+.brand-mark svg {
+  width: 22px;
+}
+
+.brand > span:nth-child(2) {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.brand strong {
+  font: 650 19px/1.2 "Source Serif 4", "Noto Sans SC", serif;
+}
+
+.brand small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+.brand button,
+.header-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  cursor: pointer;
+}
+
+.brand button {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 10px;
+}
+
+.brand button svg {
+  width: 17px;
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 42px;
+  margin: 0 4px 18px;
+  padding: 0 12px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgb(255 253 248 / 86%);
+}
+
+.search svg {
+  width: 17px;
+  flex: 0 0 auto;
+}
+
+.search input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  color: var(--ink);
+  background: transparent;
+}
+
+.search input::placeholder {
+  color: #a19a90;
+}
+
+.navigation nav {
+  display: grid;
+  gap: 4px;
+}
+
+.navigation nav button {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 11px;
+  color: #605b53;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.navigation nav button:hover {
+  background: #f1ede5;
+}
+
+.navigation nav button.is-active {
+  color: #5135b5;
+  background: var(--violet-soft);
+  font-weight: 600;
+}
+
+.navigation nav svg {
+  width: 18px;
+  height: 18px;
+  stroke-width: 1.8;
+}
+
+.topic-progress {
+  margin: auto 4px 18px;
+  padding: 15px;
+  border: 1px solid #ded5f7;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #f8f5ff, #f1ecff);
+}
+
+.topic-progress > span,
+.topic-progress small {
+  color: #7e758d;
+  font-size: 11px;
+}
+
+.topic-progress strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+.topic-progress div {
+  height: 5px;
+  margin: 12px 0 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #ddd5f5;
+}
+
+.topic-progress i {
+  display: block;
+  width: 12.5%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--violet);
+}
+
+.build-identity {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 8px 0;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+}
+
+.build-identity svg {
+  width: 17px;
+  color: var(--green);
+}
+
+.build-identity span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.build-identity strong {
+  color: #555047;
+  font-size: 11px;
+}
+
+.build-identity small {
+  margin-top: 2px;
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  background: var(--paper);
+}
+
+.workspace-header {
+  display: flex;
+  min-height: 98px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 22px 34px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.eyebrow {
+  color: var(--violet);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.workspace h1 {
+  margin: 6px 0 0;
+  font: 650 clamp(23px, 2.4vw, 34px)/1.12 "Source Serif 4", "Noto Sans SC", serif;
+}
+
+.header-actions {
+  display: flex;
+  gap: 9px;
+}
+
+.header-actions button {
+  gap: 7px;
+  height: 39px;
+  padding: 0 13px;
+  border-radius: 11px;
+  font-size: 13px;
+}
+
+.header-actions button.primary {
+  color: white;
+  border-color: #6848ce;
+  background: linear-gradient(145deg, #8168e8, #6848ce);
+  box-shadow: 0 8px 20px rgb(104 72 206 / 20%);
+}
+
+.header-actions svg {
+  width: 16px;
+}
+
+.markdown-editor {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.markdown-editor .cm-editor {
+  min-height: 100%;
+  color: #302d28;
+  background: transparent;
+}
+
+.markdown-editor .cm-scroller {
+  padding: 34px clamp(30px, 6vw, 92px) 90px;
+  font: 17px/1.82 "Source Serif 4", "Noto Sans SC", serif;
+  overflow: auto;
+}
+
+.markdown-editor .cm-content {
+  max-width: 860px;
+  min-height: calc(100vh - 226px);
+  margin: 0 auto;
+  caret-color: var(--violet);
+}
+
+.markdown-editor .cm-gutters {
+  display: none;
+}
+
+.markdown-editor .cm-activeLine,
+.markdown-editor .cm-activeLineGutter {
+  background: transparent;
+}
+
+.markdown-editor .cm-selectionBackground,
+.markdown-editor .cm-content ::selection {
+  background: #ddd3ff !important;
+}
+
+.context-panel {
+  padding: 32px 26px;
+  overflow-y: auto;
+  border-left: 1px solid var(--line);
+}
+
+.context-panel h2 {
+  margin: 8px 0 11px;
+  font: 650 24px/1.28 "Source Serif 4", "Noto Sans SC", serif;
+}
+
+.context-panel > p {
+  margin: 0 0 24px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.context-panel section:not(.architecture-card) {
+  display: grid;
+  gap: 10px;
+  padding: 19px 0;
+  border-top: 1px solid var(--line);
+}
+
+.context-panel h3 {
+  margin: 0 0 4px;
+  font-size: 13px;
+}
+
+.context-panel label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #5d574f;
+  font-size: 12px;
+}
+
+.context-panel input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--violet);
+}
+
+.architecture-card {
+  display: flex;
+  gap: 11px;
+  margin-top: 22px;
+  padding: 16px;
+  color: #4c386e;
+  border: 1px solid #ded5f7;
+  border-radius: 14px;
+  background: #f5f1ff;
+}
+
+.architecture-card > svg {
+  width: 20px;
+  flex: 0 0 auto;
+}
+
+.architecture-card p {
+  margin: 4px 0 0;
+  color: #786b88;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+@media (max-width: 1100px) {
+  .app-shell {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+
+  .context-panel {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .app-shell {
+    display: block;
+    overflow: auto;
+  }
+
+  .navigation {
+    display: none;
+  }
+
+  .workspace {
+    min-height: 100%;
+  }
+
+  .workspace-header {
+    min-height: 82px;
+    padding: 16px 18px;
+  }
+
+  .workspace-header .eyebrow {
+    display: none;
+  }
+
+  .workspace h1 {
+    margin: 0;
+    font-size: 21px;
+  }
+
+  .header-actions button:first-child {
+    display: none;
+  }
+
+  .header-actions button {
+    padding: 0 11px;
+  }
+
+  .markdown-editor .cm-scroller {
+    padding: 24px 19px 80px;
+    font-size: 16px;
+  }
+}
