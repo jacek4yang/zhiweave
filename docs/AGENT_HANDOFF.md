@@ -1,6 +1,6 @@
 # Agent 交接
 
-最近更新：2026-07-30 02:00 CST
+最近更新：2026-07-30 02:13 CST
 
 ## 不可改变的用户约束
 
@@ -13,9 +13,10 @@
 ## 仓库状态
 
 - 工作目录：`C:\Users\20220\Desktop\Projects\zhiweave`
-- 本地分支：`agent/professional-workbench`
-- 基线：`847a2c3`
-- 改动尚未提交、推送或创建 PR。
+- 分支：`agent/professional-workbench`
+- 当前提交：`0ee8ae4`（基线 `847a2c3`）
+- Draft PR：[jacek4yang/zhiweave#1](https://github.com/jacek4yang/zhiweave/pull/1)
+- GitHub CI：Frontend 与 Rust 均通过。
 - Windows 原生开发应用和 Vite 已启动；日志在 `%TEMP%\zhiweave-windows-tauri-3.*.log`。
 
 ## 已实现切片
@@ -31,13 +32,11 @@
 
 ## 下一步顺序
 
-1. 复核控制台、九视口、复制保真、标题重命名和标签快捷键；保存最终截图。
-2. 运行 `pnpm lint/typecheck/test/build` 和 `cargo fmt/clippy/test`，再运行 `git diff --check`。
-3. 修正文档中所有残留的阶段 0 旧数据。
-4. 明确列出将暂存的文件，排除根 `AGENTS.md`。
-5. 同步已验证的精确文件状态到 Linux 上传中转机，只在那里提交与推送。
-6. 创建 Draft PR，写明问题、实现、验证、安全/迁移影响与截图，跟踪 CI。
-7. 继续真实本地文件/SQLite 垂直切片；不要把当前 localStorage 尖峰描述成生产可用。
+1. 继续真实本地文件/SQLite 垂直切片；不要把当前 localStorage 尖峰描述成生产可用。
+2. 收敛统一 command registry 与命令面板，补完整菜单键盘模型。
+3. 替换手写 Markdown 阅读器为共享 AST，并把交互 fence 接入同一语义管线。
+4. 每个切片在 Windows 重跑本地门禁、浏览器证据与截图，再经 Linux 中转机推送到 Draft PR。
+5. 持续排除根 `AGENTS.md` 和任何真实地址、笔记、密钥或数据库。
 
 ## 关键风险
 

@@ -1,6 +1,6 @@
 # 开发进度
 
-最后更新：2026-07-30 02:00 CST
+最后更新：2026-07-30 02:13 CST
 
 ## 执行拓扑
 
@@ -36,6 +36,9 @@
 - 主 CSS：28.18 KB（gzip 5.86 KB）。
 - 主 JavaScript：867.83 KB（gzip 290.74 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
 - Windows 原生进程：`知织 · ZhiWeave` 正常运行；Vite 绑定 `127.0.0.1:1420`。
+- 提交 `0ee8ae4` 已推送至 `agent/professional-workbench`。
+- [Draft PR #1](https://github.com/jacek4yang/zhiweave/pull/1) 已创建。
+- GitHub CI：Frontend 通过（18 s），Rust 通过（3 min 7 s）。
 
 ## 当前任务
 
@@ -43,8 +46,7 @@
 2. 把当前直接事件处理器收敛到真正的 command registry，并补键盘菜单语义。
 3. 继续阶段 2：Markdown 原子文件事实来源、SQLite 可重建索引、迁移与崩溃恢复，移除正文 `localStorage`。
 4. 替换手写 Markdown 阅读器为共享 AST 管线。
-5. 更新全部文档并运行 pnpm/cargo/git 全质量门。
-6. 仅在以上通过后同步到 Linux 上传中转机，明确暂存范围、提交、推送并建立 Draft PR/CI 记录。
+5. 继续维护 Draft PR 的验证证据、迁移影响、截图与交接记录。
 
 ## 未解决风险
 
@@ -53,7 +55,7 @@
 - 首屏 JS gzip 超预算 90.74 KB；CodeMirror/图标/工作台需进一步分包和测量。
 - 尚无真实文件打开、原子保存、SQLite/FTS、文件监控、备份/恢复或同步加密。
 - Command registry、命令面板、完整树/属性/反向链接、FSRS 与深度学习 schema 尚未完成。
-- 当前改动尚未提交、推送或建立 Draft PR；`AGENTS.md` 是用户未跟踪文件，严禁暂存。
+- 当前垂直切片已发布到 Draft PR；根目录 `AGENTS.md` 仍是用户未跟踪文件，严禁暂存。
 
 ## 当前截图
 
