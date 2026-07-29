@@ -2,8 +2,9 @@ use std::sync::{Arc, Mutex};
 
 use tauri::{Manager, State};
 use zhiweave_application::{
-    CreateNoteRequest, NoteDocument, SaveNoteRequest, SaveNoteResult, SystemStatus,
-    WorkspaceApplication, WorkspaceFailure, WorkspaceSnapshot,
+    CreateNoteRequest, NoteDocument, RebuildIndexResult, RenameNoteRequest, SaveNoteRequest,
+    SaveNoteResult, SearchNoteResult, SearchNotesRequest, SystemStatus, WorkspaceApplication,
+    WorkspaceFailure, WorkspaceSnapshot,
 };
 use zhiweave_domain::PortablePath;
 use zhiweave_storage::FileWorkspace;
@@ -60,6 +61,55 @@ async fn note_save(
             .lock()
             .map_err(|_| WorkspaceFailure::Unavailable)?
             .save(&request)
+    })
+    .await
+    .map_err(|_| WorkspaceFailure::Unavailable)?
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri command extractors are ABI values.
+async fn note_rename(
+    workspace: State<'_, NativeWorkspace>,
+    request: RenameNoteRequest,
+) -> Result<NoteDocument, WorkspaceFailure> {
+    let workspace = Arc::clone(workspace.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        workspace
+            .lock()
+            .map_err(|_| WorkspaceFailure::Unavailable)?
+            .rename(&request)
+    })
+    .await
+    .map_err(|_| WorkspaceFailure::Unavailable)?
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri command extractors are ABI values.
+async fn workspace_search(
+    workspace: State<'_, NativeWorkspace>,
+    request: SearchNotesRequest,
+) -> Result<Vec<SearchNoteResult>, WorkspaceFailure> {
+    let workspace = Arc::clone(workspace.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        workspace
+            .lock()
+            .map_err(|_| WorkspaceFailure::Unavailable)?
+            .search(&request)
+    })
+    .await
+    .map_err(|_| WorkspaceFailure::Unavailable)?
+}
+
+#[tauri::command]
+async fn workspace_rebuild_index(
+    workspace: State<'_, NativeWorkspace>,
+) -> Result<RebuildIndexResult, WorkspaceFailure> {
+    let workspace = Arc::clone(workspace.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        workspace
+            .lock()
+            .map_err(|_| WorkspaceFailure::Unavailable)?
+            .rebuild_index()
     })
     .await
     .map_err(|_| WorkspaceFailure::Unavailable)?
@@ -158,7 +208,10 @@ pub fn run() {
             system_status,
             workspace_snapshot,
             note_create,
-            note_save
+            note_save,
+            note_rename,
+            workspace_search,
+            workspace_rebuild_index
         ])
         .run(tauri::generate_context!())
         .expect("ZhiWeave client failed to start");
@@ -173,7 +226,9 @@ mod tests {
         time::{SystemTime, UNIX_EPOCH},
     };
 
-    use zhiweave_application::{SaveNoteRequest, WorkspaceApplication};
+    use zhiweave_application::{
+        IndexState, SaveNoteRequest, SearchNotesRequest, WorkspaceApplication,
+    };
     use zhiweave_storage::FileWorkspace;
 
     use super::seed_empty_workspace;
@@ -219,11 +274,14 @@ mod tests {
         seed_empty_workspace(&application).unwrap();
         let snapshot = application.snapshot().unwrap();
         assert_eq!(snapshot.documents.len(), 6);
+        assert_eq!(snapshot.index.state, IndexState::Ready);
+        assert_eq!(snapshot.index.note_count, 6);
         let welcome = snapshot
             .documents
             .into_iter()
             .find(|document| document.path.as_str() == "learning/welcome.md")
             .unwrap();
+        let welcome_id = welcome.id;
 
         application
             .save(&SaveNoteRequest {
@@ -246,6 +304,29 @@ mod tests {
                 .unwrap()
                 .markdown,
             "# User content\n"
+        );
+        drop(application);
+
+        let reopened = WorkspaceApplication::new(FileWorkspace::new(directory.path()).unwrap());
+        let restarted = reopened.snapshot().unwrap();
+        assert_eq!(
+            restarted
+                .documents
+                .iter()
+                .find(|document| document.path.as_str() == "learning/welcome.md")
+                .unwrap()
+                .id,
+            welcome_id
+        );
+        assert!(
+            reopened
+                .search(&SearchNotesRequest {
+                    query: "User content".to_owned(),
+                    limit: 20,
+                })
+                .unwrap()
+                .iter()
+                .any(|result| result.id == welcome_id)
         );
     }
 }

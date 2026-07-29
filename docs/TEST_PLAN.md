@@ -28,7 +28,9 @@
 
 ## Markdown 文件纵切证据
 
-- Rust：21 项 workspace 测试通过，其中 storage 7 项、portable path 5 项、Tauri seed/restart 1 项。
+- Rust 当前 workspace 29 项测试通过，其中 storage 15 项、portable path 5 项、
+  application 2 项、Markdown 4 项、protocol 1 项、server 1 项和 Tauri
+  seed/restart/search 1 项。
 - 原子保存：真实临时目录创建、修改、无变化保存、回读修订与 H1 标题通过。
 - 字节往返：UTF-8 BOM + CRLF 编辑后精确保留；Mixed 保存失败并要求明确规范化。
 - 冲突：读取后由外部进程改写，保存返回结构化 conflict，外部正文逐字节保留。
@@ -40,7 +42,27 @@
 - Tauri seed/restart：首次生成 6 篇；用户修改 welcome 后再次初始化不会覆盖正文。
 - 浏览器：桌面重新载入后无新增 console error/warning；状态栏上下文菜单按环境分流；390×844 与 320×720 无页面水平溢出。
 
-尚未完成：稳定 Windows 磁盘满/只读目录故障注入、Tauri IPC 自动 E2E、文件 watcher 竞态、占位后强杀恢复、10,000 文件性能基准、Android 文件系统验证。
+## SQLite、稳定身份与搜索证据
+
+- identity v1：首次扫描生成隐藏清单；ID/path 唯一；非法 JSON、非法 UUID、重复项和非法
+  revision 失败关闭。
+- 故障原子性：identity 损坏时 create/save/rebuild 在修改 Markdown 前返回结构化失败。
+- 重命名：外部唯一同 revision 改名保持 ID；相同内容的多个文件不共享 ID；应用内移动保持
+  ID、更新搜索路径、目标存在时不覆盖任一文件。
+- schema/migration：空库从 `user_version=0` 进入 v1；未来 `user_version=999` 不自动降级。
+- FTS：标题/正文中文 trigram、单字短查询、保存后增量替换和旧词消失通过；空查询、零 limit
+  和超过 256 字查询被拒绝。
+- 可重建：删除 SQLite 后快照重新生成索引且 identity 不变；正文逐字节不变。
+- 损坏恢复：伪造非 SQLite 文件后快照仍返回 Markdown 并标记 `needsRebuild`，搜索失败；只有
+  显式重建才替换，旧字节保留在 `.zhiweave/recovery/`，新搜索恢复。
+- Windows 原生：真实 Tauri 进程运行；应用数据工作区有 6 篇 Markdown、identity v1 的
+  6 个唯一 ID/路径和有效 `SQLite format 3` 数据库。
+- 本次 UI 变更后的 in-app browser 重新访问被本地 URL 安全策略拒绝，未尝试绕过；由
+  TypeScript 检查、组件测试、原生运行和既有视觉基线替代。本切片仍需在后续可用会话补视觉截图。
+
+尚未完成：稳定 Windows 磁盘满/只读目录故障注入、Tauri IPC 自动 E2E、文件 watcher 竞态、
+占位/安全移动强杀恢复、长读事务、10,000 文件性能基准、100,000 条索引查询基准和 Android
+文件系统验证。
 
 ## 故障注入矩阵
 

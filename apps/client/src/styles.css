@@ -1367,6 +1367,28 @@ button:disabled {
   background: rgb(255 255 255 / 12%);
 }
 
+.status-bar .status-index {
+  padding: 3px 5px;
+  color: inherit;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+}
+
+.status-bar .status-index[aria-disabled="true"] {
+  cursor: default;
+}
+
+.status-bar .status-index:not([aria-disabled="true"]) {
+  color: #fff0c2;
+  cursor: pointer;
+}
+
+.status-bar .status-index:not([aria-disabled="true"]):hover {
+  background: rgb(255 255 255 / 12%);
+}
+
 .save-status i {
   width: 6px;
   height: 6px;
@@ -2073,6 +2095,7 @@ button:disabled {
   }
 
   .status-bar > .status-version,
+  .status-bar > .status-index,
   .status-bar > .status-lines,
   .status-bar > .status-words,
   .status-bar > .status-characters,

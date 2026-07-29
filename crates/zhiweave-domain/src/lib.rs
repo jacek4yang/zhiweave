@@ -1,6 +1,6 @@
 //! Pure `ZhiWeave` learning-domain types.
 
-use std::{fmt, path::Path};
+use std::{fmt, path::Path, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -34,6 +34,14 @@ impl Default for NoteId {
 impl fmt::Display for NoteId {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(formatter)
+    }
+}
+
+impl FromStr for NoteId {
+    type Err = uuid::Error;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Uuid::parse_str(value).map(Self)
     }
 }
 

@@ -1,12 +1,12 @@
 # 开发进度
 
-最后更新：2026-07-30 02:42 CST
+最后更新：2026-07-30 03:30 CST
 
 ## 执行拓扑
 
 - 开发、构建、Rust/TypeScript 测试、Tauri 运行和浏览器验收全部在当前 Windows 电脑完成。
 - Linux 上传中转机只承担最终的 GitHub 提交/推送，不运行开发服务或质量门。
-- 当前本地分支：`agent/professional-workbench`；Markdown 文件纵切功能提交 `193ce03`、交接提交 `0d9092e` 已通过 Linux 中转推送。
+- 当前本地分支：`agent/professional-workbench`；Markdown 文件纵切与首轮 CI 证据已通过 Linux 中转推送到 Draft PR #1。
 - 用户指定的 SOCKS5 下载代理已按要求尝试，但本机和中转机均无法建立 TCP 连接；已有依赖优先使用本机 pnpm store。代理地址本身不写入仓库。
 
 ## 已完成
@@ -33,40 +33,51 @@
 - 自动保存具备 dirty/saving/saved/conflict/error/mixed 状态；冲突时不覆盖，先另存 `recovery/` 再重新载入。
 - 原生新建知识节点、今日日记和 UUID 实验写入 Markdown；Ctrl+S 保存文件，Ctrl+Alt+S 才创建会话版本节点。
 - 状态栏显示实际 UTF-8 BOM、换行风格和保存状态；状态栏右键只展示保存恢复与工作区操作。
+- `.zhiweave/identity.json` 使用版本化开放 JSON 保存不可见稳定节点 ID；正文和 YAML 属性不暴露技术 ID。
+- 外部单一文件改名且内容未变时通过唯一 revision 匹配保留 ID；原生“移动或重命名 Markdown”使用 F2/节点右键，目标存在时绝不覆盖。
+- SQLite schema v1 使用 `rusqlite 0.40.1` bundled SQLite、WAL、FULL synchronous、foreign keys、5 秒 busy timeout、显式 checkpoint 和 application ID。
+- FTS5 trigram 覆盖中英文子串；1–2 字查询使用有界短查询；查询最多 256 字、返回最多 100 项，UI 默认 50 项。
+- 工作区快照只增量更新 revision/path/title/kind/mtime 发生变化的 FTS 行并清理失效行；保存后同步更新单篇索引。
+- 删除 `index.sqlite3` 后从 Markdown + 隐藏身份自动生成派生库；现存损坏库不会静默替换，工作区仍显示正文并标记“索引需重建”。
+- 用户明确重建时先构建并校验新库，再把旧数据库保留到 `.zhiweave/recovery/`；身份清单损坏时创建、保存和重建均在修改正文前失败关闭。
+- 原生状态栏显示索引覆盖篇数/需重建/不可用；原生搜索走 Tauri/Rust/SQLite，不在失败时回退浏览器内存搜索。
 
 ## 当前质量证据
 
 - `pnpm typecheck`：通过。
 - `pnpm test`：5 files / 22 tests，通过。
-- `pnpm build`：通过，约 402 ms。
+- `pnpm build`：通过，约 779 ms。
 - 交互实验独立 chunk：6.22 KB（gzip 2.57 KB）。
-- 主 CSS：28.64 KB（gzip 5.97 KB）。
-- 主 JavaScript：876.66 KB（gzip 293.57 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
-- Rust workspace tests：21 项通过；fmt 和全 workspace Clippy `-D warnings` 通过。
-- Windows 原生进程：`知织 · ZhiWeave` 正常运行；固定工作区已生成 6 个真实 Markdown；Vite 绑定 `127.0.0.1:1420`。
-- 远端头 `0d9092e`；Draft PR #1 已更新。
-- GitHub CI run `30482215895`：Frontend 通过（18 s），Rust 通过（3 min 13 s）。
+- 主 CSS：28.99 KB（gzip 6.01 KB）。
+- 主 JavaScript：880.54 KB（gzip 294.82 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
+- Rust workspace 29 项测试通过，其中 storage 15 项、portable path 5 项、Tauri seed/restart/search 1 项；fmt 和全 workspace Clippy `-D warnings` 通过。
+- `pnpm audit --prod --audit-level high`：无已知漏洞；`cargo audit --no-fetch --stale` 扫描 449 个 lockfile 依赖，无已知 vulnerability，17 项既有 allowed warning。
+- Windows 原生进程：`知织 · ZhiWeave` 正常运行；固定工作区有 6 个真实 Markdown、identity v1 的 6 个唯一 ID/路径和有效 SQLite 3 数据库。
+- Draft PR #1 已更新到前一稳定切片；本切片完成最终门禁后继续推送。
+- GitHub CI run `30482533535`：Frontend 通过（21 s），Rust 通过（3 min 1 s）。
 - CI 有一项非阻断 annotation：部分 actions 仍声明 Node 20，GitHub runner 已强制 Node 24；列为 workflow 维护项。
 - [Draft PR #1](https://github.com/jacek4yang/zhiweave/pull/1) 已创建。
 - GitHub CI：Frontend 通过（18 s），Rust 通过（3 min 7 s）。
 
 ## 当前任务
 
-1. 完成本文件纵切最终 Windows Tauri 验收、截图、提交、Linux 中转推送与 Draft PR/CI。
-2. 接入 SQLite 可重建 manifest/索引，让笔记 ID 在重命名后保持稳定，并加入 schema migration/rebuild。
-3. 增加文件 watcher、外部创建/删除/重命名事件和完整冲突中心，消除前端只在保存时发现变更的盲区。
-4. 把当前直接事件处理器收敛到真正的 command registry，并补键盘菜单语义。
-5. 替换手写 Markdown 阅读器为共享 AST 管线。
+1. 完成本 SQLite/稳定身份纵切的最终 workspace 门禁、构建、审计、提交、Linux 中转推送与 Draft PR/CI。
+2. 增加文件 watcher、外部创建/删除/重命名事件和完整冲突中心，消除前端只在保存或刷新时发现变更的盲区。
+3. 把当前直接事件处理器收敛到真正的 command registry，并补键盘菜单语义。
+4. 替换手写 Markdown 阅读器为共享 AST 管线。
+5. 将浏览器会话版本 DAG 迁入 Rust 增量对象存储，加入保留策略与旧版本清理。
 
 ## 未解决风险
 
 - 原生正文已移出 `localStorage`，但浏览器预览、布局和会话版本仍使用它；本地版本 DAG 尚未迁入 Rust 持久化。
-- 笔记 ID 暂由 path 派生，重命名会改变身份；SQLite manifest 未完成。
-- 尚无文件 watcher；最后一次 revision 检查与 rename 之间仍有极窄外部竞态。
+- 隐藏 ID 和 SQLite/FTS 已落地，但启动快照仍扫描并读取全部 Markdown，尚未达到 10,000/100,000 篇性能预算。
+- 显式移动采用安全的“新建目标 → 写入/同步/校验 → 再删源”以避免跨平台覆盖；强杀最坏可能留下两份文件，且删源前仍有极窄外部竞态。
+- 外部“改名同时改正文”无法仅凭 revision 自动识别为同一节点；应用内显式重命名可以稳定保持身份。
+- 尚无文件 watcher；外部改动仍要在保存或刷新时发现。
 - create 的空占位后若进程强杀可能留下空 Markdown，自动恢复日志未完成。
 - `MarkdownPreview` 仍是临时逐行解析器；仅交互 fence 已有严格边界，通用 Markdown 语义尚未统一。
-- 首屏 JS gzip 超预算 90.74 KB；CodeMirror/图标/工作台需进一步分包和测量。
-- 尚无 SQLite/FTS、文件监控、完整备份/恢复或同步加密。
+- 首屏 JS gzip 超预算 94.82 KB；CodeMirror/图标/工作台需进一步分包和测量。
+- 尚无文件监控、完整备份包/恢复演练或同步加密；本地 SQLite 目前未加密，不得宣称客户端密码保护已完成。
 - Command registry、命令面板、完整树/属性/反向链接、FSRS 与深度学习 schema 尚未完成。
 - 当前垂直切片已发布到 Draft PR；根目录 `AGENTS.md` 仍是用户未跟踪文件，严禁暂存。
 

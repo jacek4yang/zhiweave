@@ -36,9 +36,28 @@ React/TypeScript 负责 UI、输入、编辑器和浏览器测试；Rust 负责�
 
 ## ADR-0006：SQLite 使用 bundled + WAL
 
-状态：Proposed，阶段 2 验证后转 Accepted
+状态：Accepted（schema v1/FTS 纵切）；大规模启动优化仍待验证
 
-使用 bundled SQLite 降低平台差异，数据库位于本机应用数据目录。启用外键、WAL、busy timeout 和显式 checkpoint；正文不进 SQLite 唯一副本。必须测试磁盘满、损坏、长读事务和重建。
+使用 `rusqlite 0.40.1` + bundled SQLite 降低平台差异，数据库固定为工作区
+`.zhiweave/index.sqlite3`，不得接受前端任意路径。启用 application ID、schema `user_version`、
+foreign keys、WAL、`synchronous=FULL`、5 秒 busy timeout、1000 页自动 checkpoint 和操作后
+显式 passive checkpoint。数据库不得放在网络文件系统。
+
+schema v1 使用严格 `note_index` 元数据表和 FTS5 trigram 虚表。trigram 服务中英文子串，
+1–2 字查询走有界 `instr` 扫描；查询输入最多 256 字，Rust 上限 100 项，当前 UI 请求 50 项。
+FTS 存储的正文副本只作为本机派生数据，Markdown 始终是唯一正文事实来源。
+
+`.zhiweave/identity.json` 是独立于 SQLite 的版本化隐藏元数据，保存稳定节点 ID、portable
+path 和精确字节 revision。它不是正文，也不是可随 SQLite 一起删除的派生索引；删除它不会
+丢正文，但会丢失跨路径稳定身份。普通笔记和 frontmatter 不写入技术 ID。
+
+缺失数据库表示可派生缓存被删除，可以从 Markdown + identity 自动创建。已存在但损坏、外来
+application ID 或未来 schema 的数据库不得静默覆盖：工作区仍打开 Markdown，搜索标为需重建/
+不可用。用户明确重建后，先在同一隐藏目录生成并校验新库，再把旧数据库及 WAL/SHM 保存在
+`.zhiweave/recovery/`，最后安装新库。
+
+已验证中文搜索、短查询、单篇增量更新、失效行清理、删除数据库重建、损坏库保留/恢复、未来
+schema 拒绝降级和身份损坏失败关闭。尚未验证磁盘满、长读事务和 10,000/100,000 篇性能预算。
 
 ## ADR-0007：同步采用加密对象与显式冲突
 
@@ -56,7 +75,7 @@ Markdown 使用 `zhiweave-lab` fenced block 携带版本化 JSON。运行时经�
 
 ## ADR-0009：固定工作区、原子替换与内容修订
 
-状态：Accepted（文件层）；SQLite 索引、文件监控和重命名身份仍为后续切片
+状态：Accepted（文件层 + 稳定身份/索引）；文件监控仍为后续切片
 
 Windows Tauri 端只打开应用数据目录下的固定 `workspace`，前端命令不能传入任意根目录。所有用户路径先转为跨平台 `PortablePath`：仅允许相对 Markdown 路径，统一 `/`，拒绝盘符、UNC、空组件、`.`、`..`、NUL、控制字符、Windows 设备名和不可移植字符；文件适配器再逐段拒绝符号链接并校验 canonical root。
 
@@ -80,4 +99,12 @@ Windows Tauri 端只打开应用数据目录下的固定 `workspace`，前端命
 
 文件扫描、创建和保存通过 Tauri blocking worker 执行；不在 WebView/IPC 响应线程同步遍历磁盘。单一 workspace mutex 先保证同一进程内写入串行，后续基准证明需要时再引入更细粒度并发。
 
-已知边界：当前笔记 ID 暂由 portable path 派生，重命名身份保持要等可重建 SQLite manifest；尚无文件 watcher。通用文件系统无法提供跨外部编辑器的无窗口 compare-and-swap，最后一次修订检查与 rename 之间仍有极窄 TOCTOU 窗口；后续用 watcher、平台锁研究和冲突中心缩小并显式处理。新建采用 `create_new` 空文件占位后原子替换，若占位后进程被杀，可能留下可见的空 Markdown 文件，但不会覆盖已有正文；恢复扫描和创建日志属于下一步。
+稳定 ID 现在由隐藏 identity v1 清单提供。外部只有一个缺失旧路径和一个相同 revision 新路径时
+自动视为无内容改名；重复内容歧义时宁可生成新 ID，不错误合并两个节点。应用内移动先以
+`create_new` 创建目标、写入/同步/逐字节校验，再复查源 revision 并删除源，所以目标已存在时
+绝不覆盖，失败时优先保留两份。它不是跨平台原子 rename：强杀可能留下重复副本，外部“改名
+同时改正文”无法启发式保留身份，删源前仍有极窄 TOCTOU 窗口。
+
+尚无文件 watcher；后续用 watcher、平台锁研究和冲突中心缩小并显式处理。新建采用
+`create_new` 空文件占位后原子替换，若占位后进程被杀，可能留下可见的空 Markdown 文件，但
+不会覆盖已有正文；恢复扫描和创建日志属于下一步。

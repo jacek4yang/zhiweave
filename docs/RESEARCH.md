@@ -72,8 +72,13 @@
 
 - [SQLite WAL](https://www.sqlite.org/wal.html)
 - [SQLite FTS5](https://www.sqlite.org/fts5.html)
+- [SQLite PRAGMA](https://www.sqlite.org/pragma.html)
+- [rusqlite 0.40.1](https://docs.rs/rusqlite/0.40.1/rusqlite/)
 
-结论：WAL 允许读写并行但同一时刻仍只有一个 writer，依赖同机共享内存，因此数据库不得位于网络文件系统。需要 checkpoint 策略与长读事务监控。FTS5 只作为可重建派生索引。
+结论：WAL 允许读写并行但同一时刻仍只有一个 writer，依赖同机共享内存，因此数据库不得位于
+网络文件系统。采用 bundled `rusqlite` 避免 Windows 系统 SQLite 版本差异；需要 application
+ID、`user_version`、busy timeout、FULL durability、checkpoint 和长读事务监控。FTS5 trigram
+适合中英文子串，但少于 3 字符需要单独有界路径。FTS 只作为可重建派生索引。
 
 ## 声明式交互实验与 UUID
 

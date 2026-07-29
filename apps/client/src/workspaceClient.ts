@@ -28,11 +28,37 @@ export interface NativeNoteDocument {
 export interface NativeWorkspaceSnapshot {
   readonly rootDisplay: string;
   readonly documents: readonly NativeNoteDocument[];
+  readonly index: NativeIndexStatus;
+}
+
+export type NativeIndexState = "ready" | "needsRebuild" | "unavailable";
+
+export interface NativeIndexStatus {
+  readonly state: NativeIndexState;
+  readonly schemaVersion: number;
+  readonly noteCount: number;
+  readonly issue: string | null;
 }
 
 export interface NativeSaveResult {
   readonly document: NativeNoteDocument;
   readonly changed: boolean;
+  readonly indexUpdated: boolean;
+}
+
+export interface NativeSearchNoteResult {
+  readonly id: string;
+  readonly title: string;
+  readonly path: string;
+  readonly kind: NativeNoteKind;
+  readonly snippet: string;
+  readonly rank: number;
+}
+
+export interface NativeRebuildIndexResult {
+  readonly indexedNotes: number;
+  readonly schemaVersion: number;
+  readonly preservedPreviousDatabase: boolean;
 }
 
 export interface NativeWorkspaceFailure {
@@ -74,6 +100,29 @@ export function saveNativeNote(
       hasUtf8Bom: document.hasUtf8Bom,
     },
   });
+}
+
+export function renameNativeNote(
+  path: string,
+  newPath: string,
+  expectedRevision: string,
+): Promise<NativeNoteDocument> {
+  return invoke<NativeNoteDocument>("note_rename", {
+    request: { path, newPath, expectedRevision },
+  });
+}
+
+export function searchNativeNotes(
+  query: string,
+  limit = 50,
+): Promise<readonly NativeSearchNoteResult[]> {
+  return invoke<readonly NativeSearchNoteResult[]>("workspace_search", {
+    request: { query, limit },
+  });
+}
+
+export function rebuildNativeIndex(): Promise<NativeRebuildIndexResult> {
+  return invoke<NativeRebuildIndexResult>("workspace_rebuild_index");
 }
 
 export function asWorkspaceFailure(

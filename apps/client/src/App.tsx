@@ -81,7 +81,11 @@ import {
   asWorkspaceFailure,
   createNativeNote,
   loadNativeWorkspace,
+  rebuildNativeIndex,
+  renameNativeNote,
   saveNativeNote,
+  searchNativeNotes,
+  type NativeIndexStatus,
   type NativeNoteDocument,
 } from "./workspaceClient";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -179,6 +183,15 @@ export function App() {
   const [toast, setToast] = useState("");
   const [status, setStatus] = useState<SystemStatus>();
   const [nativeRoot, setNativeRoot] = useState("");
+  const [nativeIndex, setNativeIndex] = useState<NativeIndexStatus | null>(
+    null,
+  );
+  const [nativeSearchIds, setNativeSearchIds] = useState<readonly string[]>(
+    [],
+  );
+  const [nativeSearchState, setNativeSearchState] = useState<
+    "idle" | "searching" | "ready" | "error"
+  >("idle");
   const [saveState, setSaveState] = useState<SaveState>(
     nativeRuntime ? "loading" : "preview",
   );
@@ -200,10 +213,15 @@ export function App() {
     .map((id) => workspace.notes.find((note) => note.id === id))
     .filter((note): note is LearningNote => note !== undefined);
   const visibleNotes = notesForView(workspace.notes, activeView);
-  const results = useMemo(
-    () => searchNotes(workspace.notes, query),
-    [query, workspace.notes],
-  );
+  const results = useMemo(() => {
+    if (!nativeRuntime) {
+      return searchNotes(workspace.notes, query);
+    }
+    const notesById = new Map(workspace.notes.map((note) => [note.id, note]));
+    return nativeSearchIds
+      .map((id) => notesById.get(id))
+      .filter((note): note is LearningNote => note !== undefined);
+  }, [nativeRuntime, nativeSearchIds, query, workspace.notes]);
 
   useEffect(() => {
     void loadSystemStatus().then(setStatus);
@@ -232,11 +250,17 @@ export function App() {
         );
         setWorkspace(next);
         setNativeRoot(snapshot.rootDisplay);
+        setNativeIndex(snapshot.index);
         setActiveNoteId(selected?.id ?? null);
         setOpenNoteIds(selected === undefined ? [] : [selected.id]);
         setClosedNoteIds([]);
         setActiveView(selected?.view ?? "continue");
         setSaveState("saved");
+        if (snapshot.index.state === "needsRebuild") {
+          setToast("Markdown 已打开；全文索引损坏，需要从状态栏明确重建。");
+        } else if (snapshot.index.state === "unavailable") {
+          setToast("Markdown 已打开；全文索引当前不可用，没有改写数据库。");
+        }
       })
       .catch(() => {
         if (active) {
@@ -250,6 +274,43 @@ export function App() {
       active = false;
     };
   }, [nativeRuntime]);
+
+  useEffect(() => {
+    if (!nativeRuntime || query.trim().length === 0) {
+      setNativeSearchIds([]);
+      setNativeSearchState("idle");
+      return undefined;
+    }
+    if (nativeIndex?.state !== "ready") {
+      setNativeSearchIds([]);
+      setNativeSearchState("error");
+      return undefined;
+    }
+
+    let active = true;
+    setNativeSearchState("searching");
+    const timer = window.setTimeout(() => {
+      void searchNativeNotes(query, 50)
+        .then((matches) => {
+          if (!active) {
+            return;
+          }
+          setNativeSearchIds(matches.map((match) => match.id));
+          setNativeSearchState("ready");
+        })
+        .catch(() => {
+          if (!active) {
+            return;
+          }
+          setNativeSearchIds([]);
+          setNativeSearchState("error");
+        });
+    }, 160);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [nativeIndex?.state, nativeRuntime, query]);
 
   useEffect(() => {
     activeNoteIdRef.current = activeNoteId;
@@ -310,7 +371,7 @@ export function App() {
         lineEnding: captured.lineEnding!,
         hasUtf8Bom: captured.hasUtf8Bom ?? false,
       })
-        .then(({ document }) => {
+        .then(({ document, indexUpdated }) => {
           lastPersistedMarkdownRef.current.set(
             captured.id,
             captured.markdown,
@@ -330,6 +391,17 @@ export function App() {
             const latest = latestMarkdownRef.current.get(captured.id);
             setSaveState(
               latest === captured.markdown ? "saved" : "dirty",
+            );
+          }
+          if (!indexUpdated) {
+            setNativeIndex((current) => ({
+              state: "unavailable",
+              schemaVersion: current?.schemaVersion ?? 0,
+              noteCount: current?.noteCount ?? 0,
+              issue: "incrementalUpdateFailed",
+            }));
+            setToast(
+              "Markdown 已安全保存，但全文索引未更新；可从状态栏重建。",
             );
           }
         })
@@ -594,6 +666,11 @@ export function App() {
     setActiveView(note.view);
     setQuery("");
     setSaveState("saved");
+    setNativeIndex((current) =>
+      current?.state === "ready"
+        ? { ...current, noteCount: current.noteCount + 1 }
+        : current,
+    );
   }
 
   async function handleSaveStatusAction() {
@@ -664,6 +741,7 @@ export function App() {
       latestMarkdownRef.current.set(sourceNote.id, sourceNote.markdown);
       latestMarkdownRef.current.set(recoveryNote.id, recoveryNote.markdown);
       setNativeRoot(snapshot.rootDisplay);
+      setNativeIndex(snapshot.index);
       setWorkspace((current) => ({
         ...current,
         notes: [
@@ -685,6 +763,45 @@ export function App() {
     }
   }
 
+  async function rebuildSearchIndex() {
+    if (!nativeRuntime) {
+      return;
+    }
+    const confirmed = window.confirm(
+      "要从 Markdown 文件和隐藏节点身份重新生成全文索引吗？正文不会被修改，旧数据库会保存在 .zhiweave/recovery/。",
+    );
+    if (!confirmed) {
+      return;
+    }
+    setNativeIndex((current) => ({
+      state: "unavailable",
+      schemaVersion: current?.schemaVersion ?? 0,
+      noteCount: current?.noteCount ?? 0,
+      issue: "rebuilding",
+    }));
+    try {
+      const rebuilt = await rebuildNativeIndex();
+      const snapshot = await loadNativeWorkspace();
+      setNativeIndex(snapshot.index);
+      setNativeSearchIds([]);
+      setNativeSearchState("idle");
+      setToast(
+        `全文索引已从 ${rebuilt.indexedNotes} 篇 Markdown 重建` +
+          (rebuilt.preservedPreviousDatabase
+            ? "；旧数据库已保留供恢复。"
+            : "。"),
+      );
+    } catch {
+      setNativeIndex({
+        state: "needsRebuild",
+        schemaVersion: 0,
+        noteCount: 0,
+        issue: "rebuildFailed",
+      });
+      setToast("索引重建失败；Markdown 正文没有被修改。");
+    }
+  }
+
   async function copyForAi(note = selectedNote) {
     if (note === undefined) {
       return;
@@ -703,6 +820,56 @@ export function App() {
       setToast(`已复制“${note.title}”的标题。`);
     } catch {
       setToast("复制失败，请检查系统剪贴板权限。");
+    }
+  }
+
+  async function renameNoteFile(note: LearningNote) {
+    if (
+      !nativeRuntime ||
+      note.path === undefined ||
+      note.revision === undefined
+    ) {
+      return;
+    }
+    if (
+      lastPersistedMarkdownRef.current.get(note.id) !== note.markdown
+    ) {
+      setToast("请先等待当前修改保存完成，再重命名文件。");
+      return;
+    }
+    const entered = window.prompt(
+      "输入新的工作区相对路径（必须以 .md 结尾）：",
+      note.path,
+    );
+    const newPath = entered?.trim();
+    if (newPath === undefined || newPath.length === 0 || newPath === note.path) {
+      return;
+    }
+    try {
+      const document = await renameNativeNote(
+        note.path,
+        newPath,
+        note.revision,
+      );
+      const renamed = nativeDocumentToLearningNote(document);
+      lastPersistedMarkdownRef.current.set(renamed.id, renamed.markdown);
+      latestMarkdownRef.current.set(renamed.id, renamed.markdown);
+      setWorkspace((current) => ({
+        ...current,
+        notes: current.notes.map((candidate) =>
+          candidate.id === note.id ? renamed : candidate,
+        ),
+      }));
+      setToast(`已移动到 ${document.path}；知识节点身份保持不变。`);
+    } catch (error: unknown) {
+      const failure = asWorkspaceFailure(error);
+      setToast(
+        failure?.code === "alreadyExists"
+          ? "目标位置已有 Markdown，知织没有覆盖它。"
+          : failure?.code === "conflict"
+            ? "源文件已变化，知织没有移动或覆盖任何文件。"
+            : "重命名未完成；原 Markdown 仍保留。",
+      );
     }
   }
 
@@ -984,6 +1151,17 @@ export function App() {
       if (!commandKey) {
         if (event.key === "Escape") {
           setContextMenu(null);
+        } else if (event.key === "F2" && nativeRuntime) {
+          const focused = document.activeElement?.closest<HTMLElement>(
+            '[data-context="note-item"], [data-context="tab"]',
+          );
+          const note = workspace.notes.find(
+            (candidate) => candidate.id === focused?.dataset.noteId,
+          );
+          if (note !== undefined) {
+            event.preventDefault();
+            void renameNoteFile(note);
+          }
         }
         return;
       }
@@ -1061,6 +1239,17 @@ export function App() {
     (saveState === "conflict" ||
       saveState === "error" ||
       saveState === "mixed");
+  const indexStatusLabel = !nativeRuntime
+    ? "搜索：浏览器内存"
+    : nativeIndex?.state === "ready"
+      ? `索引：${nativeIndex.noteCount} 篇`
+      : nativeIndex?.issue === "rebuilding"
+        ? "正在重建索引"
+        : nativeIndex?.state === "needsRebuild"
+          ? "索引需重建"
+          : "索引不可用";
+  const indexStatusActionable =
+    nativeRuntime && nativeIndex?.state !== "ready";
   const contextNote =
     contextMenu?.noteId === undefined
       ? selectedNote
@@ -1237,7 +1426,13 @@ export function App() {
             </button>
           ))}
           {query.trim().length > 0 && results.length === 0 && (
-            <p className="sidebar-empty">没有匹配的笔记</p>
+            <p className="sidebar-empty">
+              {nativeSearchState === "searching"
+                ? "正在搜索本地索引…"
+                : nativeSearchState === "error"
+                  ? "全文索引不可用，请从底部状态栏重建"
+                  : "没有匹配的笔记"}
+            </p>
           )}
           {query.trim().length === 0 && visibleNotes.length === 0 && (
             <p className="sidebar-empty">这个区域还没有笔记</p>
@@ -1442,6 +1637,25 @@ export function App() {
           >
             <i />
             {saveStatusLabel}
+          </button>
+          <button
+            aria-disabled={!indexStatusActionable}
+            className={`status-index is-${nativeIndex?.state ?? "preview"}`}
+            onClick={() => {
+              if (indexStatusActionable) {
+                void rebuildSearchIndex();
+              }
+            }}
+            tabIndex={indexStatusActionable ? 0 : -1}
+            title={
+              nativeIndex?.issue === null || nativeIndex?.issue === undefined
+                ? indexStatusLabel
+                : `${indexStatusLabel}（${nativeIndex.issue}）`
+            }
+            type="button"
+          >
+            <Database />
+            {indexStatusLabel}
           </button>
           <span className="status-version" title="当前版本节点数">
             <GitBranch />
@@ -1728,6 +1942,14 @@ export function App() {
                 <Database />
                 复制 Markdown 工作区位置
               </button>
+              <button
+                disabled={!nativeRuntime}
+                onClick={() => void rebuildSearchIndex()}
+                role="menuitem"
+              >
+                <RotateCcw />
+                从 Markdown 重建全文索引
+              </button>
               {!nativeRuntime && (
                 <button onClick={resetDemoData} role="menuitem">
                   <RotateCcw />
@@ -1764,6 +1986,22 @@ export function App() {
                 <Copy />
                 复制节点名称
               </button>
+              {nativeRuntime && (
+                <button
+                  disabled={
+                    contextNote.path === undefined ||
+                    contextNote.revision === undefined ||
+                    lastPersistedMarkdownRef.current.get(contextNote.id) !==
+                      contextNote.markdown
+                  }
+                  onClick={() => void renameNoteFile(contextNote)}
+                  role="menuitem"
+                >
+                  <PencilLine />
+                  移动或重命名 Markdown
+                  <kbd>F2</kbd>
+                </button>
+              )}
               <button
                 onClick={() => void copyForAi(contextNote)}
                 role="menuitem"

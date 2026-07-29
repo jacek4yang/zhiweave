@@ -1,5 +1,8 @@
 //! Recoverable local Markdown workspace adapter.
 
+mod identity;
+mod index;
+
 use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
@@ -10,11 +13,17 @@ use std::{
 use atomic_write_file::AtomicWriteFile;
 use sha2::{Digest, Sha256};
 use zhiweave_application::{
-    CreateNoteRequest, FileRevision, LineEnding, NoteDocument, SaveNoteRequest, SaveNoteResult,
-    WorkspaceFailure, WorkspacePort, WorkspaceSnapshot,
+    CreateNoteRequest, FileRevision, IndexState, IndexStatus, LineEnding, NoteDocument,
+    RebuildIndexResult, RenameNoteRequest, SaveNoteRequest, SaveNoteResult, SearchNoteResult,
+    SearchNotesRequest, WorkspaceFailure, WorkspacePort, WorkspaceSnapshot,
 };
 use zhiweave_domain::{NoteId, NoteKind, PortablePath};
 use zhiweave_markdown::first_level_one_heading;
+
+use crate::{
+    identity::{IdentityManifest, prepare_metadata_directory},
+    index::{INDEX_SCHEMA_VERSION, SqliteIndex},
+};
 
 /// Maximum accepted size of one Markdown source.
 pub const MAX_NOTE_BYTES: u64 = 16 * 1024 * 1024;
@@ -27,6 +36,45 @@ pub const MAX_WORKSPACE_DEPTH: usize = 12;
 pub struct FileWorkspace {
     root: PathBuf,
     root_display: String,
+    identity_path: PathBuf,
+    index: SqliteIndex,
+}
+
+#[derive(Clone)]
+struct RawDocument {
+    title: String,
+    path: PortablePath,
+    kind: NoteKind,
+    markdown: String,
+    revision: FileRevision,
+    line_ending: LineEnding,
+    has_utf8_bom: bool,
+    modified_at_millis: u64,
+}
+
+#[derive(Clone)]
+pub(crate) struct IndexedDocument {
+    id: NoteId,
+    title: String,
+    path: PortablePath,
+    kind: NoteKind,
+    markdown: String,
+    revision: FileRevision,
+    modified_at_millis: u64,
+}
+
+impl From<&NoteDocument> for IndexedDocument {
+    fn from(document: &NoteDocument) -> Self {
+        Self {
+            id: document.id,
+            title: document.title.clone(),
+            path: document.path.clone(),
+            kind: document.kind,
+            markdown: document.markdown.clone(),
+            revision: document.revision.clone(),
+            modified_at_millis: document.modified_at_millis,
+        }
+    }
 }
 
 impl FileWorkspace {
@@ -57,9 +105,12 @@ impl FileWorkspace {
         let root = requested
             .canonicalize()
             .map_err(|error| io_failure("canonicalizeRoot", "workspace", &error))?;
+        let metadata_directory = prepare_metadata_directory(&root)?;
         Ok(Self {
             root_display: root.display().to_string(),
             root,
+            identity_path: metadata_directory.join("identity.json"),
+            index: SqliteIndex::new(&metadata_directory),
         })
     }
 
@@ -232,28 +283,101 @@ impl FileWorkspace {
         }
     }
 
-    fn read_document(&self, path: &PortablePath) -> Result<NoteDocument, WorkspaceFailure> {
+    fn read_raw_document(&self, path: &PortablePath) -> Result<RawDocument, WorkspaceFailure> {
         let absolute = self.resolve_existing(path)?;
         let (bytes, modified_at_millis) = read_bounded(&absolute, path)?;
         decode_document(path, &bytes, modified_at_millis)
+    }
+
+    fn read_document(&self, path: &PortablePath) -> Result<NoteDocument, WorkspaceFailure> {
+        let raw = self.read_raw_document(path)?;
+        let mut identities = IdentityManifest::load(&self.identity_path, MAX_NOTE_COUNT)?;
+        let (id, changed) = identities.ensure(path, &raw.revision);
+        if changed {
+            identities.persist(&self.identity_path)?;
+        }
+        Ok(raw.with_id(id))
+    }
+}
+
+impl RawDocument {
+    fn with_id(self, id: NoteId) -> NoteDocument {
+        NoteDocument {
+            id,
+            title: self.title,
+            path: self.path,
+            kind: self.kind,
+            markdown: self.markdown,
+            revision: self.revision,
+            line_ending: self.line_ending,
+            has_utf8_bom: self.has_utf8_bom,
+            modified_at_millis: self.modified_at_millis,
+        }
     }
 }
 
 impl WorkspacePort for FileWorkspace {
     fn snapshot(&self) -> Result<WorkspaceSnapshot, WorkspaceFailure> {
-        let documents = self
+        let raw_documents = self
             .collect_markdown_paths()?
             .iter()
-            .map(|path| self.read_document(path))
+            .map(|path| self.read_raw_document(path))
             .collect::<Result<Vec<_>, _>>()?;
+        let sources = raw_documents
+            .iter()
+            .map(|document| (document.path.clone(), document.revision.clone()))
+            .collect::<Vec<_>>();
+        let mut identities = IdentityManifest::load(&self.identity_path, MAX_NOTE_COUNT)?;
+        if identities.reconcile(&sources) {
+            identities.persist(&self.identity_path)?;
+        }
+        let documents = raw_documents
+            .into_iter()
+            .map(|document| {
+                let id = identities.id_for(&document.path).ok_or_else(|| {
+                    WorkspaceFailure::MetadataCorrupt {
+                        kind: "missingReconciledIdentity".to_owned(),
+                    }
+                })?;
+                Ok(document.with_id(id))
+            })
+            .collect::<Result<Vec<_>, WorkspaceFailure>>()?;
+        let indexed = documents
+            .iter()
+            .map(IndexedDocument::from)
+            .collect::<Vec<_>>();
+        let index = match self.index.synchronize(&indexed) {
+            Ok(status) => status,
+            Err(WorkspaceFailure::IndexCorrupt { kind }) => IndexStatus {
+                state: IndexState::NeedsRebuild,
+                schema_version: 0,
+                note_count: 0,
+                issue: Some(kind),
+            },
+            Err(WorkspaceFailure::IndexSchemaTooNew { found, .. }) => IndexStatus {
+                state: IndexState::Unavailable,
+                schema_version: found,
+                note_count: 0,
+                issue: Some("schemaTooNew".to_owned()),
+            },
+            Err(WorkspaceFailure::IndexUnavailable { kind, .. }) => IndexStatus {
+                state: IndexState::Unavailable,
+                schema_version: 0,
+                note_count: 0,
+                issue: Some(kind),
+            },
+            Err(failure) => return Err(failure),
+        };
         Ok(WorkspaceSnapshot {
             root_display: self.root_display.clone(),
             documents,
+            index,
         })
     }
 
     fn create(&self, request: &CreateNoteRequest) -> Result<NoteDocument, WorkspaceFailure> {
         validate_editor_text(&request.path, &request.markdown, LineEnding::Lf)?;
+        let mut identities = IdentityManifest::load(&self.identity_path, MAX_NOTE_COUNT)?;
         let bytes = encode_editor_text(&request.markdown, LineEnding::Lf, false);
         check_size(&request.path, bytes.len() as u64)?;
         let absolute = self.resolve_new(&request.path)?;
@@ -290,11 +414,19 @@ impl WorkspacePort for FileWorkspace {
         writer
             .commit()
             .map_err(|error| io_failure("commitCreate", request.path.as_str(), &error))?;
-        self.read_document(&request.path)
+        let raw = self.read_raw_document(&request.path)?;
+        let (id, identity_changed) = identities.ensure(&request.path, &raw.revision);
+        if identity_changed {
+            identities.persist(&self.identity_path)?;
+        }
+        let document = raw.with_id(id);
+        let _ = self.index.update_one(&IndexedDocument::from(&document));
+        Ok(document)
     }
 
     fn save(&self, request: &SaveNoteRequest) -> Result<SaveNoteResult, WorkspaceFailure> {
         validate_editor_text(&request.path, &request.markdown, request.line_ending)?;
+        let mut identities = IdentityManifest::load(&self.identity_path, MAX_NOTE_COUNT)?;
         let absolute = self.resolve_existing(&request.path)?;
         let metadata = absolute
             .metadata()
@@ -320,9 +452,20 @@ impl WorkspacePort for FileWorkspace {
             encode_editor_text(&request.markdown, request.line_ending, request.has_utf8_bom);
         check_size(&request.path, desired_bytes.len() as u64)?;
         if desired_bytes == current_bytes {
+            let raw = self.read_raw_document(&request.path)?;
+            let (id, identity_changed) = identities.ensure(&request.path, &raw.revision);
+            if identity_changed {
+                identities.persist(&self.identity_path)?;
+            }
+            let document = raw.with_id(id);
+            let index_updated = self
+                .index
+                .update_one(&IndexedDocument::from(&document))
+                .is_ok();
             return Ok(SaveNoteResult {
-                document: self.read_document(&request.path)?,
+                document,
                 changed: false,
+                index_updated,
             });
         }
 
@@ -345,7 +488,12 @@ impl WorkspacePort for FileWorkspace {
             .commit()
             .map_err(|error| io_failure("commitSave", request.path.as_str(), &error))?;
 
-        let document = self.read_document(&request.path)?;
+        let raw = self.read_raw_document(&request.path)?;
+        let (id, identity_changed) = identities.ensure(&request.path, &raw.revision);
+        if identity_changed {
+            identities.persist(&self.identity_path)?;
+        }
+        let document = raw.with_id(id);
         let desired_revision = revision(&desired_bytes);
         if document.revision != desired_revision {
             return Err(WorkspaceFailure::Io {
@@ -354,9 +502,131 @@ impl WorkspacePort for FileWorkspace {
                 kind: "contentMismatch".to_owned(),
             });
         }
+        let index_updated = self
+            .index
+            .update_one(&IndexedDocument::from(&document))
+            .is_ok();
         Ok(SaveNoteResult {
             document,
             changed: true,
+            index_updated,
+        })
+    }
+
+    fn rename(&self, request: &RenameNoteRequest) -> Result<NoteDocument, WorkspaceFailure> {
+        if request.path == request.new_path {
+            return self.read_document(&request.path);
+        }
+        let opened = self.read_document(&request.path)?;
+        if opened.revision != request.expected_revision {
+            return Err(conflict(
+                &request.path,
+                &request.expected_revision,
+                &opened.revision,
+            ));
+        }
+        let source = self.resolve_existing(&request.path)?;
+        let destination = self.resolve_new(&request.new_path)?;
+        let (source_bytes, _) = read_bounded(&source, &request.path)?;
+        let source_revision = revision(&source_bytes);
+        if source_revision != request.expected_revision {
+            return Err(conflict(
+                &request.path,
+                &request.expected_revision,
+                &source_revision,
+            ));
+        }
+
+        let mut destination_file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&destination)
+            .map_err(|error| {
+                if error.kind() == std::io::ErrorKind::AlreadyExists {
+                    WorkspaceFailure::AlreadyExists {
+                        path: request.new_path.to_string(),
+                    }
+                } else {
+                    io_failure("createRenameDestination", request.new_path.as_str(), &error)
+                }
+            })?;
+        destination_file.write_all(&source_bytes).map_err(|error| {
+            io_failure("writeRenameDestination", request.new_path.as_str(), &error)
+        })?;
+        destination_file.sync_all().map_err(|error| {
+            io_failure("syncRenameDestination", request.new_path.as_str(), &error)
+        })?;
+        drop(destination_file);
+        let (destination_bytes, _) = read_bounded(&destination, &request.new_path)?;
+        if destination_bytes != source_bytes {
+            return Err(WorkspaceFailure::Io {
+                operation: "verifyRenameDestination".to_owned(),
+                path: request.new_path.to_string(),
+                kind: "contentMismatch".to_owned(),
+            });
+        }
+        let (before_remove, _) = read_bounded(&source, &request.path)?;
+        let before_remove_revision = revision(&before_remove);
+        if before_remove_revision != source_revision {
+            return Err(conflict(
+                &request.path,
+                &source_revision,
+                &before_remove_revision,
+            ));
+        }
+        fs::remove_file(&source)
+            .map_err(|error| io_failure("removeRenameSource", request.path.as_str(), &error))?;
+
+        let mut identities = IdentityManifest::load(&self.identity_path, MAX_NOTE_COUNT)?;
+        let id = identities.move_path(&request.path, &request.new_path, &source_revision)?;
+        identities.persist(&self.identity_path)?;
+        let raw = self.read_raw_document(&request.new_path)?;
+        let document = raw.with_id(id);
+        let _ = self.index.update_one(&IndexedDocument::from(&document));
+        Ok(document)
+    }
+
+    fn search(
+        &self,
+        request: &SearchNotesRequest,
+    ) -> Result<Vec<SearchNoteResult>, WorkspaceFailure> {
+        self.index.search(request)
+    }
+
+    fn rebuild_index(&self) -> Result<RebuildIndexResult, WorkspaceFailure> {
+        let raw_documents = self
+            .collect_markdown_paths()?
+            .iter()
+            .map(|path| self.read_raw_document(path))
+            .collect::<Result<Vec<_>, _>>()?;
+        let sources = raw_documents
+            .iter()
+            .map(|document| (document.path.clone(), document.revision.clone()))
+            .collect::<Vec<_>>();
+        let mut identities = IdentityManifest::load(&self.identity_path, MAX_NOTE_COUNT)?;
+        if identities.reconcile(&sources) {
+            identities.persist(&self.identity_path)?;
+        }
+        let documents = raw_documents
+            .into_iter()
+            .map(|document| {
+                let id = identities.id_for(&document.path).ok_or_else(|| {
+                    WorkspaceFailure::MetadataCorrupt {
+                        kind: "missingReconciledIdentity".to_owned(),
+                    }
+                })?;
+                Ok(document.with_id(id))
+            })
+            .collect::<Result<Vec<_>, WorkspaceFailure>>()?;
+        let indexed = documents
+            .iter()
+            .map(IndexedDocument::from)
+            .collect::<Vec<_>>();
+        let preserved_previous_database = self.index.rebuild(&indexed)?;
+        Ok(RebuildIndexResult {
+            indexed_notes: indexed.len(),
+            schema_version: INDEX_SCHEMA_VERSION,
+            preserved_previous_database,
         })
     }
 }
@@ -392,7 +662,7 @@ fn decode_document(
     path: &PortablePath,
     bytes: &[u8],
     modified_at_millis: u64,
-) -> Result<NoteDocument, WorkspaceFailure> {
+) -> Result<RawDocument, WorkspaceFailure> {
     let has_utf8_bom = bytes.starts_with(&[0xef, 0xbb, 0xbf]);
     let content = if has_utf8_bom { &bytes[3..] } else { bytes };
     let text = std::str::from_utf8(content).map_err(|_| WorkspaceFailure::InvalidUtf8 {
@@ -401,8 +671,7 @@ fn decode_document(
     let line_ending = detect_line_ending(content);
     let markdown = text.replace("\r\n", "\n").replace('\r', "\n");
     let title = first_level_one_heading(&markdown).unwrap_or_else(|| fallback_title(path));
-    Ok(NoteDocument {
-        id: stable_note_id(path),
+    Ok(RawDocument {
         title,
         path: path.clone(),
         kind: infer_kind(path),
@@ -482,16 +751,6 @@ fn revision(bytes: &[u8]) -> FileRevision {
     FileRevision::new(format!("{digest:x}"))
 }
 
-fn stable_note_id(path: &PortablePath) -> NoteId {
-    let digest =
-        Sha256::digest([b"zhiweave-note-id\0".as_slice(), path.as_str().as_bytes()].concat());
-    let mut bytes = [0_u8; 16];
-    bytes.copy_from_slice(&digest[..16]);
-    bytes[6] = (bytes[6] & 0x0f) | 0x80;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    NoteId::from_bytes(bytes)
-}
-
 fn infer_kind(path: &PortablePath) -> NoteKind {
     match path.as_str().split('/').next().unwrap_or_default() {
         "daily" | "today" | "journal" => NoteKind::Daily,
@@ -565,7 +824,8 @@ mod tests {
     };
 
     use zhiweave_application::{
-        CreateNoteRequest, LineEnding, SaveNoteRequest, WorkspaceFailure, WorkspacePort,
+        CreateNoteRequest, IndexState, LineEnding, RenameNoteRequest, SaveNoteRequest,
+        SearchNotesRequest, WorkspaceFailure, WorkspacePort,
     };
     use zhiweave_domain::PortablePath;
 
@@ -803,6 +1063,337 @@ mod tests {
                 .unwrap_err(),
             WorkspaceFailure::MixedLineEndings { .. }
         ));
+    }
+
+    #[test]
+    fn hidden_identity_survives_an_unambiguous_external_rename() {
+        let directory = TestDirectory::new("rename-identity");
+        fs::create_dir(directory.path().join("topics")).unwrap();
+        fs::write(
+            directory.path().join("topics/before.md"),
+            "# Stable node\n\nEvidence.\n",
+        )
+        .unwrap();
+        let workspace = FileWorkspace::new(directory.path()).unwrap();
+        let before = workspace.snapshot().unwrap().documents.remove(0);
+
+        fs::rename(
+            directory.path().join("topics/before.md"),
+            directory.path().join("topics/after.md"),
+        )
+        .unwrap();
+        let after = workspace.snapshot().unwrap().documents.remove(0);
+
+        assert_eq!(after.id, before.id);
+        assert_eq!(after.path, path("topics/after.md"));
+        assert_eq!(
+            fs::read_to_string(directory.path().join("topics/after.md")).unwrap(),
+            "# Stable node\n\nEvidence.\n"
+        );
+        assert!(directory.path().join(".zhiweave/identity.json").is_file());
+    }
+
+    #[test]
+    fn explicit_rename_preserves_identity_and_never_overwrites_a_destination() {
+        let directory = TestDirectory::new("explicit-rename");
+        let workspace = FileWorkspace::new(directory.path()).unwrap();
+        let created = workspace
+            .create(&CreateNoteRequest {
+                path: path("learning/question.md"),
+                markdown: "# Question\n\nEvidence.\n".to_owned(),
+            })
+            .unwrap();
+        let renamed = workspace
+            .rename(&RenameNoteRequest {
+                path: created.path.clone(),
+                new_path: path("topics/answer.md"),
+                expected_revision: created.revision.clone(),
+            })
+            .unwrap();
+        assert_eq!(renamed.id, created.id);
+        assert_eq!(renamed.path, path("topics/answer.md"));
+        assert!(!directory.path().join("learning/question.md").exists());
+        assert_eq!(
+            fs::read_to_string(directory.path().join("topics/answer.md")).unwrap(),
+            created.markdown
+        );
+        assert_eq!(
+            workspace
+                .search(&SearchNotesRequest {
+                    query: "Evidence".to_owned(),
+                    limit: 20,
+                })
+                .unwrap()[0]
+                .path,
+            renamed.path
+        );
+
+        fs::write(directory.path().join("occupied.md"), "# Existing\n").unwrap();
+        assert!(matches!(
+            workspace
+                .rename(&RenameNoteRequest {
+                    path: renamed.path,
+                    new_path: path("occupied.md"),
+                    expected_revision: renamed.revision,
+                })
+                .unwrap_err(),
+            WorkspaceFailure::AlreadyExists { .. }
+        ));
+        assert_eq!(
+            fs::read_to_string(directory.path().join("occupied.md")).unwrap(),
+            "# Existing\n"
+        );
+        assert_eq!(
+            fs::read_to_string(directory.path().join("topics/answer.md")).unwrap(),
+            "# Question\n\nEvidence.\n"
+        );
+    }
+
+    #[test]
+    fn ambiguous_identical_sources_never_share_an_identity() {
+        let directory = TestDirectory::new("duplicate-identities");
+        fs::write(directory.path().join("one.md"), "# Same\n").unwrap();
+        fs::write(directory.path().join("two.md"), "# Same\n").unwrap();
+        let workspace = FileWorkspace::new(directory.path()).unwrap();
+        let snapshot = workspace.snapshot().unwrap();
+
+        assert_eq!(snapshot.documents.len(), 2);
+        assert_ne!(snapshot.documents[0].id, snapshot.documents[1].id);
+    }
+
+    #[test]
+    fn sqlite_search_handles_chinese_short_queries_and_incremental_saves() {
+        let directory = TestDirectory::new("search");
+        let workspace = FileWorkspace::new(directory.path()).unwrap();
+        let created = workspace
+            .create(&CreateNoteRequest {
+                path: path("topics/ownership.md"),
+                markdown: "# Rust 所有权\n\n借用让引用保持有效。\n".to_owned(),
+            })
+            .unwrap();
+        let snapshot = workspace.snapshot().unwrap();
+        assert_eq!(snapshot.index.state, IndexState::Ready);
+        assert_eq!(snapshot.index.note_count, 1);
+
+        let results = workspace
+            .search(&SearchNotesRequest {
+                query: "所有权".to_owned(),
+                limit: 20,
+            })
+            .unwrap();
+        assert_eq!(results[0].id, created.id);
+        assert_eq!(results[0].path, created.path);
+        assert_eq!(
+            workspace
+                .search(&SearchNotesRequest {
+                    query: "权".to_owned(),
+                    limit: 20,
+                })
+                .unwrap()[0]
+                .id,
+            created.id
+        );
+
+        let saved = workspace
+            .save(&SaveNoteRequest {
+                path: created.path,
+                markdown: "# Rust 所有权\n\n生命周期证明引用有效。\n".to_owned(),
+                expected_revision: created.revision,
+                line_ending: created.line_ending,
+                has_utf8_bom: created.has_utf8_bom,
+            })
+            .unwrap();
+        assert!(saved.index_updated);
+        assert!(
+            workspace
+                .search(&SearchNotesRequest {
+                    query: "生命周期".to_owned(),
+                    limit: 20,
+                })
+                .unwrap()
+                .iter()
+                .any(|result| result.id == saved.document.id)
+        );
+        assert!(
+            workspace
+                .search(&SearchNotesRequest {
+                    query: "借用让引用".to_owned(),
+                    limit: 20,
+                })
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn deleting_only_sqlite_rebuilds_derived_data_without_changing_identity() {
+        let directory = TestDirectory::new("delete-index");
+        fs::write(directory.path().join("durable.md"), "# Durable identity\n").unwrap();
+        let workspace = FileWorkspace::new(directory.path()).unwrap();
+        let before = workspace.snapshot().unwrap().documents.remove(0);
+        remove_index_artifacts(directory.path());
+
+        let after = workspace.snapshot().unwrap();
+        assert_eq!(after.index.state, IndexState::Ready);
+        assert_eq!(after.documents[0].id, before.id);
+        assert_eq!(
+            fs::read_to_string(directory.path().join("durable.md")).unwrap(),
+            "# Durable identity\n"
+        );
+    }
+
+    #[test]
+    fn corrupt_index_is_not_silently_replaced_and_explicit_rebuild_recovers_search() {
+        let directory = TestDirectory::new("corrupt-index");
+        fs::write(
+            directory.path().join("source.md"),
+            "# Recovery\n\n可重建索引。\n",
+        )
+        .unwrap();
+        let workspace = FileWorkspace::new(directory.path()).unwrap();
+        workspace.snapshot().unwrap();
+        remove_index_artifacts(directory.path());
+        fs::write(
+            directory.path().join(".zhiweave/index.sqlite3"),
+            b"not a sqlite database",
+        )
+        .unwrap();
+
+        let degraded = workspace.snapshot().unwrap();
+        assert_eq!(degraded.documents.len(), 1);
+        assert_eq!(degraded.index.state, IndexState::NeedsRebuild);
+        assert!(matches!(
+            workspace
+                .search(&SearchNotesRequest {
+                    query: "可重建".to_owned(),
+                    limit: 20,
+                })
+                .unwrap_err(),
+            WorkspaceFailure::IndexCorrupt { .. }
+        ));
+        assert_eq!(
+            fs::read(directory.path().join(".zhiweave/index.sqlite3")).unwrap(),
+            b"not a sqlite database"
+        );
+
+        let rebuilt = workspace.rebuild_index().unwrap();
+        assert_eq!(rebuilt.indexed_notes, 1);
+        assert!(rebuilt.preserved_previous_database);
+        assert!(
+            workspace
+                .search(&SearchNotesRequest {
+                    query: "可重建".to_owned(),
+                    limit: 20,
+                })
+                .unwrap()
+                .iter()
+                .any(|result| result.title == "Recovery")
+        );
+        assert_eq!(
+            fs::read(
+                directory
+                    .path()
+                    .join(".zhiweave/recovery/index-before-rebuild-0001.sqlite3")
+            )
+            .unwrap(),
+            b"not a sqlite database"
+        );
+    }
+
+    #[test]
+    fn newer_schema_and_corrupt_identity_fail_closed() {
+        let directory = TestDirectory::new("migration-guards");
+        fs::write(directory.path().join("note.md"), "# Guarded\n").unwrap();
+        let workspace = FileWorkspace::new(directory.path()).unwrap();
+        let guarded = workspace.snapshot().unwrap().documents.remove(0);
+
+        {
+            let connection =
+                rusqlite::Connection::open(directory.path().join(".zhiweave/index.sqlite3"))
+                    .unwrap();
+            connection.pragma_update(None, "user_version", 999).unwrap();
+        }
+        let snapshot = workspace.snapshot().unwrap();
+        assert_eq!(snapshot.index.state, IndexState::Unavailable);
+        assert_eq!(snapshot.index.schema_version, 999);
+
+        fs::write(
+            directory.path().join(".zhiweave/identity.json"),
+            br#"{"formatVersion":1,"notes":[{"id":"not-a-uuid"}]}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            workspace.snapshot().unwrap_err(),
+            WorkspaceFailure::MetadataCorrupt { .. }
+        ));
+        assert!(matches!(
+            workspace
+                .save(&SaveNoteRequest {
+                    path: guarded.path,
+                    markdown: "# Replacement\n".to_owned(),
+                    expected_revision: guarded.revision,
+                    line_ending: guarded.line_ending,
+                    has_utf8_bom: guarded.has_utf8_bom,
+                })
+                .unwrap_err(),
+            WorkspaceFailure::MetadataCorrupt { .. }
+        ));
+        assert_eq!(
+            fs::read_to_string(directory.path().join("note.md")).unwrap(),
+            "# Guarded\n"
+        );
+        assert!(matches!(
+            workspace
+                .create(&CreateNoteRequest {
+                    path: path("new.md"),
+                    markdown: "# New\n".to_owned(),
+                })
+                .unwrap_err(),
+            WorkspaceFailure::MetadataCorrupt { .. }
+        ));
+        assert!(!directory.path().join("new.md").exists());
+        assert!(matches!(
+            workspace.rebuild_index().unwrap_err(),
+            WorkspaceFailure::MetadataCorrupt { .. }
+        ));
+    }
+
+    #[test]
+    fn search_boundary_rejects_unbounded_or_empty_queries() {
+        let directory = TestDirectory::new("search-boundary");
+        let workspace = FileWorkspace::new(directory.path()).unwrap();
+        workspace.snapshot().unwrap();
+        for request in [
+            SearchNotesRequest {
+                query: " ".to_owned(),
+                limit: 20,
+            },
+            SearchNotesRequest {
+                query: "a".repeat(257),
+                limit: 20,
+            },
+            SearchNotesRequest {
+                query: "valid".to_owned(),
+                limit: 0,
+            },
+        ] {
+            assert!(matches!(
+                workspace.search(&request).unwrap_err(),
+                WorkspaceFailure::InvalidSearch { .. }
+            ));
+        }
+    }
+
+    fn remove_index_artifacts(root: &Path) {
+        for suffix in ["", "-wal", "-shm"] {
+            let mut path = root.join(".zhiweave/index.sqlite3").into_os_string();
+            path.push(suffix);
+            match fs::remove_file(PathBuf::from(path)) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => panic!("failed to remove index artifact: {error}"),
+            }
+        }
     }
 
     #[cfg(unix)]

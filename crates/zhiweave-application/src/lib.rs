@@ -88,6 +88,74 @@ pub struct WorkspaceSnapshot {
     pub root_display: String,
     /// Documents sorted by their portable path.
     pub documents: Vec<NoteDocument>,
+    /// Health and coverage of the rebuildable local search index.
+    pub index: IndexStatus,
+}
+
+/// Read-only health of the derived `SQLite` index.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexStatus {
+    /// Whether indexed search is ready, requires rebuild, or is unavailable.
+    pub state: IndexState,
+    /// Current application-owned schema version.
+    pub schema_version: u32,
+    /// Number of indexed Markdown documents.
+    pub note_count: usize,
+    /// Stable non-sensitive reason when search is not ready.
+    pub issue: Option<String>,
+}
+
+/// User-visible state of the rebuildable index.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum IndexState {
+    /// Index is healthy and covers the current snapshot.
+    Ready,
+    /// Index is damaged and may be replaced only by an explicit rebuild.
+    NeedsRebuild,
+    /// Index cannot currently be opened, for example because storage is read-only.
+    Unavailable,
+}
+
+/// A bounded plain-text full-text-search request.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchNotesRequest {
+    /// User-entered literal text. Storage adapters must not treat it as SQL.
+    pub query: String,
+    /// Requested maximum number of results.
+    pub limit: usize,
+}
+
+/// One ranked result from the rebuildable local index.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchNoteResult {
+    /// Stable hidden note identity.
+    pub id: NoteId,
+    /// Current level-one heading or filename fallback.
+    pub title: String,
+    /// Current portable path.
+    pub path: PortablePath,
+    /// Learning role used by navigation and filtering.
+    pub kind: NoteKind,
+    /// Plain-text context around the match.
+    pub snippet: String,
+    /// `SQLite` FTS rank; lower values are more relevant.
+    pub rank: f64,
+}
+
+/// Outcome of an explicit derived-index rebuild.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RebuildIndexResult {
+    /// Number of Markdown documents written to the fresh index.
+    pub indexed_notes: usize,
+    /// Schema version of the fresh index.
+    pub schema_version: u32,
+    /// Whether a previous database was preserved in hidden recovery storage.
+    pub preserved_previous_database: bool,
 }
 
 /// Data required to create a new Markdown source file.
@@ -116,6 +184,18 @@ pub struct SaveNoteRequest {
     pub has_utf8_bom: bool,
 }
 
+/// Data required for a conflict-safe, non-overwriting note move.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameNoteRequest {
+    /// Current validated workspace-relative path.
+    pub path: PortablePath,
+    /// New validated path; an existing destination is never replaced.
+    pub new_path: PortablePath,
+    /// Revision returned by the last successful open or save.
+    pub expected_revision: FileRevision,
+}
+
 /// Result of a successful save.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -124,6 +204,8 @@ pub struct SaveNoteResult {
     pub document: NoteDocument,
     /// False when the requested bytes already matched the source.
     pub changed: bool,
+    /// False when the Markdown save succeeded but derived indexing must catch up.
+    pub index_updated: bool,
 }
 
 /// Stable failure contract between application, native shell, and frontend.
@@ -184,6 +266,40 @@ pub enum WorkspaceFailure {
         /// Portable workspace path.
         path: String,
     },
+    /// Hidden stable-identity metadata is malformed or internally inconsistent.
+    #[error("workspace identity metadata is invalid: {kind}")]
+    MetadataCorrupt {
+        /// Stable, non-sensitive reason category.
+        kind: String,
+    },
+    /// The derived `SQLite` database failed integrity or format checks.
+    #[error("workspace search index is damaged and requires an explicit rebuild: {kind}")]
+    IndexCorrupt {
+        /// Stable, non-sensitive reason category.
+        kind: String,
+    },
+    /// The index was created by a newer incompatible application schema.
+    #[error("workspace search index schema {found} is newer than supported schema {supported}")]
+    IndexSchemaTooNew {
+        /// Schema found in the database.
+        found: u32,
+        /// Maximum schema supported by this build.
+        supported: u32,
+    },
+    /// A non-corruption `SQLite` operation failed.
+    #[error("workspace search index operation {operation} failed: {kind}")]
+    IndexUnavailable {
+        /// Stable operation name.
+        operation: String,
+        /// Coarse error category suitable for UI decisions.
+        kind: String,
+    },
+    /// A search query exceeds the public boundary or is empty.
+    #[error("workspace search query is invalid: {kind}")]
+    InvalidSearch {
+        /// Stable validation category.
+        kind: String,
+    },
     /// A bounded workspace limit was reached.
     #[error("workspace limit exceeded: {limit}")]
     LimitExceeded {
@@ -227,6 +343,32 @@ pub trait WorkspacePort {
     ///
     /// Returns [`WorkspaceFailure::Conflict`] instead of silently overwriting.
     fn save(&self, request: &SaveNoteRequest) -> Result<SaveNoteResult, WorkspaceFailure>;
+
+    /// Moves a Markdown source without replacing another file.
+    ///
+    /// # Errors
+    ///
+    /// Returns a conflict for a changed source and `AlreadyExists` for an
+    /// occupied destination.
+    fn rename(&self, request: &RenameNoteRequest) -> Result<NoteDocument, WorkspaceFailure>;
+
+    /// Searches the rebuildable local index without exposing SQL syntax.
+    ///
+    /// # Errors
+    ///
+    /// Returns a structured index or query failure.
+    fn search(
+        &self,
+        request: &SearchNotesRequest,
+    ) -> Result<Vec<SearchNoteResult>, WorkspaceFailure>;
+
+    /// Rebuilds the derived index from Markdown and hidden stable identities.
+    ///
+    /// # Errors
+    ///
+    /// Returns without replacing the existing database when the fresh index
+    /// cannot be built and verified.
+    fn rebuild_index(&self) -> Result<RebuildIndexResult, WorkspaceFailure>;
 }
 
 /// Thin application service that keeps native adapters behind one audited port.
@@ -270,6 +412,36 @@ where
     pub fn save(&self, request: &SaveNoteRequest) -> Result<SaveNoteResult, WorkspaceFailure> {
         self.port.save(request)
     }
+
+    /// Moves a note while preserving its hidden identity.
+    ///
+    /// # Errors
+    ///
+    /// Propagates structured conflict, path, and storage failures.
+    pub fn rename(&self, request: &RenameNoteRequest) -> Result<NoteDocument, WorkspaceFailure> {
+        self.port.rename(request)
+    }
+
+    /// Searches indexed Markdown with a bounded literal query.
+    ///
+    /// # Errors
+    ///
+    /// Propagates the adapter's structured search or index failure.
+    pub fn search(
+        &self,
+        request: &SearchNotesRequest,
+    ) -> Result<Vec<SearchNoteResult>, WorkspaceFailure> {
+        self.port.search(request)
+    }
+
+    /// Explicitly rebuilds derived index data from portable sources.
+    ///
+    /// # Errors
+    ///
+    /// Propagates the adapter's structured rebuild failure.
+    pub fn rebuild_index(&self) -> Result<RebuildIndexResult, WorkspaceFailure> {
+        self.port.rebuild_index()
+    }
 }
 
 /// Returns immutable build identity for the local Markdown workspace slice.
@@ -279,7 +451,7 @@ pub const fn system_status() -> SystemStatus {
         product: "知织 / ZhiWeave",
         protocol: PROTOCOL_ID,
         protocol_version: PROTOCOL_VERSION,
-        stage: "local Markdown workspace alpha",
+        stage: "local indexed Markdown workspace alpha",
         obsidian_dependency: false,
     }
 }
@@ -291,8 +463,9 @@ mod tests {
     use zhiweave_domain::{NoteId, NoteKind, PortablePath};
 
     use super::{
-        CreateNoteRequest, FileRevision, LineEnding, NoteDocument, SaveNoteRequest, SaveNoteResult,
-        WorkspaceApplication, WorkspaceFailure, WorkspacePort, WorkspaceSnapshot,
+        CreateNoteRequest, FileRevision, LineEnding, NoteDocument, RenameNoteRequest,
+        SaveNoteRequest, SaveNoteResult, WorkspaceApplication, WorkspaceFailure, WorkspacePort,
+        WorkspaceSnapshot,
     };
 
     struct RecordingPort {
@@ -306,6 +479,12 @@ mod tests {
             Ok(WorkspaceSnapshot {
                 root_display: "test-workspace".to_owned(),
                 documents: vec![self.document.clone()],
+                index: super::IndexStatus {
+                    state: super::IndexState::Ready,
+                    schema_version: 1,
+                    note_count: 1,
+                    issue: None,
+                },
             })
         }
 
@@ -319,6 +498,29 @@ mod tests {
             Ok(SaveNoteResult {
                 document: self.document.clone(),
                 changed: true,
+                index_updated: true,
+            })
+        }
+
+        fn rename(&self, _: &RenameNoteRequest) -> Result<NoteDocument, WorkspaceFailure> {
+            self.calls.borrow_mut().push("rename");
+            Ok(self.document.clone())
+        }
+
+        fn search(
+            &self,
+            _: &super::SearchNotesRequest,
+        ) -> Result<Vec<super::SearchNoteResult>, WorkspaceFailure> {
+            self.calls.borrow_mut().push("search");
+            Ok(Vec::new())
+        }
+
+        fn rebuild_index(&self) -> Result<super::RebuildIndexResult, WorkspaceFailure> {
+            self.calls.borrow_mut().push("rebuild_index");
+            Ok(super::RebuildIndexResult {
+                indexed_notes: 1,
+                schema_version: 1,
+                preserved_previous_database: false,
             })
         }
     }

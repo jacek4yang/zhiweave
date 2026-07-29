@@ -26,6 +26,12 @@ describe("native workspace model", () => {
     const workspace = nativeSnapshotToWorkspace({
       rootDisplay: "fixed-test-root",
       documents: [DOCUMENT],
+      index: {
+        state: "ready",
+        schemaVersion: 1,
+        noteCount: 1,
+        issue: null,
+      },
     });
 
     expect(workspace.notes).toHaveLength(1);
