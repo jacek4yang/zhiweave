@@ -33,6 +33,14 @@ EditorHost
 
 React 只持有编辑器宿主和跨组件状态，不在每次按键重建编辑器。文档内容、选区、undo history、语法树和装饰均以 CodeMirror transaction 为一致性边界。
 
+## 工作台命令边界
+
+`commandRegistry.ts` 已成为工作台操作的单一描述源：稳定 command id、分类、关键词、快捷键、
+运行环境能力、上下文可见性与启用条件都由类型约束。React 按钮、菜单和命令面板只提交 command
+id，由 `App` 的执行器连接现有工作流；编辑器撤销、重做、剪贴板仍委托给 CodeMirror command，
+不会复制其历史状态。下一步把保存协调、Live Preview 与 Markdown AST 下沉到独立模块时，保持
+这些 command id 稳定，并让执行器依赖端口而不是组件内部细节。
+
 ## Live Preview
 
 1. 从 Lezer 语法树计算候选语法范围。

@@ -1,6 +1,6 @@
 # 开发进度
 
-最后更新：2026-07-30 05:27 CST
+最后更新：2026-07-30 06:03 CST
 
 ## 执行拓扑
 
@@ -56,15 +56,23 @@
 - 完整工作区备份包包含 Markdown、附件/开放文件、identity、recovery 与一致历史快照；派生索引和已有备份不递归打包。
 - 每个备份以路径、长度和 SHA-256 清单逐文件复读校验；临时包通过后才同卷发布，备份列表可随时执行完整复核。
 - 完整恢复先校验目标并自动备份当前工作区，再构建完整 stage；下次启动在 SQLite/watcher 打开前切换目录，旧工作区保留为 previous，双 rename 中断可继续恢复。
+- 类型化 command registry 统一 50 余项工作台、导航、视图、标签、知识节点、编辑器、版本、
+  备份、窗口与对话框操作；按钮、VS Code 风格快捷键、命令面板和右键菜单只分发同一 command id。
+- 命令面板支持中文、关键词/别名与模糊子序列检索，键盘选择/执行/Esc、焦点陷阱和触发点恢复；
+  原生能力矩阵不会在浏览器预览中伪造文件、索引、重命名或完整备份能力。
+- 标题栏、Activity Bar、工作区、笔记栏、具体节点、标签、编辑器/输入框、预览、实验、状态栏、
+  版本节点和备份节点使用独立上下文矩阵；菜单支持首项聚焦、方向键、Home/End、Esc 与焦点恢复。
+- Activity Bar、笔记列表与标签增加对应方向键/roving tab 操作；新建节点和外部更改对话框增加
+  焦点陷阱、初始焦点和准确触发点恢复。
 
 ## 当前质量证据
 
 - `pnpm typecheck`：通过。
-- `pnpm test`：5 files / 24 tests，通过。
-- `pnpm build`：通过，约 422 ms。
+- `pnpm test`：6 files / 30 tests，通过。
+- `pnpm build`：通过，约 440 ms。
 - 交互实验独立 chunk：5.97 KB（gzip 2.44 KB）。
-- 主 CSS：37.65 KB（gzip 7.30 KB）。
-- 主 JavaScript：905.22 KB（gzip 301.89 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
+- 主 CSS：40.91 KB（gzip 7.82 KB）。
+- 主 JavaScript：925.06 KB（gzip 308.21 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
 - Rust workspace 49 项测试通过，其中 application 4 项、Tauri 4 项、storage 30 项、portable path 5 项；fmt 和全 workspace Clippy `-D warnings` 通过。
 - `pnpm audit --prod --audit-level high`：无已知漏洞；`cargo audit --no-fetch --stale` 扫描 471 个 lockfile 依赖，无已知 vulnerability，17 项既有 allowed warning。
 - Windows 原生进程：`知织 · ZhiWeave` 正常运行；固定工作区有 6 个真实 Markdown、identity v1 的 6 个唯一 ID/路径和有效 SQLite 3 数据库。
@@ -76,12 +84,18 @@
 - Windows 原生版本验收：创建第二版本、恢复旧节点、从旧节点形成分支；重启后 3 个节点、3 个去重块和 796 B 统计保持；删除一个分支节点回收 275 B，其他节点仍可恢复。随后恢复原始 Markdown 并清空全部测试版本，最终 0 节点/0 B。
 - Windows 原生保留验收：创建 6 节点线性历史、命名“核心理解完成”检查点，以“最新 2 个/最近 0 天”生成 2 个候选和 540 B 精确预览；执行后保留根、检查点和最新节点，右键菜单同步变化。验收节点随后清空，原 Markdown 不变。
 - Windows 原生完整备份：创建并再次逐文件校验“版本与备份功能上线基线”，覆盖 8 个文件、46.1 KB 和空历史库；1280×800、390×844 均无页面级横向溢出，恢复确认取消后无 pending plan。
+- 命令系统浏览器验收：中文“分支”检索、方向键/Enter、Esc 和触发点恢复通过；节点菜单按对象
+  分流并恢复到原按钮；新建对话框初始焦点/Tab 循环/Esc 恢复通过；390×844 与 1280×800
+  无页面级溢出，窄屏滚动条已按主题收敛。
+- 命令系统 Windows 原生验收：原生命令面板正确增加完整备份、重建索引、路径复制和重命名；
+  `Ctrl+P`、`Ctrl+Shift+P`、节点菜单方向键/Esc 与焦点恢复通过，无 console error/warning；
+  全程未修改 Markdown、版本或备份。
 
 ## 当前任务
 
-1. 完成检查点/保留/备份恢复切片的最终门禁、审计、提交、Linux 中转推送与 Draft PR/CI。
-2. 把当前直接事件处理器收敛到真正的 command registry，并补键盘菜单语义。
-3. 替换手写 Markdown 阅读器为共享 AST 管线。
+1. 完成统一命令系统切片的最终门禁、审计、提交、Linux 中转推送与 Draft PR/CI。
+2. 替换手写 Markdown 阅读器为共享 AST 管线。
+3. 增加快捷键编辑器，并为预览标签、移动触控入口和剩余复杂面板接入 command registry。
 4. 补 watcher 高频压力、文件锁、磁盘满、只读目录和强杀恢复夹具。
 5. 继续附件、集合、Canvas 与跨设备加密备份/同步设计；现有本机目录备份不能冒充加密云备份。
 
@@ -94,9 +108,9 @@
 - watcher 只保证“事件后完整核对”，不保证底层平台一定投递事件；网络文件系统不在当前固定本机工作区支持范围，高频事件压力和进程休眠恢复仍需基准。
 - create 的空占位后若进程强杀可能留下空 Markdown，自动恢复日志未完成。
 - `MarkdownPreview` 仍是临时逐行解析器；仅交互 fence 已有严格边界，通用 Markdown 语义尚未统一。
-- 首屏 JS gzip 超预算 101.89 KB；CodeMirror/图标/工作台需进一步分包和测量。
+- 首屏 JS gzip 超预算 108.21 KB；CodeMirror/图标/工作台和命令面板需进一步分包和测量。
 - 已有可校验完整工作区目录包和重启前目录切换恢复，但尚无系统文件选择器导入、跨设备恢复演练、备份加密或同步加密；本地 SQLite 与备份包目前未加密，不得宣称客户端密码保护已完成。
-- Command registry、命令面板、完整树/属性/反向链接、FSRS 与深度学习 schema 尚未完成。
+- Command registry/命令面板第一纵切已完成，但快捷键编辑器、完整树/属性/反向链接、FSRS 与深度学习 schema 尚未完成。
 - 当前垂直切片已发布到 Draft PR；根目录 `AGENTS.md` 仍是用户未跟踪文件，严禁暂存。
 
 ## 当前截图

@@ -1,9 +1,10 @@
 import {
+  Fragment,
   useEffect,
   useMemo,
   useRef,
   useState,
-  type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import {
@@ -15,6 +16,7 @@ import {
   CheckCircle2,
   Clock3,
   Columns2,
+  Command as CommandIcon,
   Copy,
   Database,
   FilePlus2,
@@ -39,6 +41,7 @@ import {
   X,
 } from "lucide-react";
 
+import { CommandPalette } from "./CommandPalette";
 import {
   VIEW_COPY,
   WORKSPACE_STORAGE_KEY,
@@ -60,6 +63,17 @@ import {
   type ViewKey,
   type WorkspaceState,
 } from "./appModel";
+import {
+  commandById,
+  commandForShortcut,
+  commandsForContext,
+  resolveCommandById,
+  type CommandCapability,
+  type CommandContext,
+  type CommandId,
+  type CommandScope,
+  type ResolvedCommand,
+} from "./commandRegistry";
 import {
   MarkdownEditor,
   type EditorStatus,
@@ -129,21 +143,17 @@ type SaveState =
 interface ContextMenuState {
   readonly x: number;
   readonly y: number;
-  readonly scope:
-    | "activity"
-    | "editor"
-    | "embedded-lab"
-    | "explorer"
-    | "input"
-    | "note-item"
-    | "preview"
-    | "status"
-    | "tab"
-    | "titlebar"
-    | "version-node"
-    | "workspace";
+  readonly scope: CommandScope;
   readonly hasSelection: boolean;
   readonly noteId?: string;
+  readonly snapshotId?: string;
+}
+
+interface CommandTarget {
+  readonly backupId?: string;
+  readonly hasSelection?: boolean;
+  readonly noteId?: string;
+  readonly scope?: CommandScope;
   readonly snapshotId?: string;
 }
 
@@ -245,6 +255,7 @@ export function App() {
   );
   const [saveRetry, setSaveRetry] = useState(0);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [externalChanges, setExternalChanges] =
     useState<NativeWorkspaceChangesResult | null>(null);
   const [isExternalChangesOpen, setIsExternalChangesOpen] = useState(false);
@@ -252,7 +263,11 @@ export function App() {
     useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<MarkdownEditorHandle>(null);
+  const contextMenuRef = useRef<HTMLElement>(null);
   const contextTargetRef = useRef<HTMLElement | null>(null);
+  const newNoteDialogRef = useRef<HTMLElement>(null);
+  const externalDialogRef = useRef<HTMLElement>(null);
+  const modalPreviousFocusRef = useRef<HTMLElement | null>(null);
   const lastPersistedMarkdownRef = useRef(new Map<string, string>());
   const latestMarkdownRef = useRef(new Map<string, string>());
   const activeNoteIdRef = useRef<string | null>(activeNoteId);
@@ -662,12 +677,40 @@ export function App() {
     }
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setIsNewNoteOpen(false);
-        setIsExternalChangesOpen(false);
+        if (isNewNoteOpen) {
+          runCommand("dialog.closeNewNote");
+        } else {
+          runCommand("dialog.closeExternalChanges");
+        }
       }
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [isExternalChangesOpen, isNewNoteOpen]);
+
+  useEffect(() => {
+    if (!isNewNoteOpen && !isExternalChangesOpen) {
+      const previous = modalPreviousFocusRef.current;
+      modalPreviousFocusRef.current = null;
+      if (previous?.isConnected === true) {
+        previous.focus();
+      }
+      return undefined;
+    }
+    modalPreviousFocusRef.current ??=
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    const frame = window.requestAnimationFrame(() => {
+      const dialog = isNewNoteOpen
+        ? newNoteDialogRef.current
+        : externalDialogRef.current;
+      const initialFocus = isNewNoteOpen
+        ? dialog?.querySelector<HTMLElement>("input")
+        : dialog?.querySelector<HTMLElement>("button:not(:disabled)");
+      initialFocus?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [isExternalChangesOpen, isNewNoteOpen]);
 
   useEffect(() => {
@@ -705,11 +748,6 @@ export function App() {
       selectedNoteId: note.id,
     }));
     setActiveView(note.view);
-  }
-
-  function selectNote(note: LearningNote) {
-    activateNote(note);
-    setQuery("");
   }
 
   function updateMarkdown(markdown: string) {
@@ -814,8 +852,7 @@ export function App() {
     setToast("UUID 交互实验已创建；左侧可编辑，右侧会实时运行。");
   }
 
-  async function createNote(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function createNote() {
     if (newTitle.trim().length === 0) {
       return;
     }
@@ -1341,13 +1378,6 @@ export function App() {
     } catch {
       setToast("无法读取剪贴板；请使用 Ctrl+V。");
     }
-  }
-
-  function saveVersion() {
-    if (selectedNote === undefined) {
-      return;
-    }
-    void saveVersionFor(selectedNote);
   }
 
   async function saveVersionFor(note: LearningNote) {
@@ -1958,6 +1988,479 @@ export function App() {
     }
   }
 
+  function commandContextFor(target: CommandTarget = {}): CommandContext {
+    const note =
+      target.noteId === undefined
+        ? selectedNote
+        : workspace.notes.find((candidate) => candidate.id === target.noteId);
+    const snapshot =
+      target.snapshotId === undefined
+        ? undefined
+        : workspace.snapshots.find(
+            (candidate) => candidate.id === target.snapshotId,
+          );
+    const backup =
+      target.backupId === undefined
+        ? undefined
+        : workspaceBackups.find(
+            (candidate) => candidate.id === target.backupId,
+          );
+    const capabilities = new Set<CommandCapability>([
+      nativeRuntime ? "native" : "browser",
+    ]);
+    if (note !== undefined) {
+      capabilities.add("note");
+    }
+    if (snapshot !== undefined) {
+      capabilities.add("snapshot");
+    }
+    if (backup !== undefined) {
+      capabilities.add("backup");
+    }
+    if (target.hasSelection === true) {
+      capabilities.add("selection");
+    }
+    if (
+      contextTargetRef.current instanceof HTMLInputElement ||
+      contextTargetRef.current instanceof HTMLTextAreaElement
+    ) {
+      capabilities.add("inputTarget");
+    }
+    if (editorStatus.undoDepth > 0) {
+      capabilities.add("undo");
+    }
+    if (editorStatus.redoDepth > 0) {
+      capabilities.add("redo");
+    }
+    if (["conflict", "error", "mixed"].includes(saveState)) {
+      capabilities.add("saveRecovery");
+    }
+    if (nativeRoot.length > 0) {
+      capabilities.add("root");
+    }
+    if (externalChanges !== null) {
+      capabilities.add("externalChanges");
+    }
+    if (openNoteIds.length > 1) {
+      capabilities.add("multiTabs");
+    }
+    if (closedNoteIds.length > 0) {
+      capabilities.add("closedTabs");
+    }
+    if (query.length > 0) {
+      capabilities.add("query");
+    }
+    if (isNewNoteOpen) {
+      capabilities.add("newNoteDialog");
+      if (newTitle.trim().length > 0) {
+        capabilities.add("newNoteReady");
+      }
+    }
+    if (isExternalChangesOpen) {
+      capabilities.add("externalDialog");
+      if (!isResolvingExternalChanges) {
+        capabilities.add("externalApplySafe");
+        capabilities.add("externalRecovery");
+      }
+    }
+    if (
+      activeView === "versions" ||
+      activeNoteId !== null ||
+      target.noteId !== undefined
+    ) {
+      capabilities.add("tab");
+    }
+    if (backupState === "idle") {
+      capabilities.add("backupIdle");
+    }
+    if (retentionPreview !== null) {
+      capabilities.add("retentionPreview");
+    }
+    if (
+      nativeRuntime &&
+      note?.path !== undefined &&
+      note.revision !== undefined &&
+      lastPersistedMarkdownRef.current.get(note.id) === note.markdown
+    ) {
+      capabilities.add("noteRename");
+    }
+    return {
+      capabilities,
+      ...(target.scope === undefined ? {} : { scope: target.scope }),
+    };
+  }
+
+  function runCommand(id: CommandId, target: CommandTarget = {}) {
+    const resolved = resolveCommandById(id, commandContextFor(target));
+    if (resolved === undefined || !resolved.enabled) {
+      setToast("当前上下文不能安全执行这个命令。");
+      return;
+    }
+    const note =
+      target.noteId === undefined
+        ? selectedNote
+        : workspace.notes.find((candidate) => candidate.id === target.noteId);
+    const snapshot =
+      target.snapshotId === undefined
+        ? undefined
+        : workspace.snapshots.find(
+            (candidate) => candidate.id === target.snapshotId,
+          );
+    const backup =
+      target.backupId === undefined
+        ? undefined
+        : workspaceBackups.find(
+            (candidate) => candidate.id === target.backupId,
+          );
+    setContextMenu(null);
+    if (id !== "workbench.commandPalette") {
+      setIsCommandPaletteOpen(false);
+    }
+
+    switch (id) {
+      case "workbench.commandPalette":
+        setIsCommandPaletteOpen(true);
+        return;
+      case "workbench.quickOpen":
+        setIsSidebarOpen(true);
+        window.setTimeout(() => searchInputRef.current?.focus(), 0);
+        return;
+      case "workbench.clearQuickOpen":
+        setQuery("");
+        return;
+      case "workbench.toggleSidebar":
+        setIsSidebarOpen((value) => !value);
+        return;
+      case "workspace.createNote":
+        modalPreviousFocusRef.current =
+          document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null;
+        openNewNote();
+        return;
+      case "workspace.confirmCreateNote":
+        void createNote();
+        return;
+      case "dialog.closeNewNote":
+        setIsNewNoteOpen(false);
+        return;
+      case "workspace.openToday":
+        void openTodayJournal();
+        return;
+      case "workspace.createUuidLab":
+        void createUuidLab();
+        return;
+      case "workspace.save":
+        if (nativeRuntime) {
+          setSaveRetry((value) => value + 1);
+          setToast("正在保存当前 Markdown 源文件。");
+        } else {
+          setToast("浏览器预览状态已保存在此浏览器。");
+        }
+        return;
+      case "workspace.resolveSave":
+        void handleSaveStatusAction();
+        return;
+      case "workspace.copyRoot":
+        void copyText(nativeRoot).then(
+          () => setToast("Markdown 工作区位置已复制。"),
+          () => setToast("无法复制工作区位置。"),
+        );
+        return;
+      case "workspace.openExternalChanges":
+        modalPreviousFocusRef.current =
+          document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null;
+        setIsExternalChangesOpen(true);
+        return;
+      case "workspace.applyExternalChanges":
+        void applyVerifiedExternalChanges();
+        return;
+      case "workspace.recoverAndApplyExternalChanges":
+        void recoverEditsAndAcceptExternalChanges();
+        return;
+      case "dialog.closeExternalChanges":
+        setIsExternalChangesOpen(false);
+        return;
+      case "workspace.rebuildIndex":
+        void rebuildSearchIndex();
+        return;
+      case "workspace.resetPreview":
+        resetDemoData();
+        return;
+      case "backup.create":
+        void createWorkspaceBackup();
+        return;
+      case "backup.verify":
+        if (backup !== undefined) {
+          void verifyWorkspaceBackup(backup);
+        }
+        return;
+      case "backup.restore":
+        if (backup !== undefined) {
+          void restoreWorkspaceBackup(backup);
+        }
+        return;
+      case "retention.preview":
+        setActiveView("versions");
+        void previewVersionRetention();
+        return;
+      case "retention.apply":
+        void applyVersionRetention();
+        return;
+      case "note.open":
+        if (note !== undefined) {
+          activateNote(note);
+          setQuery("");
+        }
+        return;
+      case "note.openSplit":
+        if (note !== undefined) {
+          openSplitFor(note);
+        }
+        return;
+      case "note.copyTitle":
+        if (note !== undefined) {
+          void copyNoteTitle(note);
+        }
+        return;
+      case "note.rename":
+        if (note !== undefined) {
+          void renameNoteFile(note);
+        }
+        return;
+      case "note.copyLearningPrompt":
+        void copyForAi(note);
+        return;
+      case "note.showVersions":
+        if (note !== undefined) {
+          openVersionsFor(note);
+        }
+        return;
+      case "version.save":
+        if (note !== undefined) {
+          void saveVersionFor(note);
+        }
+        return;
+      case "view.edit":
+      case "view.split":
+      case "view.preview":
+        if (note !== undefined && activeView === "versions") {
+          activateNote(note);
+        }
+        setEditorMode(
+          id === "view.edit"
+            ? "edit"
+            : id === "view.split"
+              ? "split"
+              : "preview",
+        );
+        return;
+      case "tab.close":
+        if (target.noteId === undefined) {
+          closeActiveTab();
+        } else {
+          closeTab(target.noteId);
+        }
+        return;
+      case "tab.closeOthers":
+        if (note !== undefined) {
+          closeOtherTabs(note);
+        }
+        return;
+      case "tab.reopenClosed":
+        reopenClosedTab();
+        return;
+      case "tab.next":
+        cycleTab(1);
+        return;
+      case "tab.previous":
+        cycleTab(-1);
+        return;
+      case "edit.copy":
+        document.execCommand("copy");
+        return;
+      case "edit.cut":
+        document.execCommand("cut");
+        return;
+      case "edit.paste":
+        void pasteIntoContextInput();
+        return;
+      case "edit.selectAll":
+        document.execCommand("selectAll");
+        return;
+      case "edit.undo":
+        editorRef.current?.undo();
+        return;
+      case "edit.redo":
+        editorRef.current?.redo();
+        return;
+      case "version.restore":
+        if (snapshot !== undefined) {
+          void restoreVersion(snapshot);
+        }
+        return;
+      case "version.copyMarkdown":
+        if (snapshot !== undefined) {
+          void copySnapshotMarkdown(snapshot);
+        }
+        return;
+      case "version.toggleCheckpoint":
+        if (snapshot !== undefined) {
+          void toggleVersionCheckpoint(snapshot);
+        }
+        return;
+      case "version.openNote":
+        if (note !== undefined) {
+          activateNote(note);
+        }
+        return;
+      case "version.delete":
+        if (snapshot !== undefined) {
+          void deleteVersion(snapshot);
+        }
+        return;
+      case "window.minimize":
+        void runWindowAction("minimize");
+        return;
+      case "window.maximize":
+        void runWindowAction("maximize");
+        return;
+      case "window.close":
+        void runWindowAction("close");
+        return;
+      case "view.today":
+        navigate("today");
+        return;
+      case "view.continue":
+        navigate("continue");
+        return;
+      case "view.topics":
+        navigate("topics");
+        return;
+      case "view.review":
+        navigate("review");
+        return;
+      case "view.sources":
+        navigate("sources");
+        return;
+      case "view.experiments":
+        navigate("experiments");
+        return;
+      case "view.versions":
+        navigate("versions");
+        return;
+    }
+  }
+
+  function handleDialogKeyboard(event: ReactKeyboardEvent<HTMLElement>) {
+    if (event.key !== "Tab") {
+      return;
+    }
+    const focusable = [
+      ...event.currentTarget.querySelectorAll<HTMLElement>(
+        'input, select, button:not(:disabled), [tabindex]:not([tabindex="-1"])',
+      ),
+    ];
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (first === undefined || last === undefined) {
+      event.preventDefault();
+      return;
+    }
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  function handleContextMenuKeyboard(
+    event: ReactKeyboardEvent<HTMLElement>,
+  ) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setContextMenu(null);
+      contextTargetRef.current?.focus();
+      return;
+    }
+    const items = [
+      ...event.currentTarget.querySelectorAll<HTMLButtonElement>(
+        '[role="menuitem"]:not(:disabled)',
+      ),
+    ];
+    if (items.length === 0) {
+      return;
+    }
+    const currentIndex = items.findIndex(
+      (item) => item === document.activeElement,
+    );
+    let nextIndex: number | undefined;
+    if (event.key === "ArrowDown") {
+      nextIndex = (currentIndex + 1 + items.length) % items.length;
+    } else if (event.key === "ArrowUp") {
+      nextIndex =
+        (currentIndex <= 0 ? items.length : currentIndex) - 1;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = items.length - 1;
+    }
+    if (nextIndex !== undefined) {
+      event.preventDefault();
+      items[nextIndex]?.focus();
+    }
+  }
+
+  function handleRovingKeyboard(
+    event: ReactKeyboardEvent<HTMLElement>,
+    selector: string,
+    orientation: "horizontal" | "vertical",
+    activate = false,
+  ) {
+    const current =
+      event.target instanceof HTMLElement
+        ? event.target.closest<HTMLElement>(selector)
+        : null;
+    if (current === null) {
+      return;
+    }
+    const items = [
+      ...event.currentTarget.querySelectorAll<HTMLElement>(selector),
+    ].filter((item) => !item.matches(":disabled"));
+    const currentIndex = items.indexOf(current);
+    if (currentIndex < 0 || items.length === 0) {
+      return;
+    }
+    let nextIndex: number | undefined;
+    if (
+      event.key ===
+      (orientation === "horizontal" ? "ArrowRight" : "ArrowDown")
+    ) {
+      nextIndex = (currentIndex + 1) % items.length;
+    } else if (
+      event.key ===
+      (orientation === "horizontal" ? "ArrowLeft" : "ArrowUp")
+    ) {
+      nextIndex = (currentIndex - 1 + items.length) % items.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = items.length - 1;
+    }
+    if (nextIndex !== undefined) {
+      event.preventDefault();
+      const next = items[nextIndex];
+      next?.focus();
+      if (activate) {
+        next?.click();
+      }
+    }
+  }
+
   function openContextMenu(event: ReactMouseEvent<HTMLElement>) {
     event.preventDefault();
     const target = event.target instanceof HTMLElement
@@ -1965,8 +2468,16 @@ export function App() {
       : event.currentTarget;
     const contextElement = target.closest<HTMLElement>("[data-context]");
     const nativeInput = target.closest("input, textarea");
+    const focusableTarget = target.closest<HTMLElement>(
+      'button, a[href], input, textarea, select, [tabindex]:not([tabindex="-1"]), [contenteditable="true"]',
+    );
     contextTargetRef.current =
-      nativeInput instanceof HTMLElement ? nativeInput : target;
+      nativeInput instanceof HTMLElement
+        ? nativeInput
+        : (focusableTarget ??
+          (document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : event.currentTarget));
     const dataScope = contextElement?.dataset.context;
     const scope: ContextMenuState["scope"] =
       nativeInput !== null
@@ -2000,6 +2511,7 @@ export function App() {
         ? {}
         : { snapshotId: contextElement.dataset.snapshotId }),
     });
+    setIsCommandPaletteOpen(false);
   }
 
   useEffect(() => {
@@ -2013,63 +2525,43 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (contextMenu === null) {
+      return undefined;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      contextMenuRef.current
+        ?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')
+        ?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [contextMenu]);
+
+  useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
-      const commandKey = event.ctrlKey || event.metaKey;
-      if (!commandKey) {
-        if (event.key === "Escape") {
-          setContextMenu(null);
-        } else if (event.key === "F2" && nativeRuntime) {
-          const focused = document.activeElement?.closest<HTMLElement>(
-            '[data-context="note-item"], [data-context="tab"]',
-          );
-          const note = workspace.notes.find(
-            (candidate) => candidate.id === focused?.dataset.noteId,
-          );
-          if (note !== undefined) {
-            event.preventDefault();
-            void renameNoteFile(note);
-          }
-        }
+      if (
+        isCommandPaletteOpen ||
+        isNewNoteOpen ||
+        isExternalChangesOpen
+      ) {
         return;
       }
-      const key = event.key.toLocaleLowerCase();
-      if (key === "b" && !event.shiftKey && !event.altKey) {
-        event.preventDefault();
-        setIsSidebarOpen((value) => !value);
-      } else if (key === "p" && !event.shiftKey) {
-        event.preventDefault();
-        setIsSidebarOpen(true);
-        window.setTimeout(() => searchInputRef.current?.focus(), 0);
-      } else if (key === "s" && event.altKey && !event.shiftKey) {
-        event.preventDefault();
-        saveVersion();
-      } else if (key === "s" && !event.shiftKey) {
-        event.preventDefault();
-        if (nativeRuntime) {
-          setSaveRetry((value) => value + 1);
-          setToast("正在保存当前 Markdown 源文件。");
-        } else {
-          setToast("浏览器预览状态已保存在此浏览器。");
-        }
-      } else if (key === "n" && !event.shiftKey) {
-        event.preventDefault();
-        openNewNote();
-      } else if (key === "w" && !event.shiftKey) {
-        event.preventDefault();
-        closeActiveTab();
-      } else if (key === "tab") {
-        event.preventDefault();
-        cycleTab(event.shiftKey ? -1 : 1);
-      } else if (key === "t" && event.shiftKey) {
-        event.preventDefault();
-        reopenClosedTab();
-      } else if (key === "v" && event.shiftKey) {
-        event.preventDefault();
-        setEditorMode("preview");
-      } else if (key === "\\" && !event.shiftKey) {
-        event.preventDefault();
-        setEditorMode("split");
+      if (event.key === "Escape") {
+        setContextMenu(null);
+        return;
       }
+      const command = commandForShortcut(event);
+      if (command === undefined) {
+        return;
+      }
+      event.preventDefault();
+      const focused = document.activeElement?.closest<HTMLElement>(
+        '[data-context="note-item"], [data-context="tab"]',
+      );
+      runCommand(command.id, {
+        ...(focused?.dataset.noteId === undefined
+          ? {}
+          : { noteId: focused.dataset.noteId }),
+      });
     };
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
@@ -2138,6 +2630,24 @@ export function App() {
       : workspace.snapshots.find(
           (snapshot) => snapshot.id === contextMenu.snapshotId,
         );
+  const contextCommandTarget: CommandTarget =
+    contextMenu === null
+      ? {}
+      : {
+          scope: contextMenu.scope,
+          hasSelection: contextMenu.hasSelection,
+          ...(contextMenu.noteId === undefined
+            ? {}
+            : { noteId: contextMenu.noteId }),
+          ...(contextMenu.snapshotId === undefined
+            ? {}
+            : { snapshotId: contextMenu.snapshotId }),
+        };
+  const contextCommands =
+    contextMenu === null
+      ? []
+      : commandsForContext(commandContextFor(contextCommandTarget));
+  const paletteContext = commandContextFor();
 
   return (
     <main
@@ -2148,7 +2658,7 @@ export function App() {
         className="app-titlebar"
         data-context="titlebar"
         data-tauri-drag-region
-        onDoubleClick={() => void runWindowAction("maximize")}
+        onDoubleClick={() => runCommand("window.maximize")}
       >
         <div className="titlebar-identity" data-tauri-drag-region>
           <BrainCircuit />
@@ -2160,7 +2670,7 @@ export function App() {
         <div className="window-controls">
           <button
             aria-label="最小化窗口"
-            onClick={() => void runWindowAction("minimize")}
+            onClick={() => runCommand("window.minimize")}
             title="最小化"
             type="button"
           >
@@ -2168,7 +2678,7 @@ export function App() {
           </button>
           <button
             aria-label="最大化或还原窗口"
-            onClick={() => void runWindowAction("maximize")}
+            onClick={() => runCommand("window.maximize")}
             title="最大化或还原"
             type="button"
           >
@@ -2177,7 +2687,7 @@ export function App() {
           <button
             aria-label="关闭窗口"
             className="close-window"
-            onClick={() => void runWindowAction("close")}
+            onClick={() => runCommand("window.close")}
             title="关闭"
             type="button"
           >
@@ -2194,21 +2704,26 @@ export function App() {
         <button
           aria-label="显示或隐藏笔记栏"
           className="activity-brand"
-          onClick={() => setIsSidebarOpen((value) => !value)}
+          onClick={() => runCommand("workbench.toggleSidebar")}
           title="显示或隐藏笔记栏"
           type="button"
         >
           <BrainCircuit />
         </button>
 
-        <nav aria-label="学习导航">
+        <nav
+          aria-label="学习导航"
+          onKeyDown={(event) =>
+            handleRovingKeyboard(event, "button", "vertical")
+          }
+        >
           {PRIMARY_NAVIGATION.map(({ key, icon: Icon }) => (
             <button
               aria-current={activeView === key ? "page" : undefined}
               aria-label={VIEW_COPY[key].label}
               className={activeView === key ? "is-active" : ""}
               key={key}
-              onClick={() => navigate(key)}
+              onClick={() => runCommand(viewCommandId(key))}
               title={VIEW_COPY[key].label}
               type="button"
             >
@@ -2217,14 +2732,20 @@ export function App() {
           ))}
         </nav>
 
-        <nav className="activity-secondary" aria-label="工作区工具">
+        <nav
+          aria-label="工作区工具"
+          className="activity-secondary"
+          onKeyDown={(event) =>
+            handleRovingKeyboard(event, "button", "vertical")
+          }
+        >
           {SECONDARY_NAVIGATION.map(({ key, icon: Icon }) => (
             <button
               aria-current={activeView === key ? "page" : undefined}
               aria-label={VIEW_COPY[key].label}
               className={activeView === key ? "is-active" : ""}
               key={key}
-              onClick={() => navigate(key)}
+              onClick={() => runCommand(viewCommandId(key))}
               title={VIEW_COPY[key].label}
               type="button"
             >
@@ -2248,7 +2769,7 @@ export function App() {
             {activeView === "today" && (
               <button
                 aria-label="打开今日日记"
-                onClick={openTodayJournal}
+                onClick={() => runCommand("workspace.openToday")}
                 title="打开今日日记"
                 type="button"
               >
@@ -2257,7 +2778,7 @@ export function App() {
             )}
             <button
               aria-label="新建笔记"
-              onClick={openNewNote}
+              onClick={() => runCommand("workspace.createNote")}
               title="新建笔记"
               type="button"
             >
@@ -2279,7 +2800,7 @@ export function App() {
             {query.length > 0 && (
               <button
                 aria-label="清除搜索"
-                onClick={() => setQuery("")}
+                onClick={() => runCommand("workbench.clearQuickOpen")}
                 type="button"
               >
                 <X />
@@ -2288,7 +2809,13 @@ export function App() {
           </label>
         </div>
 
-        <section className="note-list" aria-label="笔记列表">
+        <section
+          aria-label="笔记列表"
+          className="note-list"
+          onKeyDown={(event) =>
+            handleRovingKeyboard(event, "button", "vertical")
+          }
+        >
           <h2>{query.trim().length > 0 ? "搜索结果" : "笔记"}</h2>
           {(query.trim().length > 0 ? results : visibleNotes).map((note) => (
             <button
@@ -2296,7 +2823,7 @@ export function App() {
               data-context="note-item"
               data-note-id={note.id}
               key={note.id}
-              onClick={() => selectNote(note)}
+              onClick={() => runCommand("note.open", { noteId: note.id })}
               type="button"
             >
               <span>{note.title}</span>
@@ -2333,7 +2860,7 @@ export function App() {
           <div className="document-trail">
             <button
               aria-label="显示或隐藏笔记栏"
-              onClick={() => setIsSidebarOpen((value) => !value)}
+              onClick={() => runCommand("workbench.toggleSidebar")}
               title="显示或隐藏笔记栏"
               type="button"
             >
@@ -2345,11 +2872,21 @@ export function App() {
           </div>
 
           <div className="header-actions">
+            <button
+              aria-keyshortcuts="Control+Shift+P"
+              className="command-palette-trigger"
+              onClick={() => runCommand("workbench.commandPalette")}
+              title={`${commandById("workbench.commandPalette").title} (Ctrl+Shift+P)`}
+              type="button"
+            >
+              <CommandIcon />
+              <span>命令</span>
+            </button>
             {activeView === "versions" ? (
               <button
                 className="primary"
                 disabled={selectedNote === undefined}
-                onClick={saveVersion}
+                onClick={() => runCommand("version.save")}
                 type="button"
               >
                 <Save />
@@ -2361,7 +2898,7 @@ export function App() {
                   <button
                     aria-pressed={editorMode === "edit"}
                     className={editorMode === "edit" ? "is-active" : ""}
-                    onClick={() => setEditorMode("edit")}
+                    onClick={() => runCommand("view.edit")}
                     title="编辑"
                     type="button"
                   >
@@ -2371,7 +2908,7 @@ export function App() {
                   <button
                     aria-pressed={editorMode === "split"}
                     className={editorMode === "split" ? "is-active" : ""}
-                    onClick={() => setEditorMode("split")}
+                    onClick={() => runCommand("view.split")}
                     title="实时分栏预览 (Ctrl+\\)"
                     type="button"
                   >
@@ -2381,7 +2918,7 @@ export function App() {
                   <button
                     aria-pressed={editorMode === "preview"}
                     className={editorMode === "preview" ? "is-active" : ""}
-                    onClick={() => setEditorMode("preview")}
+                    onClick={() => runCommand("view.preview")}
                     title="Markdown 预览 (Ctrl+Shift+V)"
                     type="button"
                   >
@@ -2390,20 +2927,24 @@ export function App() {
                   </button>
                 </div>
                 <button
-                  onClick={createUuidLab}
+                  onClick={() => runCommand("workspace.createUuidLab")}
                   title="新建 UUID 交互实验"
                   type="button"
                 >
                   <FlaskConical />
                   <span>交互实验</span>
                 </button>
-                <button onClick={saveVersion} title="保存版本" type="button">
+                <button
+                  onClick={() => runCommand("version.save")}
+                  title="保存版本"
+                  type="button"
+                >
                   <Save />
                   <span>保存版本</span>
                 </button>
                 <button
                   className="primary"
-                  onClick={() => void copyForAi()}
+                  onClick={() => runCommand("note.copyLearningPrompt")}
                   title="复制给 AI"
                   type="button"
                 >
@@ -2415,12 +2956,21 @@ export function App() {
           </div>
         </header>
 
-        <div className="editor-tabs" role="tablist" aria-label="打开的笔记">
+        <div
+          aria-label="打开的笔记"
+          className="editor-tabs"
+          onKeyDown={(event) =>
+            handleRovingKeyboard(event, ".tab-main", "horizontal", true)
+          }
+          role="tablist"
+        >
           {activeView === "versions" ? (
-            <div aria-selected="true" className="is-active" role="tab">
+            <div className="is-active">
               <button
+                aria-selected="true"
                 className="tab-main"
-                onClick={() => undefined}
+                onClick={() => runCommand("view.versions")}
+                role="tab"
                 type="button"
               >
                 <GitBranch />
@@ -2429,7 +2979,7 @@ export function App() {
               <button
                 aria-label="关闭版本标签"
                 className="tab-close"
-                onClick={closeActiveTab}
+                onClick={() => runCommand("tab.close")}
                 title="关闭 (Ctrl+W)"
                 type="button"
               >
@@ -2439,16 +2989,17 @@ export function App() {
           ) : (
             openNotes.map((note) => (
               <div
-                aria-selected={note.id === activeNoteId}
                 className={note.id === activeNoteId ? "is-active" : ""}
                 data-context="tab"
                 data-note-id={note.id}
                 key={note.id}
-                role="tab"
               >
                 <button
+                  aria-selected={note.id === activeNoteId}
                   className="tab-main"
-                  onClick={() => activateNote(note)}
+                  onClick={() => runCommand("note.open", { noteId: note.id })}
+                  role="tab"
+                  tabIndex={note.id === activeNoteId ? 0 : -1}
                   title={note.title}
                   type="button"
                 >
@@ -2458,7 +3009,7 @@ export function App() {
                 <button
                   aria-label={`关闭 ${note.title}`}
                   className="tab-close"
-                  onClick={() => closeTab(note.id)}
+                  onClick={() => runCommand("tab.close", { noteId: note.id })}
                   title="关闭 (Ctrl+W)"
                   type="button"
                 >
@@ -2477,15 +3028,27 @@ export function App() {
               currentNote={selectedNote}
               isNative={nativeRuntime}
               nativeHistory={nativeVersionHistory}
-              onApplyRetention={applyVersionRetention}
-              onCreateBackup={createWorkspaceBackup}
-              onDelete={deleteVersion}
-              onPreviewRetention={previewVersionRetention}
-              onReset={resetDemoData}
-              onRestore={restoreVersion}
-              onRestoreBackup={restoreWorkspaceBackup}
-              onToggleCheckpoint={toggleVersionCheckpoint}
-              onVerifyBackup={verifyWorkspaceBackup}
+              onApplyRetention={() => runCommand("retention.apply")}
+              onCreateBackup={() => runCommand("backup.create")}
+              onDelete={(snapshot) =>
+                runCommand("version.delete", { snapshotId: snapshot.id })
+              }
+              onPreviewRetention={() => runCommand("retention.preview")}
+              onReset={() => runCommand("workspace.resetPreview")}
+              onRestore={(snapshot) =>
+                runCommand("version.restore", { snapshotId: snapshot.id })
+              }
+              onRestoreBackup={(backup) =>
+                runCommand("backup.restore", { backupId: backup.id })
+              }
+              onToggleCheckpoint={(snapshot) =>
+                runCommand("version.toggleCheckpoint", {
+                  snapshotId: snapshot.id,
+                })
+              }
+              onVerifyBackup={(backup) =>
+                runCommand("backup.verify", { backupId: backup.id })
+              }
               retentionPolicy={retentionPolicy}
               retentionPreview={retentionPreview}
               retentionState={retentionState}
@@ -2494,7 +3057,9 @@ export function App() {
               workspace={workspace}
             />
           ) : selectedNote === undefined ? (
-            <EmptyWorkspace onCreate={openNewNote} />
+            <EmptyWorkspace
+              onCreate={() => runCommand("workspace.createNote")}
+            />
           ) : editorMode === "preview" ? (
             <MarkdownPreview markdown={selectedNote.markdown} />
           ) : editorMode === "split" ? (
@@ -2523,7 +3088,7 @@ export function App() {
           <button
             aria-disabled={!saveStatusActionable}
             className={`save-status is-${saveState}`}
-            onClick={() => void handleSaveStatusAction()}
+            onClick={() => runCommand("workspace.resolveSave")}
             tabIndex={saveStatusActionable ? 0 : -1}
             title={saveStatusLabel}
             type="button"
@@ -2536,7 +3101,7 @@ export function App() {
             className={`status-index is-${nativeIndex?.state ?? "preview"}`}
             onClick={() => {
               if (indexStatusActionable) {
-                void rebuildSearchIndex();
+                runCommand("workspace.rebuildIndex");
               }
             }}
             tabIndex={indexStatusActionable ? 0 : -1}
@@ -2553,7 +3118,7 @@ export function App() {
           {externalChangeCount > 0 && (
             <button
               className="status-external"
-              onClick={() => setIsExternalChangesOpen(true)}
+              onClick={() => runCommand("workspace.openExternalChanges")}
               title={externalChangeSummary}
               type="button"
             >
@@ -2602,6 +3167,8 @@ export function App() {
             aria-labelledby="new-note-title"
             aria-modal="true"
             className="new-note-modal"
+            onKeyDown={handleDialogKeyboard}
+            ref={newNoteDialogRef}
             role="dialog"
           >
             <header>
@@ -2611,13 +3178,18 @@ export function App() {
               </div>
               <button
                 aria-label="关闭新建窗口"
-                onClick={() => setIsNewNoteOpen(false)}
+                onClick={() => runCommand("dialog.closeNewNote")}
                 type="button"
               >
                 <X />
               </button>
             </header>
-            <form onSubmit={createNote}>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                runCommand("workspace.confirmCreateNote");
+              }}
+            >
               <label>
                 标题
                 <input
@@ -2649,7 +3221,10 @@ export function App() {
                   : "浏览器模式仅用于界面预览，不会创建桌面端文件。"}
               </p>
               <footer>
-                <button onClick={() => setIsNewNoteOpen(false)} type="button">
+                <button
+                  onClick={() => runCommand("dialog.closeNewNote")}
+                  type="button"
+                >
                   取消
                 </button>
                 <button
@@ -2672,6 +3247,8 @@ export function App() {
             aria-labelledby="external-changes-title"
             aria-modal="true"
             className="external-changes-modal"
+            onKeyDown={handleDialogKeyboard}
+            ref={externalDialogRef}
             role="dialog"
           >
             <header>
@@ -2685,7 +3262,7 @@ export function App() {
               <button
                 aria-label="关闭外部更改中心"
                 disabled={isResolvingExternalChanges}
-                onClick={() => setIsExternalChangesOpen(false)}
+                onClick={() => runCommand("dialog.closeExternalChanges")}
                 type="button"
               >
                 <X />
@@ -2739,14 +3316,14 @@ export function App() {
               <div>
                 <button
                   disabled={isResolvingExternalChanges}
-                  onClick={() => setIsExternalChangesOpen(false)}
+                  onClick={() => runCommand("dialog.closeExternalChanges")}
                   type="button"
                 >
                   稍后处理
                 </button>
                 <button
                   disabled={isResolvingExternalChanges}
-                  onClick={() => void applyVerifiedExternalChanges()}
+                  onClick={() => runCommand("workspace.applyExternalChanges")}
                   type="button"
                 >
                   <RotateCcw />
@@ -2755,7 +3332,9 @@ export function App() {
                 <button
                   className="primary"
                   disabled={isResolvingExternalChanges}
-                  onClick={() => void recoverEditsAndAcceptExternalChanges()}
+                  onClick={() =>
+                    runCommand("workspace.recoverAndApplyExternalChanges")
+                  }
                   type="button"
                 >
                   <Save />
@@ -2778,427 +3357,65 @@ export function App() {
 
       {contextMenu !== null && (
         <section
-          aria-label="知织命令菜单"
+          aria-label="知织上下文命令"
           className="context-menu"
           onContextMenu={(event) => event.preventDefault()}
+          onKeyDown={handleContextMenuKeyboard}
           onMouseDown={(event) => {
             if (contextMenu.hasSelection) {
               event.preventDefault();
             }
           }}
+          ref={contextMenuRef}
           role="menu"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
           <span className="context-heading">
             {contextMenuLabel(contextMenu.scope, contextNote, contextSnapshot)}
           </span>
-
-          {contextMenu.hasSelection && (
-            <>
-              <span className="context-label">选中内容</span>
-              <button
-                onClick={() => document.execCommand("copy")}
-                role="menuitem"
-              >
-                <Copy />
-                复制选中内容
-                <kbd>Ctrl+C</kbd>
-              </button>
-              {contextMenu.scope === "input" && (
-                <button
-                  onClick={() => document.execCommand("cut")}
-                  role="menuitem"
-                >
-                  <Trash2 />
-                  剪切选中内容
-                  <kbd>Ctrl+X</kbd>
-                </button>
-              )}
-            </>
-          )}
-
-          {contextMenu.scope === "input" && (
-            <>
-              <span className="context-label">文本输入</span>
-              <button
-                onClick={() => void pasteIntoContextInput()}
-                role="menuitem"
-              >
-                <NotebookPen />
-                粘贴
-                <kbd>Ctrl+V</kbd>
-              </button>
-              <button
-                onClick={() => document.execCommand("selectAll")}
-                role="menuitem"
-              >
-                <CheckCircle2 />
-                全选
-                <kbd>Ctrl+A</kbd>
-              </button>
-            </>
-          )}
-
-          {(contextMenu.scope === "editor" ||
-            contextMenu.scope === "preview" ||
-            contextMenu.scope === "embedded-lab") && (
-            <>
-              <span className="context-label">
-                {contextMenu.scope === "embedded-lab" ? "当前实验" : "当前笔记"}
-              </span>
-              {contextMenu.scope === "editor" && (
-                <>
-                  <button
-                    disabled={editorStatus.undoDepth === 0}
-                    onClick={() => editorRef.current?.undo()}
-                    role="menuitem"
-                  >
-                    <RotateCcw />
-                    撤销
-                    <kbd>Ctrl+Z</kbd>
-                  </button>
-                  <button
-                    disabled={editorStatus.redoDepth === 0}
-                    onClick={() => editorRef.current?.redo()}
-                    role="menuitem"
-                  >
-                    <RotateCcw />
-                    重做
-                    <kbd>Ctrl+Y</kbd>
-                  </button>
-                </>
-              )}
-              <button
-                disabled={contextNote === undefined}
-                onClick={() => {
-                  if (contextNote !== undefined) {
-                    saveVersionFor(contextNote);
-                  }
-                }}
-                role="menuitem"
-              >
-                <Save />
-                保存版本节点
-                <kbd>Ctrl+Alt+S</kbd>
-              </button>
-              <button
-                disabled={contextNote === undefined}
-                onClick={() => void copyForAi(contextNote)}
-                role="menuitem"
-              >
-                <Sparkles />
-                复制节点学习提示词
-              </button>
-              <button onClick={() => setEditorMode("edit")} role="menuitem">
-                <PencilLine />
-                切换到编辑
-              </button>
-              <button onClick={() => setEditorMode("split")} role="menuitem">
-                <Columns2 />
-                实时分栏预览
-                <kbd>Ctrl+\</kbd>
-              </button>
-              <button onClick={() => setEditorMode("preview")} role="menuitem">
-                <BookOpenText />
-                切换到阅读预览
-                <kbd>Ctrl+⇧V</kbd>
-              </button>
-              <button
-                disabled={contextNote === undefined}
-                onClick={() => {
-                  if (contextNote !== undefined) {
-                    openVersionsFor(contextNote);
-                  }
-                }}
-                role="menuitem"
-              >
-                <GitBranch />
-                查看这个节点的版本图
-              </button>
-            </>
-          )}
-
-          {contextMenu.scope === "status" && (
-            <>
-              <span className="context-label">保存与工作区</span>
-              <button
-                disabled={
-                  !nativeRuntime ||
-                  !["conflict", "error", "mixed"].includes(saveState)
-                }
-                onClick={() => void handleSaveStatusAction()}
-                role="menuitem"
-              >
-                <Save />
-                {saveState === "conflict"
-                  ? "备份编辑内容并重新载入"
-                  : saveState === "mixed"
-                    ? "明确统一为 LF 并保存"
-                    : "重试保存"}
-              </button>
-              <button
-                disabled={!nativeRuntime || nativeRoot.length === 0}
-                onClick={() => {
-                  void copyText(nativeRoot).then(
-                    () => setToast("Markdown 工作区位置已复制。"),
-                    () => setToast("无法复制工作区位置。"),
-                  );
-                }}
-                role="menuitem"
-              >
-                <Database />
-                复制 Markdown 工作区位置
-              </button>
-              <button
-                disabled={externalChanges === null}
-                onClick={() => setIsExternalChangesOpen(true)}
-                role="menuitem"
-              >
-                <GitFork />
-                查看外部文件更改
-              </button>
-              <button
-                disabled={!nativeRuntime}
-                onClick={() => void rebuildSearchIndex()}
-                role="menuitem"
-              >
-                <RotateCcw />
-                从 Markdown 重建全文索引
-              </button>
-              {!nativeRuntime && (
-                <button onClick={resetDemoData} role="menuitem">
-                  <RotateCcw />
-                  重置浏览器预览数据
-                </button>
-              )}
-            </>
-          )}
-
-          {(contextMenu.scope === "note-item" ||
-            contextMenu.scope === "tab") && contextNote !== undefined && (
-            <>
-              <span className="context-label">
-                {contextMenu.scope === "tab" ? "标签" : "知识节点"}
-              </span>
-              <button
-                onClick={() => activateNote(contextNote)}
-                role="menuitem"
-              >
-                <BookOpenText />
-                打开“{contextNote.title}”
-              </button>
-              <button
-                onClick={() => openSplitFor(contextNote)}
-                role="menuitem"
-              >
-                <Columns2 />
-                打开并实时预览
-              </button>
-              <button
-                onClick={() => void copyNoteTitle(contextNote)}
-                role="menuitem"
-              >
-                <Copy />
-                复制节点名称
-              </button>
-              {nativeRuntime && (
-                <button
-                  disabled={
-                    contextNote.path === undefined ||
-                    contextNote.revision === undefined ||
-                    lastPersistedMarkdownRef.current.get(contextNote.id) !==
-                      contextNote.markdown
-                  }
-                  onClick={() => void renameNoteFile(contextNote)}
-                  role="menuitem"
-                >
-                  <PencilLine />
-                  移动或重命名 Markdown
-                  <kbd>F2</kbd>
-                </button>
-              )}
-              <button
-                onClick={() => void copyForAi(contextNote)}
-                role="menuitem"
-              >
-                <Sparkles />
-                复制学习提示词
-              </button>
-              <button
-                onClick={() => saveVersionFor(contextNote)}
-                role="menuitem"
-              >
-                <Save />
-                保存这个节点的版本
-              </button>
-              <button
-                onClick={() => openVersionsFor(contextNote)}
-                role="menuitem"
-              >
-                <GitBranch />
-                查看版本分支图
-              </button>
-              {contextMenu.scope === "tab" && (
-                <>
-                  <span className="context-label">标签管理</span>
-                  <button
-                    onClick={() => closeTab(contextNote.id)}
-                    role="menuitem"
-                  >
-                    <X />
-                    关闭这个标签
-                    <kbd>Ctrl+W</kbd>
-                  </button>
-                  <button
-                    disabled={openNoteIds.length < 2}
-                    onClick={() => closeOtherTabs(contextNote)}
-                    role="menuitem"
-                  >
-                    <X />
-                    关闭其他标签
-                  </button>
-                  <button
-                    disabled={closedNoteIds.length === 0}
-                    onClick={reopenClosedTab}
-                    role="menuitem"
-                  >
-                    <RotateCcw />
-                    重新打开已关闭标签
-                    <kbd>Ctrl+⇧T</kbd>
-                  </button>
-                </>
-              )}
-            </>
-          )}
-
-          {contextMenu.scope === "version-node" &&
-            contextSnapshot !== undefined && (
-              <>
-                <span className="context-label">所选版本节点</span>
-                <button
-                  onClick={() => void restoreVersion(contextSnapshot)}
-                  role="menuitem"
-                >
-                  <RotateCcw />
-                  恢复到这个版本
-                </button>
-                <button
-                  onClick={() => void copySnapshotMarkdown(contextSnapshot)}
-                  role="menuitem"
-                >
-                  <Copy />
-                  复制这个版本的 Markdown
-                </button>
-                {nativeRuntime && (
-                  <button
-                    onClick={() =>
-                      void toggleVersionCheckpoint(contextSnapshot)
-                    }
-                    role="menuitem"
-                  >
-                    <Bookmark />
-                    {contextSnapshot.checkpointName === undefined
-                      ? "命名并保护为检查点"
-                      : "取消检查点保护"}
-                  </button>
-                )}
-                {contextNote !== undefined && (
-                  <button
-                    onClick={() => activateNote(contextNote)}
-                    role="menuitem"
-                  >
-                    <BookOpenText />
-                    打开所属知识节点
-                  </button>
+          {contextCommands.map((command, index) => {
+            const previous = contextCommands[index - 1];
+            const Icon = commandIcon(command.id);
+            return (
+              <Fragment key={command.id}>
+                {previous?.group !== command.group && (
+                  <span className="context-label">
+                    {contextCommandGroupLabel(command.group, contextMenu.scope)}
+                  </span>
                 )}
                 <button
-                  className="danger"
-                  onClick={() => void deleteVersion(contextSnapshot)}
+                  aria-keyshortcuts={command.shortcut?.label.replace(
+                    "Ctrl",
+                    "Control",
+                  )}
+                  className={command.dangerous === true ? "danger" : undefined}
+                  disabled={!command.enabled}
+                  onClick={() => runCommand(command.id, contextCommandTarget)}
                   role="menuitem"
+                  type="button"
                 >
-                  <Trash2 />
-                  删除这个版本节点
+                  <Icon />
+                  {contextCommandTitle(
+                    command,
+                    contextNote,
+                    contextSnapshot,
+                    saveState,
+                  )}
+                  {command.shortcut !== undefined && (
+                    <kbd>{command.shortcut.label}</kbd>
+                  )}
                 </button>
-              </>
-            )}
-
-          {(contextMenu.scope === "workspace" ||
-            contextMenu.scope === "activity" ||
-            contextMenu.scope === "explorer") && (
-            <>
-              <span className="context-label">工作区</span>
-              <button onClick={openNewNote} role="menuitem">
-                <Plus />
-                新建知识节点
-                <kbd>Ctrl+N</kbd>
-              </button>
-              <button onClick={openTodayJournal} role="menuitem">
-                <NotebookPen />
-                打开今日日记
-              </button>
-              <button onClick={createUuidLab} role="menuitem">
-                <FlaskConical />
-                新建 UUID 交互实验
-              </button>
-              {nativeRuntime && (
-                <button
-                  disabled={backupState !== "idle"}
-                  onClick={() => void createWorkspaceBackup()}
-                  role="menuitem"
-                >
-                  <Archive />
-                  创建完整工作区备份
-                </button>
-              )}
-              {contextMenu.scope === "explorer" && (
-                <button
-                  onClick={() => searchInputRef.current?.focus()}
-                  role="menuitem"
-                >
-                  <Search />
-                  搜索知识节点
-                  <kbd>Ctrl+P</kbd>
-                </button>
-              )}
-              <button
-                onClick={() => setIsSidebarOpen((value) => !value)}
-                role="menuitem"
-              >
-                <Menu />
-                显示或隐藏笔记栏
-                <kbd>Ctrl+B</kbd>
-              </button>
-            </>
-          )}
-
-          {contextMenu.scope === "titlebar" && (
-            <>
-              <span className="context-label">窗口</span>
-              <button
-                onClick={() => void runWindowAction("minimize")}
-                role="menuitem"
-              >
-                <Minus />
-                最小化
-              </button>
-              <button
-                onClick={() => void runWindowAction("maximize")}
-                role="menuitem"
-              >
-                <Maximize2 />
-                最大化或还原
-              </button>
-              <button
-                className="danger"
-                onClick={() => void runWindowAction("close")}
-                role="menuitem"
-              >
-                <X />
-                关闭知织
-              </button>
-            </>
-          )}
+              </Fragment>
+            );
+          })}
         </section>
+      )}
+      {isCommandPaletteOpen && (
+        <CommandPalette
+          context={paletteContext}
+          onClose={() => setIsCommandPaletteOpen(false)}
+          onRun={(id) => runCommand(id)}
+        />
       )}
     </main>
   );
@@ -3919,6 +4136,190 @@ function contextMenuLabel(
       return "知织窗口";
     case "workspace":
       return "工作区";
+  }
+}
+
+function viewCommandId(view: ViewKey): CommandId {
+  switch (view) {
+    case "today":
+      return "view.today";
+    case "continue":
+      return "view.continue";
+    case "topics":
+      return "view.topics";
+    case "review":
+      return "view.review";
+    case "sources":
+      return "view.sources";
+    case "experiments":
+      return "view.experiments";
+    case "versions":
+      return "view.versions";
+  }
+}
+
+function contextCommandGroupLabel(
+  group: string,
+  scope: CommandScope,
+): string {
+  switch (group) {
+    case "selection":
+      return "选中内容";
+    case "editing":
+      return "编辑历史";
+    case "document":
+      return scope === "embedded-lab" ? "当前实验" : "当前知识节点";
+    case "view":
+      return "显示方式";
+    case "note":
+      return scope === "tab" ? "知识节点" : "所选知识节点";
+    case "tabs":
+      return "标签管理";
+    case "status":
+      return "保存与工作区";
+    case "workspace":
+      return "工作区";
+    case "version":
+      return "所选版本节点";
+    case "window":
+      return "窗口";
+    default:
+      return "可用命令";
+  }
+}
+
+function contextCommandTitle(
+  command: ResolvedCommand,
+  note: LearningNote | undefined,
+  snapshot: NoteSnapshot | undefined,
+  saveState: SaveState,
+): string {
+  switch (command.id) {
+    case "edit.copy":
+      return "复制选中内容";
+    case "edit.cut":
+      return "剪切选中内容";
+    case "edit.undo":
+      return "撤销";
+    case "edit.redo":
+      return "重做";
+    case "note.open":
+      return note === undefined ? command.title : `打开“${note.title}”`;
+    case "note.copyLearningPrompt":
+      return "复制学习提示词";
+    case "note.showVersions":
+      return "查看版本分支图";
+    case "version.save":
+      return "保存这个节点的版本";
+    case "tab.close":
+      return "关闭这个标签";
+    case "version.toggleCheckpoint":
+      return snapshot?.checkpointName === undefined
+        ? "命名并保护为检查点"
+        : "取消检查点保护";
+    case "version.restore":
+      return "恢复到这个版本";
+    case "version.copyMarkdown":
+      return "复制这个版本的 Markdown";
+    case "version.delete":
+      return "删除这个版本节点";
+    case "workspace.resolveSave":
+      return saveState === "conflict"
+        ? "备份编辑内容并重新载入"
+        : saveState === "mixed"
+          ? "明确统一为 LF 并保存"
+          : "重试保存";
+    default:
+      return command.title;
+  }
+}
+
+function commandIcon(id: CommandId) {
+  switch (id) {
+    case "backup.create":
+    case "backup.restore":
+    case "backup.verify":
+      return Archive;
+    case "edit.copy":
+    case "note.copyTitle":
+    case "version.copyMarkdown":
+    case "workspace.copyRoot":
+      return Copy;
+    case "edit.cut":
+    case "version.delete":
+      return Trash2;
+    case "edit.paste":
+    case "workspace.openToday":
+      return NotebookPen;
+    case "edit.selectAll":
+      return CheckCircle2;
+    case "edit.redo":
+    case "edit.undo":
+    case "tab.reopenClosed":
+    case "version.restore":
+    case "workspace.rebuildIndex":
+    case "workspace.resetPreview":
+      return RotateCcw;
+    case "note.copyLearningPrompt":
+      return Sparkles;
+    case "note.open":
+    case "version.openNote":
+    case "view.preview":
+      return BookOpenText;
+    case "note.openSplit":
+    case "view.split":
+      return Columns2;
+    case "note.rename":
+    case "view.edit":
+      return PencilLine;
+    case "note.showVersions":
+    case "view.versions":
+    case "version.save":
+      return GitBranch;
+    case "retention.apply":
+    case "version.toggleCheckpoint":
+      return Bookmark;
+    case "retention.preview":
+      return ShieldCheck;
+    case "tab.close":
+    case "tab.closeOthers":
+    case "window.close":
+      return X;
+    case "tab.next":
+    case "tab.previous":
+      return GitFork;
+    case "view.today":
+      return CalendarDays;
+    case "view.continue":
+      return GraduationCap;
+    case "view.topics":
+      return Network;
+    case "view.review":
+      return CheckCircle2;
+    case "view.sources":
+      return Library;
+    case "view.experiments":
+    case "workspace.createUuidLab":
+      return FlaskConical;
+    case "window.minimize":
+      return Minus;
+    case "window.maximize":
+      return Maximize2;
+    case "workbench.commandPalette":
+      return CommandIcon;
+    case "workbench.quickOpen":
+      return Search;
+    case "workbench.toggleSidebar":
+      return Menu;
+    case "workspace.createNote":
+      return Plus;
+    case "workspace.openExternalChanges":
+      return GitFork;
+    case "workspace.resolveSave":
+    case "workspace.save":
+      return Save;
+    default:
+      return CommandIcon;
   }
 }
 

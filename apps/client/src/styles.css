@@ -2400,6 +2400,181 @@ button:disabled {
   color: var(--success);
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.command-palette-backdrop {
+  position: fixed;
+  z-index: 180;
+  inset: 32px 0 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: min(11vh, 96px) 12px 12px;
+  background: rgb(9 10 17 / 62%);
+}
+
+.command-palette {
+  display: grid;
+  width: min(680px, calc(100vw - 24px));
+  max-height: min(620px, calc(100vh - 64px));
+  overflow: hidden;
+  color: var(--muted);
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: #1e2030;
+  box-shadow: 0 24px 72px rgb(0 0 0 / 52%);
+}
+
+.command-palette-search {
+  display: grid;
+  height: 48px;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  color: var(--accent);
+  border-bottom: 1px solid var(--line);
+  background: #1b1d2b;
+}
+
+.command-palette-search > span {
+  font: 700 17px/1 "Cascadia Code", Consolas, monospace;
+}
+
+.command-palette-search input {
+  width: 100%;
+  height: 38px;
+  padding: 0;
+  color: var(--ink);
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 13px;
+}
+
+.command-palette-search input::placeholder {
+  color: var(--subtle);
+}
+
+.command-palette-search kbd,
+.command-palette-results kbd,
+.command-palette > footer kbd {
+  color: var(--subtle);
+  font: 9px/1 "Cascadia Code", Consolas, monospace;
+}
+
+.command-palette-results {
+  min-height: 96px;
+  max-height: min(440px, calc(100vh - 180px));
+  padding: 5px;
+  overflow-y: auto;
+  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-width: thin;
+}
+
+.command-palette-results::-webkit-scrollbar,
+.context-menu::-webkit-scrollbar {
+  width: 8px;
+}
+
+.command-palette-results::-webkit-scrollbar-track,
+.context-menu::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.command-palette-results::-webkit-scrollbar-thumb,
+.context-menu::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: var(--line-strong);
+  background-clip: padding-box;
+}
+
+.command-palette-results button {
+  display: flex;
+  width: 100%;
+  min-height: 40px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 5px 10px 5px 12px;
+  color: var(--muted);
+  border: 0;
+  border-left: 2px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.command-palette-results button:hover:not(:disabled),
+.command-palette-results button.is-active {
+  color: var(--ink);
+  border-left-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.command-palette-results button:disabled {
+  color: var(--subtle);
+  opacity: 0.55;
+}
+
+.command-palette-results button > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.command-palette-results strong {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-palette-results small {
+  color: var(--subtle);
+  font-size: 9px;
+}
+
+.command-palette-results kbd {
+  flex: 0 0 auto;
+}
+
+.command-palette-empty {
+  margin: 0;
+  padding: 24px 14px;
+  color: var(--subtle);
+  font-size: 10px;
+  text-align: center;
+}
+
+.command-palette > footer {
+  display: flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 14px;
+  padding: 0 12px;
+  color: var(--subtle);
+  border-top: 1px solid var(--line);
+  background: #1b1d2b;
+  font-size: 9px;
+}
+
+.command-palette > footer span:last-child {
+  margin-left: auto;
+}
+
 .context-menu {
   position: fixed;
   z-index: 160;
@@ -2514,6 +2689,27 @@ button:disabled {
 }
 
 @media (max-width: 720px) {
+  .command-palette-backdrop {
+    padding: 8px;
+  }
+
+  .command-palette {
+    width: 100%;
+    max-height: calc(100vh - 48px);
+  }
+
+  .command-palette-results {
+    max-height: calc(100vh - 158px);
+  }
+
+  .command-palette-results button {
+    min-height: 44px;
+  }
+
+  .command-palette > footer span:last-child {
+    display: none;
+  }
+
   .activity-bar {
     padding-top: 6px;
   }

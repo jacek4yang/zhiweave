@@ -34,6 +34,10 @@ React/TypeScript 负责 UI、输入、编辑器和浏览器测试；Rust 负责�
 
 鼠标、快捷键、命令面板和右键菜单调用同一 command registry。避免相同功能拥有多个不一致实现。布局状态单独持久化，不在每次按键序列化全文。
 
+实现证据：registry 已统一 command id、分类、关键词、快捷键、平台能力、上下文顺序与启用条件；
+Windows 原生和浏览器预览使用同一清单，但通过能力过滤避免预览冒充文件、索引或备份能力。命令
+面板、上下文菜单与键盘入口只分发展示对象和 command id，业务执行仍复用既有工作流。
+
 ## ADR-0006：SQLite 使用 bundled + WAL
 
 状态：Accepted（schema v1/FTS 纵切）；大规模启动优化仍待验证

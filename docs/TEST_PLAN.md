@@ -18,10 +18,12 @@
 - `pnpm install --frozen-lockfile`：通过，142 个 lockfile 条目通过供应链策略。
 - `pnpm typecheck`：通过。
 - `pnpm lint`：通过（当前等同 TypeScript noEmit，需加入真实 ESLint）。
-- `pnpm test`：通过，5 files / 24 tests；包含浏览器预览版本/分支/旧数据迁移/日记/H1 命名、原生持久版本 DTO 映射、种子一致性、交互实验 schema/UUID 位解析，以及结构化错误、并发保存状态合并与“外部快照不覆盖脏缓冲”。
+- `pnpm test`：通过，6 files / 30 tests；除原有版本/分支、日记/H1、持久版本 DTO、种子、
+  交互实验和保存状态用例外，新增 command id/快捷键唯一性、IME 防误触、上下文矩阵、原生能力
+  隔离、禁用条件和中文/别名检索回归测试。
 - `pnpm build`：通过，主 chunk 有 >500 KB 警告。
 - `pnpm audit --prod --audit-level high`：无已知漏洞。
-- 浏览器：搜索、阅读/编辑、分栏、标签、刷新恢复、复制保真、上下文菜单分流、输入粘贴、编辑撤销、UUID 生成/校验/提示词通过。
+- 浏览器：搜索、阅读/编辑、分栏、标签、刷新恢复、复制保真、上下文菜单分流、输入粘贴、编辑撤销、UUID 生成/校验/提示词通过；命令面板中文筛选、方向键、Enter、Esc、焦点恢复和 390×844/1280×800 布局通过。
 - 视口：1280×720、1366×768、1440×900、1920×1080、2560×1440、320×720、390×844、412×915、915×412 均无水平溢出。
 - Rust 1.95.0 基线 fmt、Clippy 与 workspace tests 已在 Windows 通过；合并前必须对最终差异重跑。
 - `cargo audit --no-fetch --stale`：advisory DB 扫描 471 个 lockfile 依赖，无已知 vulnerability；有 17 个 allowed warning。GTK3/glib 项来自非 Windows 的 Tauri target 依赖（当前 Windows `cargo tree -i glib/atk` 不在目标图），其中 `glib` 有一项 unsound advisory；`urlpattern` 链含 6 个 unmaintained `unic-*`，另有 `proc-macro-error` warning。发布前必须在各目标平台更新 Tauri/传递依赖并以 `-D warnings` 重新评估，不能忽略。
@@ -110,6 +112,9 @@
   验收历史且 Markdown 不变。真实完整备份覆盖 8 文件/46.1 KB，再次完整校验通过。
 - 1280×800 与 390×844 版本/备份界面均无页面级水平溢出；窄屏只在版本统计条内保留受控横向
   滚动。恢复按钮的明确确认被取消后没有生成 pending plan。
+- Windows 原生命令面板只在 Tauri 能力存在时展示工作区备份、索引重建、路径复制和 Markdown
+  重命名；`Ctrl+P`、`Ctrl+Shift+P`、节点右键方向键/Esc 与焦点恢复通过。该轮只读验收未创建
+  版本、备份或修改 Markdown，1280×800 无页面级溢出且无 console error/warning。
 
 尚未完成：稳定 Windows 磁盘满/只读目录故障注入、Tauri IPC 自动 E2E、watcher 高频压力/休眠恢复、
 占位/安全移动强杀恢复、长读事务、10,000 文件性能基准、100,000 条索引查询基准和 Android
