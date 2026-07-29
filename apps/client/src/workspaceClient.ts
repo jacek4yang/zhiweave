@@ -87,6 +87,47 @@ export interface NativeRebuildIndexResult {
   readonly preservedPreviousDatabase: boolean;
 }
 
+export interface NativeVersionNode {
+  readonly id: string;
+  readonly noteId: string;
+  readonly noteTitle: string;
+  readonly parentId: string | null;
+  readonly contentHash: string;
+  readonly contentLength: number;
+  readonly createdAtMillis: number;
+  readonly message: string | null;
+}
+
+export interface NativeVersionHistoryStats {
+  readonly versionCount: number;
+  readonly chunkCount: number;
+  readonly logicalBytes: number;
+  readonly storedBytes: number;
+}
+
+export interface NativeVersionHistory {
+  readonly noteId: string;
+  readonly head: string | null;
+  readonly nodes: readonly NativeVersionNode[];
+  readonly stats: NativeVersionHistoryStats;
+}
+
+export interface NativeSaveVersionResult {
+  readonly node: NativeVersionNode;
+  readonly created: boolean;
+  readonly history: NativeVersionHistory;
+}
+
+export interface NativeVersionContent {
+  readonly node: NativeVersionNode;
+  readonly markdown: string;
+}
+
+export interface NativeDeleteVersionResult {
+  readonly history: NativeVersionHistory;
+  readonly releasedBytes: number;
+}
+
 export interface NativeWorkspaceFailure {
   readonly code: string;
   readonly path?: string;
@@ -157,6 +198,54 @@ export function searchNativeNotes(
 
 export function rebuildNativeIndex(): Promise<NativeRebuildIndexResult> {
   return invoke<NativeRebuildIndexResult>("workspace_rebuild_index");
+}
+
+export function loadNativeVersionHistory(
+  noteId: string,
+): Promise<NativeVersionHistory> {
+  return invoke<NativeVersionHistory>("version_history", {
+    request: { noteId },
+  });
+}
+
+export function saveNativeVersion(
+  noteId: string,
+  noteTitle: string,
+  markdown: string,
+  expectedHead: string | null,
+  message: string | null = null,
+): Promise<NativeSaveVersionResult> {
+  return invoke<NativeSaveVersionResult>("version_save", {
+    request: { noteId, noteTitle, markdown, expectedHead, message },
+  });
+}
+
+export function readNativeVersion(
+  versionId: string,
+): Promise<NativeVersionContent> {
+  return invoke<NativeVersionContent>("version_read", {
+    request: { versionId },
+  });
+}
+
+export function checkoutNativeVersion(
+  noteId: string,
+  versionId: string,
+  expectedHead: string | null,
+): Promise<NativeVersionHistory> {
+  return invoke<NativeVersionHistory>("version_checkout", {
+    request: { noteId, versionId, expectedHead },
+  });
+}
+
+export function deleteNativeVersion(
+  noteId: string,
+  versionId: string,
+  expectedHead: string | null,
+): Promise<NativeDeleteVersionResult> {
+  return invoke<NativeDeleteVersionResult>("version_delete", {
+    request: { noteId, versionId, expectedHead },
+  });
 }
 
 export function asWorkspaceFailure(

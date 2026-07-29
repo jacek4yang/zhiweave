@@ -33,6 +33,11 @@
 
 Workspace 打开 → Markdown 列表 → 原子保存 → expected revision 冲突 → SQLite/FTS → 重建索引 → 文件监控 → 崩溃恢复 → 移除全文 localStorage。
 
+- [x] 固定 Windows 工作区、原子保存、稳定身份、SQLite/FTS 与显式重建。
+- [x] watcher 唤醒、完整快照核对和外部更改中心。
+- [x] 内容寻址压缩版本 DAG、分支、校验恢复、精确删除和垃圾回收。
+- [ ] 工作区备份包、迁移恢复演练、10,000/100,000 篇性能门。
+
 ## 阶段 3–4：编辑器与代码块
 
 统一 AST、Corpus、Live Preview、Wiki Link、表格、数学、附件、大纲、IME/大文件；随后实现 Language Registry、Tier 1 动态 grammar、缓存、折叠、复制、高亮行和未知语言回退。

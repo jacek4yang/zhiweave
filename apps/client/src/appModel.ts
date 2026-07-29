@@ -35,6 +35,8 @@ export interface NoteSnapshot {
   readonly delta: TextDelta;
   readonly contentLength: number;
   readonly createdAt: string;
+  readonly contentHash?: string;
+  readonly message?: string;
 }
 
 export interface WorkspaceState {

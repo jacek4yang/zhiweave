@@ -224,6 +224,144 @@ pub struct RebuildIndexResult {
     pub preserved_previous_database: bool,
 }
 
+/// Request for the durable version graph of one stable knowledge node.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionHistoryRequest {
+    /// Stable note identity whose complete local graph should be returned.
+    pub note_id: NoteId,
+}
+
+/// One independently recoverable node in the local version DAG.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionNode {
+    /// Backend-generated immutable version identity.
+    pub id: String,
+    /// Stable knowledge-node identity.
+    pub note_id: NoteId,
+    /// Human-readable title captured with this version.
+    pub note_title: String,
+    /// Parent selected when the version was created.
+    pub parent_id: Option<String>,
+    /// SHA-256 of the complete normalized Markdown.
+    pub content_hash: String,
+    /// Complete UTF-8 Markdown size before compression.
+    pub content_length: u64,
+    /// Creation time as Unix milliseconds.
+    pub created_at_millis: u64,
+    /// Optional bounded user explanation.
+    pub message: Option<String>,
+}
+
+/// Storage summary for one note's reachable and branched local history.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionHistoryStats {
+    /// Number of version nodes for the note.
+    pub version_count: usize,
+    /// Number of distinct content chunks referenced by those nodes.
+    pub chunk_count: usize,
+    /// Sum of complete Markdown sizes across all nodes.
+    pub logical_bytes: u64,
+    /// Compressed bytes occupied by distinct referenced chunks.
+    pub stored_bytes: u64,
+}
+
+/// Complete bounded graph and current branch head for one note.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionHistory {
+    /// Stable note identity.
+    pub note_id: NoteId,
+    /// Current parent for the next manual version.
+    pub head: Option<String>,
+    /// Nodes ordered newest first.
+    pub nodes: Vec<VersionNode>,
+    /// Deduplicated storage summary.
+    pub stats: VersionHistoryStats,
+}
+
+/// Request to create an incremental, independently recoverable version.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveVersionRequest {
+    /// Stable note identity.
+    pub note_id: NoteId,
+    /// Current H1-driven display title.
+    pub note_title: String,
+    /// LF-normalized editor Markdown.
+    pub markdown: String,
+    /// Head observed by the caller; mismatch is a conflict.
+    pub expected_head: Option<String>,
+    /// Optional user explanation.
+    pub message: Option<String>,
+}
+
+/// Result of a manual version save.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveVersionResult {
+    /// Existing head for a no-op, or the newly created node.
+    pub node: VersionNode,
+    /// False when the current head already has identical complete content.
+    pub created: bool,
+    /// Updated graph and storage summary.
+    pub history: VersionHistory,
+}
+
+/// Request to reconstruct one exact version.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadVersionRequest {
+    /// Immutable backend-generated version identity.
+    pub version_id: String,
+}
+
+/// Verified Markdown reconstructed from content-addressed chunks.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionContent {
+    /// Metadata for the reconstructed node.
+    pub node: VersionNode,
+    /// Complete verified LF-normalized Markdown.
+    pub markdown: String,
+}
+
+/// Request to select an existing version as the next branch parent.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckoutVersionRequest {
+    /// Stable note identity.
+    pub note_id: NoteId,
+    /// Existing version that becomes the current head.
+    pub version_id: String,
+    /// Head observed by the caller; mismatch is a conflict.
+    pub expected_head: Option<String>,
+}
+
+/// Request to remove one exact node while preserving its descendants.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteVersionRequest {
+    /// Stable note identity.
+    pub note_id: NoteId,
+    /// Exact version to remove.
+    pub version_id: String,
+    /// Head observed by the caller; mismatch is a conflict.
+    pub expected_head: Option<String>,
+}
+
+/// Result of deleting a node and collecting unreferenced chunks.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteVersionResult {
+    /// Graph after child reparenting and head adjustment.
+    pub history: VersionHistory,
+    /// Compressed chunk bytes reclaimed by this transaction.
+    pub released_bytes: u64,
+}
+
 /// Data required to create a new Markdown source file.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -360,6 +498,50 @@ pub enum WorkspaceFailure {
         /// Coarse error category suitable for UI decisions.
         kind: String,
     },
+    /// The durable version store failed integrity or format checks.
+    #[error("workspace version history is damaged: {kind}")]
+    HistoryCorrupt {
+        /// Stable, non-sensitive reason category.
+        kind: String,
+    },
+    /// The version store was created by a newer incompatible schema.
+    #[error("workspace version history schema {found} is newer than supported schema {supported}")]
+    HistorySchemaTooNew {
+        /// Schema found in the database.
+        found: u32,
+        /// Maximum schema supported by this build.
+        supported: u32,
+    },
+    /// A non-corruption history operation failed.
+    #[error("workspace version history operation {operation} failed: {kind}")]
+    HistoryUnavailable {
+        /// Stable operation name.
+        operation: String,
+        /// Coarse error category suitable for UI decisions.
+        kind: String,
+    },
+    /// The requested immutable version does not exist.
+    #[error("workspace version was not found: {version_id}")]
+    VersionNotFound {
+        /// Backend-generated immutable version identity.
+        version_id: String,
+    },
+    /// The history head changed since the caller observed it.
+    #[error("workspace version head changed for note {note_id}")]
+    VersionConflict {
+        /// Stable note identity.
+        note_id: NoteId,
+        /// Head supplied by the caller.
+        expected: Option<String>,
+        /// Current durable head.
+        actual: Option<String>,
+    },
+    /// A public history request exceeded a bound or was malformed.
+    #[error("workspace version request is invalid: {kind}")]
+    InvalidVersionRequest {
+        /// Stable validation category.
+        kind: String,
+    },
     /// A search query exceeds the public boundary or is empty.
     #[error("workspace search query is invalid: {kind}")]
     InvalidSearch {
@@ -441,6 +623,59 @@ pub trait WorkspacePort {
     /// Returns without replacing the existing database when the fresh index
     /// cannot be built and verified.
     fn rebuild_index(&self) -> Result<RebuildIndexResult, WorkspaceFailure>;
+}
+
+/// Durable local version boundary, separate from the rebuildable search index.
+pub trait VersionHistoryPort {
+    /// Returns one note's complete bounded local version graph.
+    ///
+    /// # Errors
+    ///
+    /// Returns a structured integrity, schema, concurrency, or storage failure.
+    fn version_history(
+        &self,
+        request: &VersionHistoryRequest,
+    ) -> Result<VersionHistory, WorkspaceFailure>;
+
+    /// Saves a content-addressed version using optimistic head concurrency.
+    ///
+    /// # Errors
+    ///
+    /// Returns a structured validation, conflict, integrity, or storage failure.
+    fn save_version(
+        &self,
+        request: &SaveVersionRequest,
+    ) -> Result<SaveVersionResult, WorkspaceFailure>;
+
+    /// Reconstructs and verifies one immutable version.
+    ///
+    /// # Errors
+    ///
+    /// Returns without content when the node, manifest, or chunk is invalid.
+    fn read_version(
+        &self,
+        request: &ReadVersionRequest,
+    ) -> Result<VersionContent, WorkspaceFailure>;
+
+    /// Selects an existing node as the parent for the next version.
+    ///
+    /// # Errors
+    ///
+    /// Returns a conflict when the durable head differs from the expected head.
+    fn checkout_version(
+        &self,
+        request: &CheckoutVersionRequest,
+    ) -> Result<VersionHistory, WorkspaceFailure>;
+
+    /// Deletes one exact node, reparents children, and collects orphan chunks.
+    ///
+    /// # Errors
+    ///
+    /// Returns without mutation on validation, concurrency, or integrity failure.
+    fn delete_version(
+        &self,
+        request: &DeleteVersionRequest,
+    ) -> Result<DeleteVersionResult, WorkspaceFailure>;
 }
 
 /// Thin application service that keeps native adapters behind one audited port.
@@ -531,6 +766,71 @@ where
     /// Propagates the adapter's structured rebuild failure.
     pub fn rebuild_index(&self) -> Result<RebuildIndexResult, WorkspaceFailure> {
         self.port.rebuild_index()
+    }
+}
+
+impl<P> WorkspaceApplication<P>
+where
+    P: VersionHistoryPort,
+{
+    /// Returns one note's durable local version graph.
+    ///
+    /// # Errors
+    ///
+    /// Propagates the adapter's structured history failure.
+    pub fn version_history(
+        &self,
+        request: &VersionHistoryRequest,
+    ) -> Result<VersionHistory, WorkspaceFailure> {
+        self.port.version_history(request)
+    }
+
+    /// Creates a durable manual version or returns the identical current head.
+    ///
+    /// # Errors
+    ///
+    /// Propagates validation, concurrency, integrity, and storage failures.
+    pub fn save_version(
+        &self,
+        request: &SaveVersionRequest,
+    ) -> Result<SaveVersionResult, WorkspaceFailure> {
+        self.port.save_version(request)
+    }
+
+    /// Reconstructs a version only after complete content verification.
+    ///
+    /// # Errors
+    ///
+    /// Propagates missing-node, manifest, decompression, and hash failures.
+    pub fn read_version(
+        &self,
+        request: &ReadVersionRequest,
+    ) -> Result<VersionContent, WorkspaceFailure> {
+        self.port.read_version(request)
+    }
+
+    /// Changes the branch head with optimistic concurrency control.
+    ///
+    /// # Errors
+    ///
+    /// Propagates missing-node, note-identity, and head-conflict failures.
+    pub fn checkout_version(
+        &self,
+        request: &CheckoutVersionRequest,
+    ) -> Result<VersionHistory, WorkspaceFailure> {
+        self.port.checkout_version(request)
+    }
+
+    /// Removes one exact node while keeping every surviving node recoverable.
+    ///
+    /// # Errors
+    ///
+    /// Propagates validation, concurrency, integrity, and storage failures.
+    pub fn delete_version(
+        &self,
+        request: &DeleteVersionRequest,
+    ) -> Result<DeleteVersionResult, WorkspaceFailure> {
+        self.port.delete_version(request)
     }
 }
 

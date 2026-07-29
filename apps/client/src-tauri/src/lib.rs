@@ -10,9 +10,11 @@ use std::{
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use tauri::{Emitter, Manager, State};
 use zhiweave_application::{
-    CreateNoteRequest, DetectWorkspaceChangesRequest, NoteDocument, RebuildIndexResult,
-    RenameNoteRequest, SaveNoteRequest, SaveNoteResult, SearchNoteResult, SearchNotesRequest,
-    SystemStatus, WorkspaceApplication, WorkspaceChangesResult, WorkspaceFailure,
+    CheckoutVersionRequest, CreateNoteRequest, DeleteVersionRequest, DeleteVersionResult,
+    DetectWorkspaceChangesRequest, NoteDocument, ReadVersionRequest, RebuildIndexResult,
+    RenameNoteRequest, SaveNoteRequest, SaveNoteResult, SaveVersionRequest, SaveVersionResult,
+    SearchNoteResult, SearchNotesRequest, SystemStatus, VersionContent, VersionHistory,
+    VersionHistoryRequest, WorkspaceApplication, WorkspaceChangesResult, WorkspaceFailure,
     WorkspaceSnapshot,
 };
 use zhiweave_domain::PortablePath;
@@ -208,6 +210,91 @@ async fn workspace_rebuild_index(
     .map_err(|_| WorkspaceFailure::Unavailable)?
 }
 
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri command extractors are ABI values.
+async fn version_history(
+    workspace: State<'_, NativeWorkspace>,
+    request: VersionHistoryRequest,
+) -> Result<VersionHistory, WorkspaceFailure> {
+    let workspace = Arc::clone(workspace.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        workspace
+            .lock()
+            .map_err(|_| WorkspaceFailure::Unavailable)?
+            .version_history(&request)
+    })
+    .await
+    .map_err(|_| WorkspaceFailure::Unavailable)?
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri command extractors are ABI values.
+async fn version_save(
+    workspace: State<'_, NativeWorkspace>,
+    request: SaveVersionRequest,
+) -> Result<SaveVersionResult, WorkspaceFailure> {
+    let workspace = Arc::clone(workspace.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        workspace
+            .lock()
+            .map_err(|_| WorkspaceFailure::Unavailable)?
+            .save_version(&request)
+    })
+    .await
+    .map_err(|_| WorkspaceFailure::Unavailable)?
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri command extractors are ABI values.
+async fn version_read(
+    workspace: State<'_, NativeWorkspace>,
+    request: ReadVersionRequest,
+) -> Result<VersionContent, WorkspaceFailure> {
+    let workspace = Arc::clone(workspace.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        workspace
+            .lock()
+            .map_err(|_| WorkspaceFailure::Unavailable)?
+            .read_version(&request)
+    })
+    .await
+    .map_err(|_| WorkspaceFailure::Unavailable)?
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri command extractors are ABI values.
+async fn version_checkout(
+    workspace: State<'_, NativeWorkspace>,
+    request: CheckoutVersionRequest,
+) -> Result<VersionHistory, WorkspaceFailure> {
+    let workspace = Arc::clone(workspace.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        workspace
+            .lock()
+            .map_err(|_| WorkspaceFailure::Unavailable)?
+            .checkout_version(&request)
+    })
+    .await
+    .map_err(|_| WorkspaceFailure::Unavailable)?
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri command extractors are ABI values.
+async fn version_delete(
+    workspace: State<'_, NativeWorkspace>,
+    request: DeleteVersionRequest,
+) -> Result<DeleteVersionResult, WorkspaceFailure> {
+    let workspace = Arc::clone(workspace.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        workspace
+            .lock()
+            .map_err(|_| WorkspaceFailure::Unavailable)?
+            .delete_version(&request)
+    })
+    .await
+    .map_err(|_| WorkspaceFailure::Unavailable)?
+}
+
 fn seed_empty_workspace(
     application: &WorkspaceApplication<FileWorkspace>,
 ) -> Result<(), WorkspaceFailure> {
@@ -307,7 +394,12 @@ pub fn run() {
             note_save,
             note_rename,
             workspace_search,
-            workspace_rebuild_index
+            workspace_rebuild_index,
+            version_history,
+            version_save,
+            version_read,
+            version_checkout,
+            version_delete
         ])
         .run(tauri::generate_context!())
         .expect("ZhiWeave client failed to start");

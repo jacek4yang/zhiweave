@@ -18,17 +18,17 @@
 - `pnpm install --frozen-lockfile`：通过，142 个 lockfile 条目通过供应链策略。
 - `pnpm typecheck`：通过。
 - `pnpm lint`：通过（当前等同 TypeScript noEmit，需加入真实 ESLint）。
-- `pnpm test`：通过，5 files / 23 tests；包含版本增量/分支删除/旧数据迁移/日记/H1 命名、种子一致性与旧显示名修复、交互实验 schema/UUID 位解析，以及 native DTO、结构化错误、并发保存状态合并与“外部快照不覆盖脏缓冲”。
+- `pnpm test`：通过，5 files / 24 tests；包含浏览器预览版本/分支/旧数据迁移/日记/H1 命名、原生持久版本 DTO 映射、种子一致性、交互实验 schema/UUID 位解析，以及结构化错误、并发保存状态合并与“外部快照不覆盖脏缓冲”。
 - `pnpm build`：通过，主 chunk 有 >500 KB 警告。
 - `pnpm audit --prod --audit-level high`：无已知漏洞。
 - 浏览器：搜索、阅读/编辑、分栏、标签、刷新恢复、复制保真、上下文菜单分流、输入粘贴、编辑撤销、UUID 生成/校验/提示词通过。
 - 视口：1280×720、1366×768、1440×900、1920×1080、2560×1440、320×720、390×844、412×915、915×412 均无水平溢出。
 - Rust 1.95.0 基线 fmt、Clippy 与 workspace tests 已在 Windows 通过；合并前必须对最终差异重跑。
-- `cargo audit --no-fetch --stale`：2026-07-28 advisory DB 扫描 444 个 lockfile 依赖，无已知 vulnerability；有 17 个 allowed warning。GTK3/glib 项来自非 Windows 的 Tauri target 依赖（当前 Windows `cargo tree -i glib/atk` 不在目标图），其中 `glib` 有一项 unsound advisory；`urlpattern` 链含 6 个 unmaintained `unic-*`，另有 `proc-macro-error` warning。发布前必须在各目标平台更新 Tauri/传递依赖并以 `-D warnings` 重新评估，不能忽略。
+- `cargo audit --no-fetch --stale`：advisory DB 扫描 471 个 lockfile 依赖，无已知 vulnerability；有 17 个 allowed warning。GTK3/glib 项来自非 Windows 的 Tauri target 依赖（当前 Windows `cargo tree -i glib/atk` 不在目标图），其中 `glib` 有一项 unsound advisory；`urlpattern` 链含 6 个 unmaintained `unic-*`，另有 `proc-macro-error` warning。发布前必须在各目标平台更新 Tauri/传递依赖并以 `-D warnings` 重新评估，不能忽略。
 
 ## Markdown 文件纵切证据
 
-- Rust 当前 workspace 33 项测试通过，其中 storage 15 项、portable path 5 项、
+- Rust 当前 workspace 40 项测试通过，其中 storage 22 项、portable path 5 项、
   application 4 项、Markdown 4 项、protocol 1 项、server 1 项和 Tauri 3 项。
 - 原子保存：真实临时目录创建、修改、无变化保存、回读修订与 H1 标题通过。
 - 字节往返：UTF-8 BOM + CRLF 编辑后精确保留；Mixed 保存失败并要求明确规范化。
@@ -74,6 +74,23 @@
   Markdown、identity 唯一 ID/路径和 SQLite 状态都恢复为 6。
 - 监听线程使用容量 1 的非阻塞唤醒队列与 300 ms trailing debounce；事件风暴不会无界堆积，
   业务层不信任或重放原始事件路径。
+
+## 持久版本 DAG 证据
+
+- storage 7 项专门测试覆盖重启持久化、相同 head 内容 no-op、FastCDC/zstd 去重统计、旧节点
+  checkout 后分支、删除祖先后的子节点重接与可恢复性。
+- 陈旧 expected head 在写 node/chunk/head 前失败，原图保持不变；manifest 写入中途注入
+  `RAISE(ABORT)` 后 node、chunk 与 head 全部事务回滚。
+- 篡改压缩块后读取返回 `historyCorrupt`，不向调用方返回任何 Markdown；未来
+  `user_version=999` 失败关闭且不降级。
+- 跨笔记 parent 篡改在 history/delete 变更前失败关闭；损坏图不会被“删除”操作顺手改写成
+  看似健康的图。
+- 删除独有节点会回收无引用压缩块；仍被其他版本引用的块不会被删除。版本正文不依赖父节点
+  delta，所以删除和重接不需要重写后代正文。
+- Windows 原生 Tauri：保存第二版本、恢复旧节点、从旧节点另存分支；重启后 3 个节点、
+  3 个去重块和 796 B 统计保持。删除一条分支回收 275 B，其余版本仍显示和恢复。
+- 原生验证结束前恢复初始 Markdown，逐一删除测试版本；界面最终显示 0 节点、0 B，测试进程、
+  本机调试端口和 WebView 连接均已关闭。
 
 尚未完成：稳定 Windows 磁盘满/只读目录故障注入、Tauri IPC 自动 E2E、watcher 高频压力/休眠恢复、
 占位/安全移动强杀恢复、长读事务、10,000 文件性能基准、100,000 条索引查询基准和 Android

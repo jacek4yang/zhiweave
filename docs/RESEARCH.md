@@ -136,6 +136,31 @@ ID、`user_version`、busy timeout、FULL durability、checkpoint 和长读事�
 - 当前只传一个无路径唤醒信号给 WebView，容量 1 队列 + 300 ms debounce 防止事件风暴；原始外部路径
   不进入前端信任边界。
 
+## 内容寻址增量版本
+
+来源：
+
+- [Git objects](https://git-scm.com/book/en/v2/Git-Internals-Git-Objects)
+- [Git packfiles](https://git-scm.com/book/en/v2/Git-Internals-Packfiles)
+- [`fastcdc` 4.0.1](https://docs.rs/fastcdc/4.0.1/fastcdc/)
+- [`zstd` 0.13.3](https://docs.rs/zstd/0.13.3/zstd/)
+
+结论：
+
+- Git 的对象身份与提交图说明“内容对象”和“历史关系”应分离；但知织不能直接复制 Git 的 pack/
+  delta 链，因为产品要求删除精确旧节点后其后代仍立即可恢复。
+- FastCDC 的内容定义边界比固定分块更能在正文前部插入后继续复用后续块。当前 Markdown 参数为
+  256 B minimum、1 KiB average、4 KiB maximum；这只是 v1 参数，扩大前必须用真实长笔记基准。
+- 每个版本保存完整有序块清单，块以 SHA-256 寻址并用 zstd level 3 压缩。父节点只表达图关系，
+  不参与正文解码，所以删除节点只需重接关系，不重写后代内容。
+- SHA-256 去重不是完整性验证的替代：读取仍需校验压缩解码、块长度/哈希、完整长度/哈希和 UTF-8/
+  LF；已存在的同哈希块在复用前也要重新验证。
+- SQLite 事务适合把 node、manifest、head 和 GC 原子提交；Markdown 文件与 SQLite 不能成为单一
+  跨资源事务，所以恢复采用“先持久保护当前内容 → 校验目标 → expected revision 写文件 → 最后
+  checkout head”。最后一步若发生跨进程竞争，正文已恢复但 head 不覆盖对方，并向用户显示冲突。
+- 新增依赖许可已核对：`fastcdc` 为 MIT，`zstd` 为 MIT，`zstd-sys` 为 MIT/Apache-2.0；
+  与项目 AGPL-3.0-or-later 分发兼容，仍需在最终第三方声明和 SBOM 中列出。
+
 ## 后续研究队列
 
 - Typora 的光标揭示与移动输入边界。

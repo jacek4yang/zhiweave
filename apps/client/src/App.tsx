@@ -70,6 +70,7 @@ import {
   mergeExternalSnapshot,
   mergeSavedDocument,
   nativeDocumentToLearningNote,
+  nativeHistoryToSnapshots,
   nativeSnapshotToWorkspace,
   portableSlug,
 } from "./nativeWorkspaceModel";
@@ -80,15 +81,21 @@ import {
 } from "./system";
 import {
   asWorkspaceFailure,
+  checkoutNativeVersion,
   createNativeNote,
+  deleteNativeVersion,
   detectNativeWorkspaceChanges,
   loadNativeWorkspace,
+  loadNativeVersionHistory,
+  readNativeVersion,
   rebuildNativeIndex,
   renameNativeNote,
   saveNativeNote,
+  saveNativeVersion,
   searchNativeNotes,
   type NativeIndexStatus,
   type NativeNoteDocument,
+  type NativeVersionHistory,
   type NativeWorkspaceChangeKind,
   type NativeWorkspaceChangesResult,
 } from "./workspaceClient";
@@ -191,6 +198,8 @@ export function App() {
   const [nativeIndex, setNativeIndex] = useState<NativeIndexStatus | null>(
     null,
   );
+  const [nativeVersionHistory, setNativeVersionHistory] =
+    useState<NativeVersionHistory | null>(null);
   const [nativeSearchIds, setNativeSearchIds] = useState<readonly string[]>(
     [],
   );
@@ -236,6 +245,16 @@ export function App() {
       .map((id) => notesById.get(id))
       .filter((note): note is LearningNote => note !== undefined);
   }, [nativeRuntime, nativeSearchIds, query, workspace.notes]);
+
+  function applyNativeHistory(history: NativeVersionHistory) {
+    const mapped = nativeHistoryToSnapshots(history);
+    setNativeVersionHistory(history);
+    setWorkspace((current) => ({
+      ...current,
+      snapshots: mapped.snapshots,
+      versionHeads: mapped.versionHeads,
+    }));
+  }
 
   useEffect(() => {
     void loadSystemStatus().then(setStatus);
@@ -290,6 +309,34 @@ export function App() {
       workspaceReadyRef.current = false;
     };
   }, [nativeRuntime]);
+
+  useEffect(() => {
+    if (
+      !nativeRuntime ||
+      !workspaceReadyRef.current ||
+      selectedNote === undefined
+    ) {
+      return undefined;
+    }
+    let active = true;
+    setNativeVersionHistory(null);
+    void loadNativeVersionHistory(selectedNote.id)
+      .then((history) => {
+        if (active) {
+          applyNativeHistory(history);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setToast(
+            "这个知识节点的版本历史无法打开；Markdown 正文未受影响，也没有重建历史库。",
+          );
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [nativeRuntime, selectedNote?.id]);
 
   useEffect(() => {
     if (!nativeRuntime) {
@@ -1183,16 +1230,22 @@ export function App() {
   }
 
   async function copySnapshotMarkdown(snapshot: NoteSnapshot) {
-    const markdown = resolveSnapshotMarkdown(workspace, snapshot.id);
-    if (markdown === undefined) {
-      setToast("这个版本无法安全重建，未执行复制。");
-      return;
-    }
     try {
+      const markdown = nativeRuntime
+        ? (await readNativeVersion(snapshot.id)).markdown
+        : resolveSnapshotMarkdown(workspace, snapshot.id);
+      if (markdown === undefined) {
+        setToast("这个版本无法安全重建，未执行复制。");
+        return;
+      }
       await copyText(markdown);
       setToast("所选版本的 Markdown 已复制。");
     } catch {
-      setToast("复制失败，请检查系统剪贴板权限。");
+      setToast(
+        nativeRuntime
+          ? "版本完整性校验或剪贴板操作失败，没有复制不可信内容。"
+          : "复制失败，请检查系统剪贴板权限。",
+      );
     }
   }
 
@@ -1235,38 +1288,211 @@ export function App() {
     if (selectedNote === undefined) {
       return;
     }
-    setWorkspace((current) => addSnapshot(current, selectedNote));
-    setToast(`已保存“${selectedNote.title}”的手动版本。`);
+    void saveVersionFor(selectedNote);
   }
 
-  function saveVersionFor(note: LearningNote) {
-    setWorkspace((current) => addSnapshot(current, note));
-    setToast(`已保存“${note.title}”的手动版本。`);
-  }
-
-  function restoreVersion(snapshot: NoteSnapshot) {
-    setWorkspace((current) => {
-      const currentNote = current.notes.find(
-        (note) => note.id === snapshot.noteId,
-      );
-      const protectedWorkspace =
-        currentNote === undefined
-          ? current
-          : addSnapshot(current, currentNote);
-      return restoreSnapshot(protectedWorkspace, snapshot.id);
-    });
-    const note = workspace.notes.find((item) => item.id === snapshot.noteId);
-    if (note !== undefined) {
-      activateNote(note);
+  async function saveVersionFor(note: LearningNote) {
+    if (!nativeRuntime) {
+      setWorkspace((current) => addSnapshot(current, note));
+      setToast(`已保存“${note.title}”的手动版本。`);
+      return;
     }
-    setToast("已恢复所选版本；恢复前内容已自动备份。");
+    try {
+      const currentHistory =
+        nativeVersionHistory?.noteId === note.id
+          ? nativeVersionHistory
+          : await loadNativeVersionHistory(note.id);
+      const result = await saveNativeVersion(
+        note.id,
+        note.title,
+        note.markdown,
+        currentHistory.head,
+      );
+      if (activeNoteIdRef.current === note.id) {
+        applyNativeHistory(result.history);
+      }
+      setToast(
+        result.created
+          ? `已持久保存“${note.title}”的增量版本。`
+          : "正文与当前分支头完全相同，没有创建重复版本。",
+      );
+    } catch (error: unknown) {
+      const failure = asWorkspaceFailure(error);
+      if (failure?.code === "versionConflict") {
+        if (activeNoteIdRef.current === note.id) {
+          void loadNativeVersionHistory(note.id).then(applyNativeHistory);
+        }
+        setToast("版本分支头已在另一窗口变化；已刷新版本图，没有覆盖它。");
+      } else {
+        setToast(
+          failure?.code === "historyCorrupt"
+            ? "版本库完整性检查失败；没有重建或覆盖历史。"
+            : "版本未保存；Markdown 正文仍保持原样。",
+        );
+      }
+    }
   }
 
-  function deleteVersion(snapshot: NoteSnapshot) {
+  async function restoreVersion(snapshot: NoteSnapshot) {
+    if (!nativeRuntime) {
+      setWorkspace((current) => {
+        const currentNote = current.notes.find(
+          (note) => note.id === snapshot.noteId,
+        );
+        const protectedWorkspace =
+          currentNote === undefined
+            ? current
+            : addSnapshot(current, currentNote);
+        return restoreSnapshot(protectedWorkspace, snapshot.id);
+      });
+      const previewNote = workspace.notes.find(
+        (item) => item.id === snapshot.noteId,
+      );
+      if (previewNote !== undefined) {
+        activateNote(previewNote);
+      }
+      setToast("已恢复所选版本；恢复前内容已自动备份。");
+      return;
+    }
+
+    const note = workspace.notes.find((item) => item.id === snapshot.noteId);
+    if (
+      note?.path === undefined ||
+      note.revision === undefined ||
+      note.lineEnding === undefined
+    ) {
+      setToast("当前知识节点缺少可验证的文件状态，未执行恢复。");
+      return;
+    }
+    if (note.lineEnding === "mixed") {
+      setToast("请先明确规范化混合换行，再恢复历史版本。");
+      return;
+    }
+    if (savingNoteIdsRef.current.has(note.id)) {
+      setToast("当前 Markdown 正在保存，请稍后再恢复版本。");
+      return;
+    }
+
+    savingNoteIdsRef.current.add(note.id);
+    setSaveState("saving");
+    try {
+      const target = await readNativeVersion(snapshot.id);
+      const expectedHead =
+        nativeVersionHistory?.noteId === note.id
+          ? nativeVersionHistory.head
+          : (workspace.versionHeads[note.id] ?? null);
+      const backup = await saveNativeVersion(
+        note.id,
+        note.title,
+        note.markdown,
+        expectedHead,
+        "恢复历史版本前的自动保护",
+      );
+      const saved = await saveNativeNote({
+        path: note.path,
+        markdown: target.markdown,
+        revision: note.revision,
+        lineEnding: note.lineEnding,
+        hasUtf8Bom: note.hasUtf8Bom ?? false,
+      });
+      const restoredNote = nativeDocumentToLearningNote(saved.document);
+      lastPersistedMarkdownRef.current.set(note.id, target.markdown);
+      latestMarkdownRef.current.set(note.id, target.markdown);
+      setWorkspace((current) => ({
+        ...current,
+        notes: current.notes.map((candidate) =>
+          candidate.id === note.id ? restoredNote : candidate,
+        ),
+        selectedNoteId: note.id,
+      }));
+      setActiveNoteId(note.id);
+      setOpenNoteIds((current) =>
+        current.includes(note.id) ? current : [...current, note.id],
+      );
+      setClosedNoteIds((current) =>
+        current.filter((candidate) => candidate !== note.id),
+      );
+      setActiveView(restoredNote.view);
+      setSaveState("saved");
+
+      try {
+        const history = await checkoutNativeVersion(
+          note.id,
+          snapshot.id,
+          backup.history.head,
+        );
+        applyNativeHistory(history);
+        setToast(
+          "已校验并恢复所选版本；恢复前内容已保存为独立版本，从这里继续保存会形成分支。",
+        );
+      } catch {
+        const history = await loadNativeVersionHistory(note.id);
+        applyNativeHistory(history);
+        setToast(
+          "磁盘正文已安全恢复，但另一窗口改变了分支头；版本图已刷新，未覆盖对方历史。",
+        );
+      }
+    } catch (error: unknown) {
+      const failure = asWorkspaceFailure(error);
+      setSaveState(
+        failure?.code === "conflict" || failure?.code === "versionConflict"
+          ? "conflict"
+          : "error",
+      );
+      setToast(
+        failure?.code === "historyCorrupt"
+          ? "历史内容完整性校验失败，未写入 Markdown。"
+          : failure?.code === "conflict"
+            ? "磁盘文件已在外部变化；恢复前备份已保留，但没有覆盖磁盘。"
+            : failure?.code === "versionConflict"
+              ? "版本分支头已变化；恢复未继续，也没有覆盖现有历史。"
+              : "版本恢复未完成；当前 Markdown 和可用历史均保留。",
+      );
+    } finally {
+      savingNoteIdsRef.current.delete(note.id);
+      setSaveRetry((value) => value + 1);
+    }
+  }
+
+  async function deleteVersion(snapshot: NoteSnapshot) {
     const confirmed = window.confirm(
       `删除“${snapshot.noteTitle}”在 ${formatDate(snapshot.createdAt)} 的版本节点？后续分支会自动重接，笔记正文不会被删除。`,
     );
     if (!confirmed) {
+      return;
+    }
+    if (nativeRuntime) {
+      const expectedHead =
+        nativeVersionHistory?.noteId === snapshot.noteId
+          ? nativeVersionHistory.head
+          : (workspace.versionHeads[snapshot.noteId] ?? null);
+      try {
+        const result = await deleteNativeVersion(
+          snapshot.noteId,
+          snapshot.id,
+          expectedHead,
+        );
+        applyNativeHistory(result.history);
+        setToast(
+          result.releasedBytes > 0
+            ? `版本节点已删除并释放 ${formatBytes(result.releasedBytes)}；后续分支仍可独立恢复。`
+            : "版本节点已删除；共享内容块仍被其他版本引用，没有误删。",
+        );
+      } catch (error: unknown) {
+        const failure = asWorkspaceFailure(error);
+        if (failure?.code === "versionConflict") {
+          void loadNativeVersionHistory(snapshot.noteId).then(
+            applyNativeHistory,
+          );
+          setToast("分支头已在另一窗口变化；已刷新版本图，没有执行删除。");
+        } else {
+          setToast(
+            failure?.code === "historyCorrupt"
+              ? "版本库完整性检查失败，没有删除或重建任何历史。"
+              : "版本节点未删除；现有历史保持不变。",
+          );
+        }
+      }
       return;
     }
     const before = workspace.snapshots.reduce(
@@ -1915,6 +2141,8 @@ export function App() {
           {activeView === "versions" ? (
             <VersionHistory
               currentNote={selectedNote}
+              isNative={nativeRuntime}
+              nativeHistory={nativeVersionHistory}
               onDelete={deleteVersion}
               onReset={resetDemoData}
               onRestore={restoreVersion}
@@ -2503,7 +2731,7 @@ export function App() {
               <>
                 <span className="context-label">所选版本节点</span>
                 <button
-                  onClick={() => restoreVersion(contextSnapshot)}
+                  onClick={() => void restoreVersion(contextSnapshot)}
                   role="menuitem"
                 >
                   <RotateCcw />
@@ -2527,7 +2755,7 @@ export function App() {
                 )}
                 <button
                   className="danger"
-                  onClick={() => deleteVersion(contextSnapshot)}
+                  onClick={() => void deleteVersion(contextSnapshot)}
                   role="menuitem"
                 >
                   <Trash2 />
@@ -2610,14 +2838,18 @@ export function App() {
 
 interface VersionHistoryProps {
   readonly currentNote: LearningNote | undefined;
+  readonly isNative: boolean;
+  readonly nativeHistory: NativeVersionHistory | null;
   readonly workspace: WorkspaceState;
-  readonly onDelete: (snapshot: NoteSnapshot) => void;
+  readonly onDelete: (snapshot: NoteSnapshot) => void | Promise<void>;
   readonly onReset: () => void;
-  readonly onRestore: (snapshot: NoteSnapshot) => void;
+  readonly onRestore: (snapshot: NoteSnapshot) => void | Promise<void>;
 }
 
 function VersionHistory({
   currentNote,
+  isNative,
+  nativeHistory,
   workspace,
   onDelete,
   onReset,
@@ -2633,14 +2865,22 @@ function VersionHistory({
       ? undefined
       : workspace.versionHeads[currentNote.id],
   );
-  const storedBytes = relevant.reduce(
-    (total, snapshot) => total + snapshotStorageBytes(snapshot),
-    0,
-  );
-  const fullBytes = relevant.reduce(
-    (total, snapshot) => total + snapshot.contentLength,
-    0,
-  );
+  const durableStats =
+    nativeHistory !== null && nativeHistory.noteId === currentNote?.id
+      ? nativeHistory.stats
+      : undefined;
+  const storedBytes =
+    durableStats?.storedBytes ??
+    relevant.reduce(
+      (total, snapshot) => total + snapshotStorageBytes(snapshot),
+      0,
+    );
+  const fullBytes =
+    durableStats?.logicalBytes ??
+    relevant.reduce(
+      (total, snapshot) => total + snapshot.contentLength,
+      0,
+    );
   const savedPercent =
     fullBytes === 0
       ? 0
@@ -2651,11 +2891,15 @@ function VersionHistory({
         <GitBranch />
         <div>
           <h2>{currentNote?.title ?? "当前笔记"}</h2>
-          <p>版本按父节点增量保存；从旧节点恢复后继续保存会形成分支。</p>
+          <p>
+            内容块会压缩并跨版本复用；从旧节点恢复后继续保存会形成分支。
+          </p>
         </div>
-        <button className="reset-workspace" onClick={onReset} type="button">
-          重置演示数据
-        </button>
+        {!isNative && (
+          <button className="reset-workspace" onClick={onReset} type="button">
+            重置演示数据
+          </button>
+        )}
       </div>
       <div className="version-metrics" aria-label="版本存储摘要">
         <span>
@@ -2665,13 +2909,24 @@ function VersionHistory({
         </span>
         <span>
           <Database />
-          增量约 <strong>{formatBytes(storedBytes)}</strong>
+          实际占用 <strong>{formatBytes(storedBytes)}</strong>
         </span>
+        {durableStats !== undefined && (
+          <span>
+            去重内容块 <strong>{durableStats.chunkCount}</strong>
+          </span>
+        )}
         <span>
           相比完整副本节省 <strong>{savedPercent}%</strong>
         </span>
       </div>
-      {relevant.length === 0 ? (
+      {isNative && nativeHistory === null ? (
+        <div className="empty-state compact">
+          <Clock3 />
+          <h3>正在校验版本历史</h3>
+          <p>知织正在检查版本图、分块清单和本地历史库。</p>
+        </div>
+      ) : relevant.length === 0 ? (
         <div className="empty-state compact">
           <Clock3 />
           <h3>还没有手动版本</h3>
@@ -2712,7 +2967,10 @@ function VersionHistory({
           <div className="version-cards">
             {graph.rows.map((row) => {
               const markdown =
-                resolveSnapshotMarkdown(workspace, row.snapshot.id) ?? "";
+                row.snapshot.contentHash === undefined
+                  ? (resolveSnapshotMarkdown(workspace, row.snapshot.id) ??
+                    "")
+                  : undefined;
               return (
                 <article
                   className={row.isHead ? "is-head" : ""}
@@ -2730,13 +2988,19 @@ function VersionHistory({
                     </div>
                     <small>{formatDate(row.snapshot.createdAt)}</small>
                   </header>
-                  <p>{markdown.slice(0, 110).replaceAll("\n", " ")}</p>
+                  <p>
+                    {markdown === undefined
+                      ? `内容指纹 ${row.snapshot.contentHash?.slice(0, 12)}… · 完整正文 ${formatBytes(row.snapshot.contentLength)}`
+                      : markdown.slice(0, 110).replaceAll("\n", " ")}
+                  </p>
                   <footer>
                     <span>
-                      增量 {formatBytes(snapshotStorageBytes(row.snapshot))}
+                      {row.snapshot.contentHash === undefined
+                        ? `增量 ${formatBytes(snapshotStorageBytes(row.snapshot))}`
+                        : `可独立校验 · ${row.snapshot.message ?? "手动版本"}`}
                     </span>
                     <button
-                      onClick={() => onRestore(row.snapshot)}
+                      onClick={() => void onRestore(row.snapshot)}
                       type="button"
                     >
                       <RotateCcw />
@@ -2744,7 +3008,7 @@ function VersionHistory({
                     </button>
                     <button
                       className="danger"
-                      onClick={() => onDelete(row.snapshot)}
+                      onClick={() => void onDelete(row.snapshot)}
                       type="button"
                     >
                       <Trash2 />

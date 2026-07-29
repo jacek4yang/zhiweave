@@ -1,5 +1,6 @@
 //! Recoverable local Markdown workspace adapter.
 
+mod history;
 mod identity;
 mod index;
 
@@ -13,14 +14,17 @@ use std::{
 use atomic_write_file::AtomicWriteFile;
 use sha2::{Digest, Sha256};
 use zhiweave_application::{
-    CreateNoteRequest, FileRevision, IndexState, IndexStatus, LineEnding, NoteDocument,
-    RebuildIndexResult, RenameNoteRequest, SaveNoteRequest, SaveNoteResult, SearchNoteResult,
-    SearchNotesRequest, WorkspaceFailure, WorkspacePort, WorkspaceSnapshot,
+    CheckoutVersionRequest, CreateNoteRequest, DeleteVersionRequest, DeleteVersionResult,
+    FileRevision, IndexState, IndexStatus, LineEnding, NoteDocument, ReadVersionRequest,
+    RebuildIndexResult, RenameNoteRequest, SaveNoteRequest, SaveNoteResult, SaveVersionRequest,
+    SaveVersionResult, SearchNoteResult, SearchNotesRequest, VersionContent, VersionHistory,
+    VersionHistoryPort, VersionHistoryRequest, WorkspaceFailure, WorkspacePort, WorkspaceSnapshot,
 };
 use zhiweave_domain::{NoteId, NoteKind, PortablePath};
 use zhiweave_markdown::first_level_one_heading;
 
 use crate::{
+    history::SqliteHistory,
     identity::{IdentityManifest, prepare_metadata_directory},
     index::{INDEX_SCHEMA_VERSION, SqliteIndex},
 };
@@ -38,6 +42,7 @@ pub struct FileWorkspace {
     root_display: String,
     identity_path: PathBuf,
     index: SqliteIndex,
+    history: SqliteHistory,
 }
 
 #[derive(Clone)]
@@ -111,6 +116,7 @@ impl FileWorkspace {
             root,
             identity_path: metadata_directory.join("identity.json"),
             index: SqliteIndex::new(&metadata_directory),
+            history: SqliteHistory::new(&metadata_directory),
         })
     }
 
@@ -628,6 +634,43 @@ impl WorkspacePort for FileWorkspace {
             schema_version: INDEX_SCHEMA_VERSION,
             preserved_previous_database,
         })
+    }
+}
+
+impl VersionHistoryPort for FileWorkspace {
+    fn version_history(
+        &self,
+        request: &VersionHistoryRequest,
+    ) -> Result<VersionHistory, WorkspaceFailure> {
+        self.history.history(request)
+    }
+
+    fn save_version(
+        &self,
+        request: &SaveVersionRequest,
+    ) -> Result<SaveVersionResult, WorkspaceFailure> {
+        self.history.save(request)
+    }
+
+    fn read_version(
+        &self,
+        request: &ReadVersionRequest,
+    ) -> Result<VersionContent, WorkspaceFailure> {
+        self.history.read(request)
+    }
+
+    fn checkout_version(
+        &self,
+        request: &CheckoutVersionRequest,
+    ) -> Result<VersionHistory, WorkspaceFailure> {
+        self.history.checkout(request)
+    }
+
+    fn delete_version(
+        &self,
+        request: &DeleteVersionRequest,
+    ) -> Result<DeleteVersionResult, WorkspaceFailure> {
+        self.history.delete(request)
     }
 }
 

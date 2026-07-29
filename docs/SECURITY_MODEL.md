@@ -50,13 +50,19 @@
   存在时失败，不使用平台相关的覆盖式 rename。
 - 外部变化按稳定 ID/path/revision 分类。自动刷新只替换干净缓冲；脏缓冲继续留在内存。接受磁盘
   版本前先逐篇创建 recovery，且恢复期间继续输入会中止重载。
+- 正式历史位于独立固定路径 `history.sqlite3`；application ID、schema、`quick_check`、
+  foreign-key check 与严格表结构阻止把外来/未来/损坏数据库当成历史。
+- 每个版本保存完整内容哈希与有序内容寻址清单；读取时逐块解压并复核块 SHA-256、原始长度、
+  完整长度、UTF-8/LF 和完整 SHA-256，任何不一致都不向编辑器返回正文。
+- 保存、checkout 和删除都使用 expected head；删除在单一 SQLite 事务内重接子节点、调整 head
+  并回收无引用块。恢复先保护当前编辑，再以 Markdown expected revision 写回，最后切换 head。
 
 ## 当前剩余风险
 
 - SQLite/FTS 与稳定身份已落地，但 identity 本身尚无加密/签名，SQLite 本机正文索引也未加密；
   客户端密码/Stronghold 未完成前，不适合威胁模型包含本地磁盘窃取的真实敏感数据。
-- 已有固定本机工作区 watcher 和单篇 recovery，但还没有备份包、工作区迁移、完整版本持久化、
-  加密或同步。
+- 已有固定本机工作区 watcher、单篇 recovery 和持久版本恢复，但还没有完整工作区备份包、
+  工作区迁移、历史数据库加密或同步。
 - watcher 依赖平台通知，网络文件系统不在支持范围；如果平台既漏报又不发 `Rescan`，只能由后续
   事件或重启快照发现。高频压力、休眠恢复和目录锁场景尚未完成。
 - 安全移动不是原子 rename；进程终止可能留下重复目标，且最后一次源 revision 检查与删除之间

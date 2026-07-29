@@ -5,6 +5,7 @@ import {
   mergeExternalSnapshot,
   mergeSavedDocument,
   nativeDocumentToLearningNote,
+  nativeHistoryToSnapshots,
   nativeSnapshotToWorkspace,
   portableSlug,
 } from "./nativeWorkspaceModel";
@@ -66,6 +67,42 @@ describe("native workspace model", () => {
       markdown: "# Newer editor title\n",
       title: "Newer editor title",
       revision: "after",
+    });
+  });
+
+  it("maps durable version nodes without pretending metadata contains Markdown", () => {
+    const mapped = nativeHistoryToSnapshots({
+      noteId: DOCUMENT.id,
+      head: "01900000-0000-7000-8000-000000000002",
+      nodes: [
+        {
+          id: "01900000-0000-7000-8000-000000000002",
+          noteId: DOCUMENT.id,
+          noteTitle: "今天",
+          parentId: "01900000-0000-7000-8000-000000000001",
+          contentHash: "a".repeat(64),
+          contentLength: 128,
+          createdAtMillis: Date.parse("2026-07-30T01:00:00.000Z"),
+          message: "恢复前保护",
+        },
+      ],
+      stats: {
+        versionCount: 1,
+        chunkCount: 1,
+        logicalBytes: 128,
+        storedBytes: 64,
+      },
+    });
+
+    expect(mapped.versionHeads[DOCUMENT.id]).toBe(
+      "01900000-0000-7000-8000-000000000002",
+    );
+    expect(mapped.snapshots[0]).toMatchObject({
+      noteId: DOCUMENT.id,
+      contentHash: "a".repeat(64),
+      contentLength: 128,
+      message: "恢复前保护",
+      delta: { insertedText: "" },
     });
   });
 

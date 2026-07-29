@@ -1,11 +1,13 @@
 import {
   titleFromMarkdown,
   type LearningNote,
+  type NoteSnapshot,
   type ViewKey,
   type WorkspaceState,
 } from "./appModel";
 import type {
   NativeNoteDocument,
+  NativeVersionHistory,
   NativeWorkspaceSnapshot,
 } from "./workspaceClient";
 
@@ -28,6 +30,33 @@ export function nativeSnapshotToWorkspace(
     completedChecks: {},
     snapshots: [],
     versionHeads: {},
+  };
+}
+
+export function nativeHistoryToSnapshots(
+  history: NativeVersionHistory,
+): {
+  readonly snapshots: readonly NoteSnapshot[];
+  readonly versionHeads: Readonly<Record<string, string>>;
+} {
+  return {
+    snapshots: history.nodes.map((node) => ({
+      id: node.id,
+      noteId: node.noteId,
+      noteTitle: node.noteTitle,
+      parentId: node.parentId,
+      delta: {
+        prefixLength: 0,
+        deleteCount: 0,
+        insertedText: "",
+      },
+      contentLength: node.contentLength,
+      createdAt: new Date(node.createdAtMillis).toISOString(),
+      contentHash: node.contentHash,
+      ...(node.message === null ? {} : { message: node.message }),
+    })),
+    versionHeads:
+      history.head === null ? {} : { [history.noteId]: history.head },
   };
 }
 
