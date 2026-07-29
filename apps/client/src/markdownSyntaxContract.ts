@@ -1,4 +1,6 @@
 export const MAX_WIKI_TARGET_LENGTH = 500;
+export const MAX_FOOTNOTE_LABEL_LENGTH = 200;
+export const MAX_FORMULA_LENGTH = 16_384;
 
 export type CalloutKind =
   | "abstract"

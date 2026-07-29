@@ -1,13 +1,11 @@
 import { useEffect, useRef } from "react";
-import katex from "katex";
-import "katex/dist/katex.min.css";
+
+import { renderMathInto } from "./mathRenderer";
 
 interface MathFormulaProps {
   readonly display: boolean;
   readonly source: string;
 }
-
-const MAX_FORMULA_LENGTH = 16_384;
 
 export function MathFormula({ display, source }: MathFormulaProps) {
   const host = useRef<HTMLSpanElement>(null);
@@ -17,24 +15,7 @@ export function MathFormula({ display, source }: MathFormulaProps) {
     if (element === null) {
       return;
     }
-    if (source.length > MAX_FORMULA_LENGTH) {
-      element.textContent = source;
-      element.dataset.mathState = "too-large";
-      return;
-    }
-    try {
-      katex.render(source, element, {
-        displayMode: display,
-        output: "htmlAndMathml",
-        strict: "ignore",
-        throwOnError: false,
-        trust: false,
-      });
-      element.dataset.mathState = "rendered";
-    } catch {
-      element.textContent = source;
-      element.dataset.mathState = "invalid";
-    }
+    renderMathInto(element, source, display);
   }, [display, source]);
 
   return (

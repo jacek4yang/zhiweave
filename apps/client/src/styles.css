@@ -937,12 +937,6 @@ button:disabled {
   text-decoration: none;
 }
 
-.markdown-editor .cm-live-image::before {
-  margin-right: 4px;
-  color: var(--syntax-cyan);
-  content: "▧";
-}
-
 .markdown-editor .cm-live-task {
   width: 15px;
   height: 15px;
@@ -950,6 +944,122 @@ button:disabled {
   vertical-align: -2px;
   accent-color: var(--accent-strong);
   cursor: pointer;
+}
+
+.markdown-editor .cm-live-image-placeholder {
+  display: inline-flex;
+  max-width: min(100%, 520px);
+  align-items: center;
+  padding: 2px 7px;
+  overflow: hidden;
+  color: var(--syntax-cyan);
+  border: 1px solid rgb(97 208 232 / 20%);
+  border-radius: 4px;
+  background: rgb(97 208 232 / 7%);
+  font-size: 0.9em;
+  text-overflow: ellipsis;
+  vertical-align: 1px;
+  white-space: nowrap;
+  cursor: text;
+}
+
+.markdown-editor .cm-live-footnote-reference {
+  padding-inline: 2px;
+  color: var(--syntax-violet);
+  font-size: 0.72em;
+  font-weight: 750;
+  line-height: 1;
+  cursor: text;
+}
+
+.markdown-editor .cm-line.cm-live-footnote-definition {
+  padding: 3px 8px;
+  color: var(--ink-soft);
+  border-left: 2px solid rgb(178 143 255 / 45%);
+  background: rgb(178 143 255 / 4%);
+}
+
+.markdown-editor .cm-live-footnote-definition-label {
+  display: inline-flex;
+  margin-right: 8px;
+  padding: 1px 6px;
+  color: var(--syntax-violet);
+  border-radius: 999px;
+  background: rgb(178 143 255 / 10%);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: text;
+}
+
+.markdown-editor .cm-live-math-inline {
+  display: inline-flex;
+  max-width: 100%;
+  padding: 1px 4px;
+  overflow-x: auto;
+  color: var(--syntax-yellow);
+  border-radius: 4px;
+  background: rgb(238 211 126 / 5%);
+  vertical-align: -2px;
+  cursor: text;
+}
+
+.markdown-editor .cm-live-math-block {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px 14px;
+  overflow-x: auto;
+  color: var(--ink);
+  border-left: 2px solid rgb(238 211 126 / 42%);
+  background: rgb(238 211 126 / 4%);
+  text-align: center;
+  cursor: text;
+}
+
+.markdown-editor .cm-live-math-block .katex-display {
+  margin: 0;
+}
+
+.markdown-editor .cm-line.cm-live-code-line {
+  padding-inline: 12px;
+  color: var(--ink-soft);
+  background: #171927;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 13px;
+}
+
+.markdown-editor .cm-line.cm-live-code-first {
+  padding-block: 5px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  border-radius: 5px 5px 0 0;
+  background: #1b1d2b;
+}
+
+.markdown-editor .cm-line.cm-live-code-last {
+  min-height: 7px;
+  padding-block: 2px;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0 0 5px 5px;
+}
+
+.markdown-editor .cm-live-code-header {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  color: var(--syntax-cyan);
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: text;
+}
+
+.markdown-editor .cm-live-code-header::before {
+  color: var(--syntax-punctuation);
+  content: "</>";
 }
 
 .markdown-editor .cm-line.cm-live-callout {
@@ -973,6 +1083,7 @@ button:disabled {
   font-weight: 700;
   line-height: 1.5;
   vertical-align: 1px;
+  cursor: text;
 }
 
 .markdown-editor .cm-gutters {

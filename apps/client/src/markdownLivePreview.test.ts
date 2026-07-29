@@ -8,6 +8,7 @@ import {
   collectLivePreviewTokens,
   type LivePreviewToken,
 } from "./markdownLivePreview";
+import { MAX_FORMULA_LENGTH } from "./markdownSyntaxContract";
 
 function stateFor(source: string, cursor = 0): EditorState {
   return EditorState.create({
@@ -131,5 +132,187 @@ describe("Markdown live preview", () => {
         true,
       ),
     ).toEqual([]);
+  });
+
+  it("projects math, safe images, footnotes, and closed code fences", () => {
+    const source = [
+      "Intro",
+      "",
+      "Euler: $e^{i\\pi}+1=0$.",
+      "",
+      "$$",
+      "\\int_0^1 x^2 dx",
+      "$$",
+      "",
+      "![坐标图](assets/plot.png)",
+      "",
+      "Claim[^evidence].",
+      "",
+      "[^evidence]: Reproducible source.",
+      "",
+      "```ts title=\"demo\"",
+      "const value = 42;",
+      "```",
+    ].join("\n");
+    const state = stateFor(source);
+    const tokens = allTokens(state);
+
+    expect(nodeNames(state)).toEqual(
+      expect.arrayContaining([
+        "InlineMath",
+        "MathBlock",
+        "FootnoteReference",
+        "FencedCode",
+      ]),
+    );
+    expect(
+      tokens.filter((token) => token.kind === "math"),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          display: false,
+          source: "e^{i\\pi}+1=0",
+        }),
+        expect.objectContaining({
+          display: true,
+          source: "\\int_0^1 x^2 dx",
+        }),
+      ]),
+    );
+    expect(tokens).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          alt: "坐标图",
+          kind: "image",
+          target: "assets/plot.png",
+        }),
+        expect.objectContaining({
+          definition: false,
+          kind: "footnote",
+          label: "evidence",
+        }),
+        expect.objectContaining({
+          definition: true,
+          kind: "footnote",
+          label: "evidence",
+        }),
+        expect.objectContaining({
+          info: 'ts title="demo"',
+          kind: "code-header",
+        }),
+      ]),
+    );
+    expect(
+      tokens.some(
+        (token) =>
+          token.kind === "line" &&
+          token.className.includes("cm-live-code-line"),
+      ),
+    ).toBe(true);
+    expect(state.doc.toString()).toBe(source);
+  });
+
+  it("reveals math and fenced source when any cursor enters the structure", () => {
+    const source = "Use **proof** and [[Source]]. Then $x^2$.\n\n```rs\nlet x = 2;\n```";
+    const strongFrom = source.indexOf("**proof**");
+    const wikiFrom = source.indexOf("[[Source]]");
+    const mathFrom = source.indexOf("$x^2$");
+    const fenceFrom = source.indexOf("```rs");
+    const state = EditorState.create({
+      doc: source,
+      extensions: [
+        EditorState.allowMultipleSelections.of(true),
+        markdown({
+          base: markdownLanguage,
+          extensions: zhiweaveMarkdownExtensions,
+        }),
+      ],
+      selection: EditorSelection.create([
+        EditorSelection.cursor(strongFrom + 3),
+        EditorSelection.cursor(wikiFrom + 3),
+        EditorSelection.cursor(mathFrom + 2),
+        EditorSelection.cursor(fenceFrom + 8),
+      ]),
+    });
+    const tokens = allTokens(state);
+
+    expect(
+      tokens.some(
+        (token) =>
+          token.kind === "replace" &&
+          token.from >= strongFrom &&
+          token.to <= strongFrom + "**proof**".length,
+      ),
+    ).toBe(false);
+    expect(
+      tokens.some(
+        (token) =>
+          "to" in token &&
+          token.from >= wikiFrom &&
+          token.to <= wikiFrom + "[[Source]]".length,
+      ),
+    ).toBe(false);
+    expect(
+      tokens.some(
+        (token) =>
+          token.kind === "math" && token.from === mathFrom,
+      ),
+    ).toBe(false);
+    expect(
+      tokens.some(
+        (token) =>
+          token.kind === "code-header" && token.from === fenceFrom,
+      ),
+    ).toBe(false);
+  });
+
+  it("leaves truncated and unknown extensions fully visible", () => {
+    const source = [
+      ":::future-widget",
+      "payload: **untouched**",
+      ":::",
+      "",
+      "Unclosed $formula",
+      "",
+      "```future",
+      "still source",
+    ].join("\n");
+    const state = stateFor(source, source.length);
+    const tokens = allTokens(state);
+    const unknownTo = source.indexOf("\n\n");
+    const fenceFrom = source.indexOf("```future");
+
+    expect(nodeNames(state)).toContain("DirectiveBlock");
+    expect(
+      tokens.some(
+        (token) =>
+          "to" in token && token.from < unknownTo && token.to <= unknownTo,
+      ),
+    ).toBe(false);
+    expect(tokens.some((token) => token.kind === "math")).toBe(false);
+    expect(
+      tokens.some(
+        (token) =>
+          token.kind === "code-header" && token.from === fenceFrom,
+      ),
+    ).toBe(false);
+    expect(state.doc.toString()).toBe(source);
+  });
+
+  it("does not mistake escaped dollars, currency, or oversized math for preview content", () => {
+    const oversized = "x".repeat(MAX_FORMULA_LENGTH + 1);
+    const source = [
+      String.raw`Escaped \$name stays source; prices $20 and $30 stay source.`,
+      "",
+      "$$",
+      oversized,
+      "$$",
+    ].join("\n");
+    const state = stateFor(source, source.length);
+
+    expect(
+      allTokens(state).some((token) => token.kind === "math"),
+    ).toBe(false);
+    expect(state.doc.toString()).toBe(source);
   });
 });

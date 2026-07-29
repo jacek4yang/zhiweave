@@ -18,6 +18,8 @@ import type { SyntaxNode } from "@lezer/common";
 
 import {
   CALLOUT_TITLES,
+  MAX_FOOTNOTE_LABEL_LENGTH,
+  MAX_FORMULA_LENGTH,
   calloutKindFromName,
 } from "./markdownSyntaxContract";
 
@@ -49,6 +51,33 @@ export type LivePreviewToken =
       readonly from: number;
       readonly to: number;
       readonly label: string;
+    }
+  | {
+      readonly kind: "code-header";
+      readonly from: number;
+      readonly to: number;
+      readonly info: string;
+    }
+  | {
+      readonly kind: "footnote";
+      readonly from: number;
+      readonly to: number;
+      readonly definition: boolean;
+      readonly label: string;
+    }
+  | {
+      readonly kind: "image";
+      readonly from: number;
+      readonly to: number;
+      readonly alt: string;
+      readonly target: string;
+    }
+  | {
+      readonly kind: "math";
+      readonly from: number;
+      readonly to: number;
+      readonly display: boolean;
+      readonly source: string;
     };
 
 interface VisibleRange {
@@ -114,6 +143,45 @@ export function collectLivePreviewTokens(
       enter(reference) {
         const node = reference.node;
         const name = node.name;
+        if (name === "DirectiveBlock") {
+          return false;
+        }
+        if (name === "FencedCode") {
+          collectFencedCodeTokens(
+            state,
+            node,
+            { from, to },
+            selections,
+            tokens,
+          );
+          return false;
+        }
+
+        if (
+          (name === "InlineMath" || name === "MathBlock") &&
+          !isRevealed(node, selections)
+        ) {
+          collectMathToken(state, node, tokens);
+          return false;
+        }
+
+        if (
+          name === "FootnoteReference" &&
+          !isRevealed(node, selections)
+        ) {
+          const label = directChildren(node, "FootnoteLabel")[0];
+          if (label !== undefined) {
+            tokens.push({
+              definition: false,
+              from: node.from,
+              kind: "footnote",
+              label: state.doc.sliceString(label.from, label.to),
+              to: node.to,
+            });
+          }
+          return false;
+        }
+
         if (isHeading(name)) {
           const line = state.doc.lineAt(node.from);
           tokens.push({
@@ -154,9 +222,13 @@ export function collectLivePreviewTokens(
           return false;
         }
 
+        if (name === "Image" && !isRevealed(node, selections)) {
+          collectImageToken(state, node, tokens);
+          return false;
+        }
+
         if (
           (name === "Link" ||
-            name === "Image" ||
             name === "WikiLink" ||
             name === "WikiEmbed") &&
           !isRevealed(node, selections)
@@ -191,6 +263,25 @@ export function collectLivePreviewTokens(
       }
       visitedLines.add(lineNumber);
       const line = state.doc.line(lineNumber);
+      const footnote = footnoteDefinitionPattern.exec(line.text);
+      if (
+        footnote !== null &&
+        !selectionIntersects(line.from, line.to, selections)
+      ) {
+        tokens.push({
+          definition: true,
+          from: line.from,
+          kind: "footnote",
+          label: footnote[2] ?? "",
+          to: line.from + footnote[0].length,
+        });
+        tokens.push({
+          className: "cm-live-footnote-definition",
+          from: line.from,
+          kind: "line",
+        });
+        continue;
+      }
       const match = /^(\s*>\s*)\[!([A-Za-z]+)\](?:[+-])?/.exec(line.text);
       if (match === null || selectionIntersects(line.from, line.to, selections)) {
         continue;
@@ -265,8 +356,41 @@ function buildDecorations(view: EditorView): DecorationSet {
         widget: new TaskWidget(token.from, token.checked),
       }).range(token.from, token.to);
     }
+    if (token.kind === "callout") {
+      return Decoration.replace({
+        widget: new CalloutWidget(token.from, token.label),
+      }).range(token.from, token.to);
+    }
+    if (token.kind === "code-header") {
+      return Decoration.replace({
+        widget: new CodeHeaderWidget(token.from, token.info),
+      }).range(token.from, token.to);
+    }
+    if (token.kind === "footnote") {
+      return Decoration.replace({
+        widget: new FootnoteWidget(
+          token.from,
+          token.label,
+          token.definition,
+        ),
+      }).range(token.from, token.to);
+    }
+    if (token.kind === "image") {
+      return Decoration.replace({
+        widget: new ImageWidget(
+          token.from,
+          token.alt,
+          token.target,
+        ),
+      }).range(token.from, token.to);
+    }
     return Decoration.replace({
-      widget: new CalloutWidget(token.label),
+      block: token.display,
+      widget: new MathWidget(
+        token.from,
+        token.source,
+        token.display,
+      ),
     }).range(token.from, token.to);
   });
   return Decoration.set(decorations, true);
@@ -308,20 +432,149 @@ class TaskWidget extends WidgetType {
 }
 
 class CalloutWidget extends WidgetType {
-  constructor(readonly label: string) {
+  constructor(
+    readonly from: number,
+    readonly label: string,
+  ) {
     super();
   }
 
   eq(other: CalloutWidget): boolean {
-    return other.label === this.label;
+    return other.from === this.from && other.label === this.label;
   }
 
-  toDOM(): HTMLElement {
+  toDOM(view: EditorView): HTMLElement {
     const badge = document.createElement("span");
     badge.className = "cm-live-callout-badge";
     badge.textContent = this.label;
     badge.setAttribute("aria-hidden", "true");
+    makeSourceRevealable(badge, view, this.from);
     return badge;
+  }
+}
+
+class CodeHeaderWidget extends WidgetType {
+  constructor(
+    readonly from: number,
+    readonly info: string,
+  ) {
+    super();
+  }
+
+  eq(other: CodeHeaderWidget): boolean {
+    return other.from === this.from && other.info === this.info;
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    const header = document.createElement("span");
+    header.className = "cm-live-code-header";
+    header.textContent = this.info.length > 0 ? this.info : "纯文本";
+    header.title = "点击查看代码围栏源码";
+    makeSourceRevealable(header, view, this.from);
+    return header;
+  }
+}
+
+class FootnoteWidget extends WidgetType {
+  constructor(
+    readonly from: number,
+    readonly label: string,
+    readonly definition: boolean,
+  ) {
+    super();
+  }
+
+  eq(other: FootnoteWidget): boolean {
+    return (
+      other.from === this.from &&
+      other.label === this.label &&
+      other.definition === this.definition
+    );
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    const element = document.createElement(this.definition ? "span" : "sup");
+    element.className = this.definition
+      ? "cm-live-footnote-definition-label"
+      : "cm-live-footnote-reference";
+    element.textContent = this.definition ? `注 ${this.label}` : this.label;
+    element.title = "点击查看脚注源码";
+    makeSourceRevealable(element, view, this.from);
+    return element;
+  }
+}
+
+class ImageWidget extends WidgetType {
+  constructor(
+    readonly from: number,
+    readonly alt: string,
+    readonly target: string,
+  ) {
+    super();
+  }
+
+  eq(other: ImageWidget): boolean {
+    return (
+      other.from === this.from &&
+      other.alt === this.alt &&
+      other.target === this.target
+    );
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    const element = document.createElement("span");
+    element.className = "cm-live-image-placeholder";
+    const name = this.alt.trim() || targetName(this.target) || "未命名图片";
+    element.textContent = `▧ 图像 · ${name}`;
+    element.title =
+      this.target.length > 0
+        ? `${this.target}\n点击查看图片源码`
+        : "点击查看图片源码";
+    makeSourceRevealable(element, view, this.from);
+    return element;
+  }
+}
+
+class MathWidget extends WidgetType {
+  constructor(
+    readonly from: number,
+    readonly source: string,
+    readonly display: boolean,
+  ) {
+    super();
+  }
+
+  eq(other: MathWidget): boolean {
+    return (
+      other.from === this.from &&
+      other.source === this.source &&
+      other.display === this.display
+    );
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    const element = document.createElement(this.display ? "div" : "span");
+    element.className = this.display
+      ? "cm-live-math-block"
+      : "cm-live-math-inline";
+    element.textContent = this.source;
+    element.setAttribute(
+      "aria-label",
+      `${this.display ? "公式" : "行内公式"}：${this.source}`,
+    );
+    element.title = "点击查看 LaTeX 源码";
+    makeSourceRevealable(element, view, this.from);
+    void import("./mathRenderer")
+      .then(({ renderMathInto }) => {
+        if (element.isConnected) {
+          renderMathInto(element, this.source, this.display);
+          view.requestMeasure();
+        }
+      })
+      .catch(() => {
+        element.dataset.mathState = "unavailable";
+      });
+    return element;
   }
 }
 
@@ -369,6 +622,124 @@ function collectLinkTokens(
     kind: "mark",
     to: node.to,
   });
+}
+
+function collectImageToken(
+  state: EditorState,
+  node: SyntaxNode,
+  tokens: LivePreviewToken[],
+): void {
+  const marks = directChildren(node, "LinkMark");
+  const altFrom = marks[0]?.to;
+  const altTo = marks[1]?.from;
+  if (altFrom === undefined || altTo === undefined || altTo < altFrom) {
+    return;
+  }
+  const target =
+    directChildren(node, "URL")[0] ??
+    directChildren(node, "LinkLabel")[0];
+  tokens.push({
+    alt: state.doc.sliceString(altFrom, altTo),
+    from: node.from,
+    kind: "image",
+    target:
+      target === undefined
+        ? ""
+        : state.doc.sliceString(target.from, target.to),
+    to: node.to,
+  });
+}
+
+function collectMathToken(
+  state: EditorState,
+  node: SyntaxNode,
+  tokens: LivePreviewToken[],
+): void {
+  const marks = directChildren(node, "MathMark");
+  const content = directChildren(node, "MathContent")[0];
+  if (marks.length !== 2 || content === undefined) {
+    return;
+  }
+  if (content.to - content.from > MAX_FORMULA_LENGTH) {
+    return;
+  }
+  const source = state.doc.sliceString(content.from, content.to).trim();
+  if (source.length === 0) {
+    return;
+  }
+  tokens.push({
+    display:
+      node.name === "MathBlock" || state.doc.sliceString(
+        marks[0]?.from ?? node.from,
+        marks[0]?.to ?? node.from,
+      ).length === 2,
+    from: node.from,
+    kind: "math",
+    source,
+    to: node.to,
+  });
+}
+
+function collectFencedCodeTokens(
+  state: EditorState,
+  node: SyntaxNode,
+  visible: VisibleRange,
+  selections: readonly SelectionRange[],
+  tokens: LivePreviewToken[],
+): void {
+  const marks = directChildren(node, "CodeMark");
+  const info = directChildren(node, "CodeInfo")[0];
+  const firstLine = state.doc.lineAt(node.from);
+  const lastLine = state.doc.lineAt(Math.max(node.from, node.to));
+  const visibleFrom = Math.max(firstLine.from, visible.from);
+  const visibleTo = Math.min(lastLine.to, visible.to);
+
+  if (visibleFrom <= visibleTo) {
+    const firstVisibleLine = state.doc.lineAt(visibleFrom).number;
+    const lastVisibleLine = state.doc.lineAt(visibleTo).number;
+    for (
+      let lineNumber = firstVisibleLine;
+      lineNumber <= lastVisibleLine;
+      lineNumber += 1
+    ) {
+      const line = state.doc.line(lineNumber);
+      const classes = ["cm-live-code-line"];
+      if (line.number === firstLine.number) {
+        classes.push("cm-live-code-first");
+      }
+      if (line.number === lastLine.number) {
+        classes.push("cm-live-code-last");
+      }
+      tokens.push({
+        className: classes.join(" "),
+        from: line.from,
+        kind: "line",
+      });
+    }
+  }
+
+  if (isRevealed(node, selections) || marks.length !== 2) {
+    return;
+  }
+  if (firstLine.to >= visible.from && firstLine.from <= visible.to) {
+    tokens.push({
+      from: node.from,
+      info:
+        info === undefined
+          ? ""
+          : state.doc.sliceString(info.from, info.to).trim().slice(0, 160),
+      kind: "code-header",
+      to: firstLine.to,
+    });
+  }
+  const closing = marks[1];
+  if (
+    closing !== undefined &&
+    closing.to >= visible.from &&
+    closing.from <= visible.to
+  ) {
+    tokens.push(replaceToken(closing));
+  }
 }
 
 function directChildren(
@@ -431,3 +802,25 @@ function deduplicateTokens(
     return true;
   });
 }
+
+function makeSourceRevealable(
+  element: HTMLElement,
+  view: EditorView,
+  from: number,
+): void {
+  element.addEventListener("mousedown", (event) => {
+    event.preventDefault();
+    view.dispatch({ selection: { anchor: from } });
+    view.focus();
+  });
+}
+
+function targetName(target: string): string {
+  const normalized = target.replaceAll("\\", "/").replace(/[\]\s]+$/u, "");
+  return normalized.slice(normalized.lastIndexOf("/") + 1);
+}
+
+const footnoteDefinitionPattern = new RegExp(
+  `^(\\s*)\\[\\^([^\\]\\r\\n]{1,${MAX_FOOTNOTE_LABEL_LENGTH}})\\]:\\s*`,
+  "u",
+);
