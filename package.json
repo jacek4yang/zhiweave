@@ -1,6 +1,6 @@
 {
   "name": "zhiweave",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Offline-first, end-to-end encrypted Markdown learning workspace",
   "license": "AGPL-3.0-or-later",

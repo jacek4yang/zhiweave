@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { languages } from "@codemirror/language-data";
 import { basicSetup, EditorView } from "codemirror";
 
 interface MarkdownEditorProps {
@@ -27,7 +26,6 @@ export function MarkdownEditor({
         basicSetup,
         markdown({
           base: markdownLanguage,
-          codeLanguages: languages,
         }),
         EditorView.lineWrapping,
         EditorView.updateListener.of((update) => {
