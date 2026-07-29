@@ -100,6 +100,8 @@
 - Windows 原生进程：`知织 · ZhiWeave` 正常运行；固定工作区有 6 个真实 Markdown、identity v1 的 6 个唯一 ID/路径和有效 SQLite 3 数据库。
 - 共享 Markdown AST 功能提交 `27bf009` 已推送；GitHub CI run `30497652526` 的 Frontend 与
   Rust 全部通过。
+- Live Preview 与语义大纲提交 `5c060b9` 已经 Linux 中继推送；GitHub CI run `30499669886`
+  的 Frontend（25 s）与 Rust（3 min 14 s）全部通过。
 - GitHub CI run `30487216178`：watcher 跨平台修复后的 Frontend 与 Rust 全部通过。
 - CI 有一项非阻断 annotation：部分 actions 仍声明 Node 20，GitHub runner 已强制 Node 24；列为 workflow 维护项。
 - [Draft PR #1](https://github.com/jacek4yang/zhiweave/pull/1) 已创建。
