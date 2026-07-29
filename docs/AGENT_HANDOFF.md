@@ -1,6 +1,6 @@
 # Agent 交接
 
-最近更新：2026-07-30 06:46 CST
+最近更新：2026-07-30 06:57 CST
 
 ## 不可改变的用户约束
 
@@ -15,7 +15,8 @@
 - 工作目录：`%USERPROFILE%\Desktop\Projects\zhiweave`
 - 分支：`agent/professional-workbench`
 - Draft PR：[jacek4yang/zhiweave#1](https://github.com/jacek4yang/zhiweave/pull/1)
-- 本切片开始时的推送基线 `5251e39` 对应 GitHub CI run `30495257993`：Frontend 与 Rust 均通过。
+- 共享 Markdown AST 功能提交 `27bf009` 对应 GitHub CI run `30497652526`：Frontend 与 Rust
+  均通过。
 - Windows 原生验证进程已安全关闭；临时日志只在 `%TEMP%`。
 
 ## 已实现切片
