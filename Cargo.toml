@@ -21,6 +21,7 @@ repository = "https://github.com/jacek4yang/zhiweave"
 anyhow = "1.0.104"
 atomic-write-file = "0.3.0"
 axum = "0.8.9"
+notify = "8.2.0"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.151"
 sha2 = "0.10.9"

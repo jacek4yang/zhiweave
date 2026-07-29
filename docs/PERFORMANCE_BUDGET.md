@@ -24,14 +24,14 @@
 环境：当前 Windows 电脑，Vite 直接绑定 `127.0.0.1:1420`，Tauri 2 原生开发壳。
 
 - Vite ready：约 185 ms。
-- Vitest：3 files / 15 tests，约 249 ms。
-- Vite production build：约 402 ms。
-- CSS：28.18 KB（gzip 5.86 KB）。
-- 主 JavaScript：880.54 KB（gzip 294.82 KB）。
+- Vitest：5 files / 23 tests，约 303 ms。
+- Vite production build：约 415 ms。
+- CSS：32.57 KB（gzip 6.56 KB）。
+- 主 JavaScript：887.88 KB（gzip 296.91 KB）。
 - `EmbeddedLab` 按需 chunk：6.22 KB（gzip 2.57 KB）。
 - Vite 仍报告主 chunk 超过 500 KB。
 
-交互实验已从主包动态拆分，但主包 gzip 仍超过目标 94.82 KB。下一步必须用可重复的 chunk 报告定位 CodeMirror、图标和工作台依赖；语言 grammar、图谱、Canvas、数学和实验组件均不得进入无关首屏。
+交互实验已从主包动态拆分，但主包 gzip 仍超过目标 96.91 KB。下一步必须用可重复的 chunk 报告定位 CodeMirror、图标和工作台依赖；语言 grammar、图谱、Canvas、数学和实验组件均不得进入无关首屏。
 
 ## 基准数据集
 

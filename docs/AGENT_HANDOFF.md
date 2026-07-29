@@ -1,6 +1,6 @@
 # Agent 交接
 
-最近更新：2026-07-30 03:30 CST
+最近更新：2026-07-30 03:55 CST
 
 ## 不可改变的用户约束
 
@@ -31,7 +31,7 @@
 - 原生自动保存、冲突不覆盖、`recovery/` 保护、Mixed 显式规范化；
 - 浏览器预览不冒充桌面文件。
 
-当前 SQLite/稳定身份切片增加：
+SQLite/稳定身份稳定切片增加：
 
 - `.zhiweave/identity.json` v1 稳定 ID 清单，原子写入、重复 ID/路径和非法 revision 失败关闭；
 - bundled SQLite schema v1、application ID、WAL/FULL、FTS5 trigram 和有界短查询；
@@ -41,10 +41,19 @@
 - Tauri 搜索、重建和重命名命令，原生状态栏索引状态及 SQLite 搜索；
 - 身份损坏、未来 schema、数据库损坏/恢复、中文搜索和重命名回归测试。
 
+当前 watcher/外部更改中心切片增加：
+
+- `notify 8.2.0` Windows 原生递归 watcher，300 ms 合并事件风暴并排除 `.zhiweave` 自身写入；
+- watcher 只发无路径唤醒信号；application 完整快照核对才区分 created/modified/deleted/moved；
+- 稳定 ID 识别移动，revision 识别正文变化；重复/过大的客户端基线被拒绝；
+- 状态栏外部更改计数与可滚动冲突中心，显示前后路径、移动伴随正文变化和本地脏缓冲；
+- 安全应用无冲突变化，脏缓冲不自动覆盖；明确接受磁盘版本前逐篇写 recovery，并检测恢复期间继续输入；
+- Windows 原生人工验证新建、移动、修改、删除四类；测试临时文件已删除，工作区恢复 6 篇/6 ID/索引 6 篇。
+
 ## 最近验证
 
-- pnpm 类型检查、22 项前端测试和生产构建通过。
-- 当前 storage 15 项与 Tauri 1 项测试、相关 fmt/Clippy `-D warnings` 通过；提交前仍须跑全 workspace。
+- pnpm lint/typecheck、23 项前端测试和生产构建通过。
+- Rust workspace 33 项、fmt 与 Clippy `-D warnings` 全部通过；其中新增 application 2 项变化分类测试和 Tauri 2 项 watcher 测试。
 - Windows Tauri 进程重编译启动，固定工作区实际有 6 个 Markdown、6 个唯一稳定 ID 和有效 SQLite 3 数据库。
 - GitHub CI run `30482533535`：Frontend 21 s、Rust 3 min 1 s，全部通过；Node 20 actions deprecation annotation 尚待 workflow 维护。
 - Windows Tauri 客户区顶部非客户区仅 1 px，证明系统标题栏已移除。
@@ -53,12 +62,12 @@
 
 ## 下一步顺序
 
-1. 完成当前 SQLite/稳定身份切片的全门禁、构建、审计、提交、Linux 中转推送、PR/CI。
-2. 实现文件 watcher、外部删除/重命名和冲突中心；补占位强杀、只读目录、磁盘满夹具。
+1. 完成 watcher/外部更改中心切片的全门禁、构建、审计、提交、Linux 中转推送、PR/CI。
+2. 补 watcher 高频压力、休眠恢复、占位强杀、只读目录和磁盘满夹具。
 3. 把浏览器会话版本 DAG 迁入 Rust 增量对象存储并实现保留/清理。
 4. 收敛统一 command registry 与命令面板，再替换共享 Markdown AST。
 5. 持续排除根 `AGENTS.md`、真实工作区文件、地址、密钥和数据库。
 
 ## 关键风险
 
-Markdown 文件事实源、稳定 ID 和可重建 SQLite/FTS 已进入 alpha，但还不能称为可承载长期真实资料的完整数据层：启动仍全量扫描正文，无 watcher、完整恢复、版本持久化或客户端加密；create 强杀可能留下空占位，安全移动强杀可能留下重复副本，删源前仍有极窄竞态。通用 Markdown 阅读器仍需统一 AST，主 bundle 超预算，同步后端仍只是协议/健康状态骨架。
+Markdown 文件事实源、稳定 ID、可重建 SQLite/FTS 和本机 watcher 已进入 alpha，但还不能称为可承载长期真实资料的完整数据层：启动与每次外部事件仍全量扫描正文，缺少完整恢复、版本持久化或客户端加密；底层平台漏报只能依赖 `Rescan`/后续事件或重启发现。create 强杀可能留下空占位，安全移动强杀可能留下重复副本，删源前仍有极窄竞态。通用 Markdown 阅读器仍需统一 AST，主 bundle 超预算，同步后端仍只是协议/健康状态骨架。

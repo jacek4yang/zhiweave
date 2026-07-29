@@ -18,7 +18,7 @@
 - `pnpm install --frozen-lockfile`：通过，142 个 lockfile 条目通过供应链策略。
 - `pnpm typecheck`：通过。
 - `pnpm lint`：通过（当前等同 TypeScript noEmit，需加入真实 ESLint）。
-- `pnpm test`：通过，5 files / 22 tests；包含版本增量/分支删除/旧数据迁移/日记/H1 命名、种子一致性与旧显示名修复、交互实验 schema/UUID 位解析，以及 native DTO、结构化错误与并发保存状态合并。
+- `pnpm test`：通过，5 files / 23 tests；包含版本增量/分支删除/旧数据迁移/日记/H1 命名、种子一致性与旧显示名修复、交互实验 schema/UUID 位解析，以及 native DTO、结构化错误、并发保存状态合并与“外部快照不覆盖脏缓冲”。
 - `pnpm build`：通过，主 chunk 有 >500 KB 警告。
 - `pnpm audit --prod --audit-level high`：无已知漏洞。
 - 浏览器：搜索、阅读/编辑、分栏、标签、刷新恢复、复制保真、上下文菜单分流、输入粘贴、编辑撤销、UUID 生成/校验/提示词通过。
@@ -28,9 +28,8 @@
 
 ## Markdown 文件纵切证据
 
-- Rust 当前 workspace 29 项测试通过，其中 storage 15 项、portable path 5 项、
-  application 2 项、Markdown 4 项、protocol 1 项、server 1 项和 Tauri
-  seed/restart/search 1 项。
+- Rust 当前 workspace 33 项测试通过，其中 storage 15 项、portable path 5 项、
+  application 4 项、Markdown 4 项、protocol 1 项、server 1 项和 Tauri 3 项。
 - 原子保存：真实临时目录创建、修改、无变化保存、回读修订与 H1 标题通过。
 - 字节往返：UTF-8 BOM + CRLF 编辑后精确保留；Mixed 保存失败并要求明确规范化。
 - 冲突：读取后由外部进程改写，保存返回结构化 conflict，外部正文逐字节保留。
@@ -60,7 +59,23 @@
 - 本次 UI 变更后的 in-app browser 重新访问被本地 URL 安全策略拒绝，未尝试绕过；由
   TypeScript 检查、组件测试、原生运行和既有视觉基线替代。本切片仍需在后续可用会话补视觉截图。
 
-尚未完成：稳定 Windows 磁盘满/只读目录故障注入、Tauri IPC 自动 E2E、文件 watcher 竞态、
+## Windows watcher 与外部更改中心证据
+
+- application 纯比较测试覆盖 created/modified/deleted/moved；移动以稳定 ID 判定并单独标记
+  `contentChanged`，结果按路径确定排序。
+- 客户端 baseline 限制 10,000 篇；重复 ID 与重复路径是结构化失败，防止歧义比较。
+- Tauri watcher 测试确认普通源文件触发核对、`.zhiweave` 自身写入被过滤；平台错误、空路径和
+  `Rescan`（代表事件丢失）即使只指向隐藏目录也必须触发完整核对。
+- 前端模型测试确认干净笔记接受外部版本，修改中笔记和外部已删除的脏笔记仍保留原编辑对象并
+  返回 unresolved ID。
+- Windows 原生应用中依次外部创建 `watcher-verification.md`、改名、改正文和删除；UI 分别显示
+  新建/移动（正确前后路径）/修改/删除，状态栏均为 1 项。
+- 原生冲突中心截图检查通过：分类标签、路径、说明和三个处理动作完整显示；测试临时文件删除后
+  Markdown、identity 唯一 ID/路径和 SQLite 状态都恢复为 6。
+- 监听线程使用容量 1 的非阻塞唤醒队列与 300 ms trailing debounce；事件风暴不会无界堆积，
+  业务层不信任或重放原始事件路径。
+
+尚未完成：稳定 Windows 磁盘满/只读目录故障注入、Tauri IPC 自动 E2E、watcher 高频压力/休眠恢复、
 占位/安全移动强杀恢复、长读事务、10,000 文件性能基准、100,000 条索引查询基准和 Android
 文件系统验证。
 

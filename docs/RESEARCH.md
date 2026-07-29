@@ -117,10 +117,29 @@ ID、`user_version`、busy timeout、FULL durability、checkpoint 和长读事�
 - expected revision 对包含 BOM 和原始换行的精确字节做 SHA-256，而不是对 UI 规范化文本做哈希，避免不同落盘表示被误判为同一版本。
 - canonicalize 只是一层边界检查；仍需逐段 `symlink_metadata` 和 portable path 验证。检查与使用之间的 TOCTOU 不能靠单次 canonicalize 消除。
 
+## 文件监控
+
+来源：
+
+- [`notify 8.2.0` 官方文档](https://docs.rs/notify/8.2.0/notify/)
+- [`Watcher` trait](https://docs.rs/notify/8.2.0/notify/trait.Watcher.html)
+- [`notify-debouncer-full` 0.7.0 文档](https://docs.rs/notify-debouncer-full/0.7.0/notify_debouncer_full/)
+
+结论：
+
+- `RecommendedWatcher` 在 Windows 使用平台原生实现，但网络文件系统可能完全不产生事件，大目录/
+  高频变化也可能漏报；产品不能把事件流当作文件系统事实。
+- `Event::need_rescan()` 明确表示事件可能丢失，必须重新读取完整状态。知织对错误、空路径和 rescan
+  统一执行完整快照比较。
+- rename 配对或 file-ID cache 可改善事件层语义，但知织已有隐藏稳定节点 ID；用 snapshot 中 ID/path/
+  revision 比较比依赖平台 rename 事件更可靠，也能统一创建、修改、删除和移动。
+- 当前只传一个无路径唤醒信号给 WebView，容量 1 队列 + 300 ms debounce 防止事件风暴；原始外部路径
+  不进入前端信任边界。
+
 ## 后续研究队列
 
 - Typora 的光标揭示与移动输入边界。
-- Obsidian/Logseq/Joplin 的文件监控与冲突表达。
+- Obsidian/Logseq/Joplin 的大工作区监控、休眠恢复与冲突表达。
 - Anki/FSRS 的调度状态迁移与可追溯历史。
 - JSON Canvas、集合开放格式和跨工具回退。
 - Tree-sitter WASM 的按需加载、缓存和内存基准。

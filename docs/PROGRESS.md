@@ -1,13 +1,13 @@
 # 开发进度
 
-最后更新：2026-07-30 03:30 CST
+最后更新：2026-07-30 03:55 CST
 
 ## 执行拓扑
 
 - 开发、构建、Rust/TypeScript 测试、Tauri 运行和浏览器验收全部在当前 Windows 电脑完成。
 - Linux 上传中转机只承担最终的 GitHub 提交/推送，不运行开发服务或质量门。
 - 当前本地分支：`agent/professional-workbench`；Markdown 文件纵切与首轮 CI 证据已通过 Linux 中转推送到 Draft PR #1。
-- 用户指定的 SOCKS5 下载代理已按要求尝试，但本机和中转机均无法建立 TCP 连接；已有依赖优先使用本机 pnpm store。代理地址本身不写入仓库。
+- 用户指定的 SOCKS5 下载代理已按要求尝试，包括本次 `notify` 下载；本机无法建立 TCP 连接后才单次直连回退。代理地址本身不写入仓库。
 
 ## 已完成
 
@@ -41,31 +41,36 @@
 - 删除 `index.sqlite3` 后从 Markdown + 隐藏身份自动生成派生库；现存损坏库不会静默替换，工作区仍显示正文并标记“索引需重建”。
 - 用户明确重建时先构建并校验新库，再把旧数据库保留到 `.zhiweave/recovery/`；身份清单损坏时创建、保存和重建均在修改正文前失败关闭。
 - 原生状态栏显示索引覆盖篇数/需重建/不可用；原生搜索走 Tauri/Rust/SQLite，不在失败时回退浏览器内存搜索。
+- Windows 原生递归文件监听使用 `notify 8.2.0`；300 ms trailing debounce 和容量 1 的唤醒队列合并事件风暴，`.zhiweave` 自身写入不会产生界面噪声。
+- 原始 watcher 路径、事件类型和重命名配对都不进入业务事实；每次只唤醒 application 完整快照核对，平台报错、空路径和 `Rescan` 标记同样触发核对。
+- application 用稳定 ID + path + revision 结构化区分外部新建、修改、删除和移动；基线最多 10,000 篇，重复 ID/路径失败关闭。
+- 状态栏新增外部更改计数；外部更改中心展示分类、前后路径和“移动时正文也变化”，可安全应用无冲突变化。
+- 未保存编辑绝不自动刷新；冲突笔记继续保留编辑缓冲。用户明确接受磁盘版本时，先把所有脏缓冲分别创建到 `recovery/`，全部成功且恢复期间未继续输入后才重载。
 
 ## 当前质量证据
 
 - `pnpm typecheck`：通过。
-- `pnpm test`：5 files / 22 tests，通过。
+- `pnpm test`：5 files / 23 tests，通过。
 - `pnpm build`：通过，约 779 ms。
 - 交互实验独立 chunk：6.22 KB（gzip 2.57 KB）。
-- 主 CSS：28.99 KB（gzip 6.01 KB）。
-- 主 JavaScript：880.54 KB（gzip 294.82 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
-- Rust workspace 29 项测试通过，其中 storage 15 项、portable path 5 项、Tauri seed/restart/search 1 项；fmt 和全 workspace Clippy `-D warnings` 通过。
-- `pnpm audit --prod --audit-level high`：无已知漏洞；`cargo audit --no-fetch --stale` 扫描 449 个 lockfile 依赖，无已知 vulnerability，17 项既有 allowed warning。
+- 主 CSS：32.57 KB（gzip 6.56 KB）。
+- 主 JavaScript：887.88 KB（gzip 296.91 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
+- Rust workspace 33 项测试通过，其中 application 4 项、Tauri 3 项、storage 15 项、portable path 5 项；fmt 和全 workspace Clippy `-D warnings` 通过。
+- `pnpm audit --prod --audit-level high`：无已知漏洞；`cargo audit --no-fetch --stale` 扫描 466 个 lockfile 依赖，无已知 vulnerability，17 项既有 allowed warning。
 - Windows 原生进程：`知织 · ZhiWeave` 正常运行；固定工作区有 6 个真实 Markdown、identity v1 的 6 个唯一 ID/路径和有效 SQLite 3 数据库。
-- Draft PR #1 已更新到前一稳定切片；本切片完成最终门禁后继续推送。
-- GitHub CI run `30482533535`：Frontend 通过（21 s），Rust 通过（3 min 1 s）。
+- Draft PR #1 已更新到 SQLite/稳定身份稳定切片；watcher 切片完成最终门禁后继续推送。
+- GitHub CI run `30484917004`：Frontend 与 Rust 全部通过。
 - CI 有一项非阻断 annotation：部分 actions 仍声明 Node 20，GitHub runner 已强制 Node 24；列为 workflow 维护项。
 - [Draft PR #1](https://github.com/jacek4yang/zhiweave/pull/1) 已创建。
 - GitHub CI：Frontend 通过（18 s），Rust 通过（3 min 7 s）。
 
 ## 当前任务
 
-1. 完成本 SQLite/稳定身份纵切的最终 workspace 门禁、构建、审计、提交、Linux 中转推送与 Draft PR/CI。
-2. 增加文件 watcher、外部创建/删除/重命名事件和完整冲突中心，消除前端只在保存或刷新时发现变更的盲区。
-3. 把当前直接事件处理器收敛到真正的 command registry，并补键盘菜单语义。
-4. 替换手写 Markdown 阅读器为共享 AST 管线。
-5. 将浏览器会话版本 DAG 迁入 Rust 增量对象存储，加入保留策略与旧版本清理。
+1. 完成 watcher/外部更改中心切片的最终门禁、构建、审计、提交、Linux 中转推送与 Draft PR/CI。
+2. 把当前直接事件处理器收敛到真正的 command registry，并补键盘菜单语义。
+3. 替换手写 Markdown 阅读器为共享 AST 管线。
+4. 将浏览器会话版本 DAG 迁入 Rust 增量对象存储，加入保留策略与旧版本清理。
+5. 补 watcher 高频压力、文件锁、磁盘满、只读目录和强杀恢复夹具。
 
 ## 未解决风险
 
@@ -73,11 +78,11 @@
 - 隐藏 ID 和 SQLite/FTS 已落地，但启动快照仍扫描并读取全部 Markdown，尚未达到 10,000/100,000 篇性能预算。
 - 显式移动采用安全的“新建目标 → 写入/同步/校验 → 再删源”以避免跨平台覆盖；强杀最坏可能留下两份文件，且删源前仍有极窄外部竞态。
 - 外部“改名同时改正文”无法仅凭 revision 自动识别为同一节点；应用内显式重命名可以稳定保持身份。
-- 尚无文件 watcher；外部改动仍要在保存或刷新时发现。
+- watcher 只保证“事件后完整核对”，不保证底层平台一定投递事件；网络文件系统不在当前固定本机工作区支持范围，高频事件压力和进程休眠恢复仍需基准。
 - create 的空占位后若进程强杀可能留下空 Markdown，自动恢复日志未完成。
 - `MarkdownPreview` 仍是临时逐行解析器；仅交互 fence 已有严格边界，通用 Markdown 语义尚未统一。
-- 首屏 JS gzip 超预算 94.82 KB；CodeMirror/图标/工作台需进一步分包和测量。
-- 尚无文件监控、完整备份包/恢复演练或同步加密；本地 SQLite 目前未加密，不得宣称客户端密码保护已完成。
+- 首屏 JS gzip 超预算 96.91 KB；CodeMirror/图标/工作台需进一步分包和测量。
+- 已有本机文件监控和单笔记 recovery，但尚无完整备份包/恢复演练或同步加密；本地 SQLite 目前未加密，不得宣称客户端密码保护已完成。
 - Command registry、命令面板、完整树/属性/反向链接、FSRS 与深度学习 schema 尚未完成。
 - 当前垂直切片已发布到 Draft PR；根目录 `AGENTS.md` 仍是用户未跟踪文件，严禁暂存。
 

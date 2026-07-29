@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   folderForView,
+  mergeExternalSnapshot,
   mergeSavedDocument,
   nativeDocumentToLearningNote,
   nativeSnapshotToWorkspace,
@@ -76,5 +77,75 @@ describe("native workspace model", () => {
     expect(portableSlug("a".repeat(100))).toHaveLength(80);
     expect(folderForView("sources")).toBe("sources");
     expect(folderForView("today")).toBe("daily");
+  });
+
+  it("applies clean external changes while preserving dirty editor buffers", () => {
+    const clean = nativeDocumentToLearningNote(DOCUMENT);
+    const dirty = {
+      ...nativeDocumentToLearningNote({
+        ...DOCUMENT,
+        id: "0189f4c1-a818-8000-8000-000000000002",
+        path: "topics/dirty.md",
+        kind: "topic",
+      }),
+      markdown: "# Unsaved local text\n",
+    };
+    const deletedDirty = {
+      ...nativeDocumentToLearningNote({
+        ...DOCUMENT,
+        id: "0189f4c1-a818-8000-8000-000000000003",
+        path: "topics/deleted.md",
+        kind: "topic",
+      }),
+      markdown: "# Unsaved deleted note\n",
+    };
+    const workspace = {
+      notes: [clean, dirty, deletedDirty],
+      selectedNoteId: dirty.id,
+      completedChecks: {},
+      snapshots: [],
+      versionHeads: {},
+    };
+    const result = mergeExternalSnapshot(
+      workspace,
+      {
+        rootDisplay: "fixed-test-root",
+        documents: [
+          { ...DOCUMENT, markdown: "# External clean\n", revision: "clean-2" },
+          {
+            ...DOCUMENT,
+            id: dirty.id,
+            path: "topics/moved.md",
+            kind: "topic",
+            markdown: "# External dirty\n",
+            revision: "dirty-2",
+          },
+        ],
+        index: {
+          state: "ready",
+          schemaVersion: 1,
+          noteCount: 2,
+          issue: null,
+        },
+      },
+      new Map([
+        [clean.id, clean.markdown],
+        [dirty.id, "# Before dirty edit\n"],
+        [deletedDirty.id, "# Before deleted edit\n"],
+      ]),
+    );
+
+    expect(result.workspace.notes.find((note) => note.id === clean.id)?.markdown)
+      .toBe("# External clean\n");
+    expect(result.workspace.notes.find((note) => note.id === dirty.id)).toBe(
+      dirty,
+    );
+    expect(
+      result.workspace.notes.find((note) => note.id === deletedDirty.id),
+    ).toBe(deletedDirty);
+    expect([...result.unresolvedNoteIds]).toEqual([
+      dirty.id,
+      deletedDirty.id,
+    ]);
   });
 });

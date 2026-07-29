@@ -1,9 +1,13 @@
 //! Application use cases shared by every `ZhiWeave` client.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use zhiweave_domain::{NoteId, NoteKind, PortablePath};
 use zhiweave_protocol::{PROTOCOL_ID, PROTOCOL_VERSION};
+
+const MAX_CHANGE_BASELINE_NOTES: usize = 10_000;
 
 /// Read-only status returned to the cross-platform shell.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -90,6 +94,68 @@ pub struct WorkspaceSnapshot {
     pub documents: Vec<NoteDocument>,
     /// Health and coverage of the rebuildable local search index.
     pub index: IndexStatus,
+}
+
+/// One note state already known by a client before a disk rescan.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnownNoteState {
+    /// Stable note identity, independent of its current path.
+    pub id: NoteId,
+    /// Last path accepted by the client.
+    pub path: PortablePath,
+    /// Last exact on-disk revision accepted by the client.
+    pub revision: FileRevision,
+}
+
+/// Bounded baseline used to classify external filesystem changes.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetectWorkspaceChangesRequest {
+    /// Notes known by the caller. Duplicate identities or paths are rejected.
+    pub notes: Vec<KnownNoteState>,
+}
+
+/// User-facing class of a verified external workspace change.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WorkspaceChangeKind {
+    /// A previously unknown stable identity appeared.
+    Created,
+    /// A known identity kept its path but changed exact bytes.
+    Modified,
+    /// A known identity no longer exists in the current Markdown snapshot.
+    Deleted,
+    /// A known identity moved to a different portable path.
+    Moved,
+}
+
+/// One change verified by comparing a trusted snapshot with a client baseline.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceChange {
+    /// Verified change classification.
+    pub kind: WorkspaceChangeKind,
+    /// Stable identity affected by the change.
+    pub id: NoteId,
+    /// Path previously accepted by the client, when one existed.
+    pub previous_path: Option<PortablePath>,
+    /// Current path in the verified disk snapshot, when one exists.
+    pub current_path: Option<PortablePath>,
+    /// Current display title, when the note still exists.
+    pub current_title: Option<String>,
+    /// Whether exact Markdown bytes changed in addition to any path change.
+    pub content_changed: bool,
+}
+
+/// Verified workspace changes plus the snapshot used to classify them.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceChangesResult {
+    /// Complete current Markdown snapshot.
+    pub snapshot: WorkspaceSnapshot,
+    /// Deterministically ordered changes relative to the supplied baseline.
+    pub changes: Vec<WorkspaceChange>,
 }
 
 /// Read-only health of the derived `SQLite` index.
@@ -300,6 +366,12 @@ pub enum WorkspaceFailure {
         /// Stable validation category.
         kind: String,
     },
+    /// The caller supplied an ambiguous or excessive change baseline.
+    #[error("workspace change baseline is invalid: {kind}")]
+    InvalidChangeBaseline {
+        /// Stable validation category.
+        kind: String,
+    },
     /// A bounded workspace limit was reached.
     #[error("workspace limit exceeded: {limit}")]
     LimitExceeded {
@@ -395,6 +467,24 @@ where
         self.port.snapshot()
     }
 
+    /// Rescans Markdown and classifies changes against a bounded client baseline.
+    ///
+    /// Raw platform watcher events are intentionally not accepted here. They
+    /// are only wake-up hints; this verified snapshot is the source of truth.
+    ///
+    /// # Errors
+    ///
+    /// Rejects duplicate identities, duplicate paths, excessive baselines, and
+    /// propagates the adapter's structured snapshot failure.
+    pub fn detect_changes(
+        &self,
+        request: &DetectWorkspaceChangesRequest,
+    ) -> Result<WorkspaceChangesResult, WorkspaceFailure> {
+        let snapshot = self.port.snapshot()?;
+        let changes = compare_workspace(request, &snapshot)?;
+        Ok(WorkspaceChangesResult { snapshot, changes })
+    }
+
     /// Creates one Markdown source.
     ///
     /// # Errors
@@ -444,6 +534,99 @@ where
     }
 }
 
+fn compare_workspace(
+    request: &DetectWorkspaceChangesRequest,
+    snapshot: &WorkspaceSnapshot,
+) -> Result<Vec<WorkspaceChange>, WorkspaceFailure> {
+    if request.notes.len() > MAX_CHANGE_BASELINE_NOTES {
+        return Err(WorkspaceFailure::InvalidChangeBaseline {
+            kind: "too_many_notes".to_owned(),
+        });
+    }
+
+    let mut known_by_id = BTreeMap::new();
+    let mut known_paths = BTreeSet::new();
+    for note in &request.notes {
+        if known_by_id.insert(note.id, note).is_some() {
+            return Err(WorkspaceFailure::InvalidChangeBaseline {
+                kind: "duplicate_id".to_owned(),
+            });
+        }
+        if !known_paths.insert(note.path.clone()) {
+            return Err(WorkspaceFailure::InvalidChangeBaseline {
+                kind: "duplicate_path".to_owned(),
+            });
+        }
+    }
+
+    let mut current_ids = BTreeSet::new();
+    let mut changes = Vec::new();
+    for document in &snapshot.documents {
+        current_ids.insert(document.id);
+        let Some(known) = known_by_id.get(&document.id) else {
+            changes.push(WorkspaceChange {
+                kind: WorkspaceChangeKind::Created,
+                id: document.id,
+                previous_path: None,
+                current_path: Some(document.path.clone()),
+                current_title: Some(document.title.clone()),
+                content_changed: true,
+            });
+            continue;
+        };
+
+        let moved = known.path != document.path;
+        let content_changed = known.revision != document.revision;
+        if moved {
+            changes.push(WorkspaceChange {
+                kind: WorkspaceChangeKind::Moved,
+                id: document.id,
+                previous_path: Some(known.path.clone()),
+                current_path: Some(document.path.clone()),
+                current_title: Some(document.title.clone()),
+                content_changed,
+            });
+        } else if content_changed {
+            changes.push(WorkspaceChange {
+                kind: WorkspaceChangeKind::Modified,
+                id: document.id,
+                previous_path: Some(known.path.clone()),
+                current_path: Some(document.path.clone()),
+                current_title: Some(document.title.clone()),
+                content_changed: true,
+            });
+        }
+    }
+
+    for known in &request.notes {
+        if !current_ids.contains(&known.id) {
+            changes.push(WorkspaceChange {
+                kind: WorkspaceChangeKind::Deleted,
+                id: known.id,
+                previous_path: Some(known.path.clone()),
+                current_path: None,
+                current_title: None,
+                content_changed: false,
+            });
+        }
+    }
+
+    changes.sort_by(|left, right| {
+        let left_path = left
+            .current_path
+            .as_ref()
+            .or(left.previous_path.as_ref())
+            .map_or("", PortablePath::as_str);
+        let right_path = right
+            .current_path
+            .as_ref()
+            .or(right.previous_path.as_ref())
+            .map_or("", PortablePath::as_str);
+        left_path.cmp(right_path).then(left.id.cmp(&right.id))
+    });
+    Ok(changes)
+}
+
 /// Returns immutable build identity for the local Markdown workspace slice.
 #[must_use]
 pub const fn system_status() -> SystemStatus {
@@ -463,9 +646,9 @@ mod tests {
     use zhiweave_domain::{NoteId, NoteKind, PortablePath};
 
     use super::{
-        CreateNoteRequest, FileRevision, LineEnding, NoteDocument, RenameNoteRequest,
-        SaveNoteRequest, SaveNoteResult, WorkspaceApplication, WorkspaceFailure, WorkspacePort,
-        WorkspaceSnapshot,
+        CreateNoteRequest, DetectWorkspaceChangesRequest, FileRevision, KnownNoteState, LineEnding,
+        NoteDocument, RenameNoteRequest, SaveNoteRequest, SaveNoteResult, WorkspaceApplication,
+        WorkspaceChangeKind, WorkspaceFailure, WorkspacePort, WorkspaceSnapshot,
     };
 
     struct RecordingPort {
@@ -539,6 +722,28 @@ mod tests {
         }
     }
 
+    fn document_with(id: NoteId, path: &str, revision: &str) -> NoteDocument {
+        NoteDocument {
+            id,
+            title: path.to_owned(),
+            path: PortablePath::new_markdown(path).unwrap(),
+            kind: NoteKind::Note,
+            markdown: format!("# {path}\n"),
+            revision: FileRevision::new(revision),
+            line_ending: LineEnding::Lf,
+            has_utf8_bom: false,
+            modified_at_millis: 0,
+        }
+    }
+
+    fn known(document: &NoteDocument) -> KnownNoteState {
+        KnownNoteState {
+            id: document.id,
+            path: document.path.clone(),
+            revision: document.revision.clone(),
+        }
+    }
+
     #[test]
     fn standalone_product_has_no_obsidian_dependency() {
         let status = super::system_status();
@@ -574,6 +779,106 @@ mod tests {
         assert_eq!(
             application.port.calls.into_inner(),
             ["snapshot", "create", "save"]
+        );
+    }
+
+    #[test]
+    fn verified_rescan_classifies_create_modify_delete_and_move_by_stable_identity() {
+        let modified_id = NoteId::from_bytes([1; 16]);
+        let moved_id = NoteId::from_bytes([2; 16]);
+        let deleted_id = NoteId::from_bytes([3; 16]);
+        let created_id = NoteId::from_bytes([4; 16]);
+        let modified_before = document_with(modified_id, "topics/modified.md", "old");
+        let moved_before = document_with(moved_id, "topics/before.md", "same");
+        let deleted_before = document_with(deleted_id, "topics/deleted.md", "old");
+        let snapshot = WorkspaceSnapshot {
+            root_display: "test-workspace".to_owned(),
+            documents: vec![
+                document_with(moved_id, "topics/after.md", "same"),
+                document_with(created_id, "topics/created.md", "new"),
+                document_with(modified_id, "topics/modified.md", "new"),
+            ],
+            index: super::IndexStatus {
+                state: super::IndexState::Ready,
+                schema_version: 1,
+                note_count: 3,
+                issue: None,
+            },
+        };
+        let request = DetectWorkspaceChangesRequest {
+            notes: vec![
+                known(&modified_before),
+                known(&moved_before),
+                known(&deleted_before),
+            ],
+        };
+
+        let changes = super::compare_workspace(&request, &snapshot).unwrap();
+        assert_eq!(changes.len(), 4);
+        assert_eq!(changes[0].kind, WorkspaceChangeKind::Moved);
+        assert_eq!(
+            changes[0].previous_path.as_ref().unwrap().as_str(),
+            "topics/before.md"
+        );
+        assert_eq!(
+            changes[0].current_path.as_ref().unwrap().as_str(),
+            "topics/after.md"
+        );
+        assert!(!changes[0].content_changed);
+        assert_eq!(changes[1].kind, WorkspaceChangeKind::Created);
+        assert_eq!(changes[2].kind, WorkspaceChangeKind::Deleted);
+        assert_eq!(changes[3].kind, WorkspaceChangeKind::Modified);
+    }
+
+    #[test]
+    fn verified_rescan_rejects_ambiguous_client_baselines() {
+        let document = document_with(NoteId::from_bytes([7; 16]), "topics/one.md", "old");
+        let duplicate_id = DetectWorkspaceChangesRequest {
+            notes: vec![known(&document), known(&document)],
+        };
+        let snapshot = WorkspaceSnapshot {
+            root_display: "test-workspace".to_owned(),
+            documents: vec![document.clone()],
+            index: super::IndexStatus {
+                state: super::IndexState::Ready,
+                schema_version: 1,
+                note_count: 1,
+                issue: None,
+            },
+        };
+
+        assert_eq!(
+            super::compare_workspace(&duplicate_id, &snapshot),
+            Err(WorkspaceFailure::InvalidChangeBaseline {
+                kind: "duplicate_id".to_owned(),
+            })
+        );
+
+        let duplicate_path = DetectWorkspaceChangesRequest {
+            notes: vec![
+                known(&document),
+                KnownNoteState {
+                    id: NoteId::from_bytes([8; 16]),
+                    path: document.path.clone(),
+                    revision: document.revision.clone(),
+                },
+            ],
+        };
+        assert_eq!(
+            super::compare_workspace(&duplicate_path, &snapshot),
+            Err(WorkspaceFailure::InvalidChangeBaseline {
+                kind: "duplicate_path".to_owned(),
+            })
+        );
+
+        let too_many = DetectWorkspaceChangesRequest {
+            notes: vec![known(&document); super::MAX_CHANGE_BASELINE_NOTES + 1],
+        };
+        assert_eq!(
+            super::compare_workspace(&too_many, &snapshot),
+            Err(WorkspaceFailure::InvalidChangeBaseline {
+                kind: "too_many_notes".to_owned(),
+            })
         );
     }
 }

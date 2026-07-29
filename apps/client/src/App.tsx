@@ -67,6 +67,7 @@ import { createUuidLabMarkdown } from "./embeddedLabModel";
 import {
   folderForView,
   formatLocalDate,
+  mergeExternalSnapshot,
   mergeSavedDocument,
   nativeDocumentToLearningNote,
   nativeSnapshotToWorkspace,
@@ -80,6 +81,7 @@ import {
 import {
   asWorkspaceFailure,
   createNativeNote,
+  detectNativeWorkspaceChanges,
   loadNativeWorkspace,
   rebuildNativeIndex,
   renameNativeNote,
@@ -87,7 +89,10 @@ import {
   searchNativeNotes,
   type NativeIndexStatus,
   type NativeNoteDocument,
+  type NativeWorkspaceChangeKind,
+  type NativeWorkspaceChangesResult,
 } from "./workspaceClient";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 type EditorMode = "edit" | "preview" | "split";
@@ -197,6 +202,11 @@ export function App() {
   );
   const [saveRetry, setSaveRetry] = useState(0);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [externalChanges, setExternalChanges] =
+    useState<NativeWorkspaceChangesResult | null>(null);
+  const [isExternalChangesOpen, setIsExternalChangesOpen] = useState(false);
+  const [isResolvingExternalChanges, setIsResolvingExternalChanges] =
+    useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<MarkdownEditorHandle>(null);
   const contextTargetRef = useRef<HTMLElement | null>(null);
@@ -205,6 +215,10 @@ export function App() {
   const activeNoteIdRef = useRef<string | null>(activeNoteId);
   const savingNoteIdsRef = useRef(new Set<string>());
   const saveAttemptRef = useRef(0);
+  const workspaceRef = useRef(workspace);
+  const workspaceReadyRef = useRef(false);
+  const checkingExternalChangesRef = useRef(false);
+  const pendingExternalCheckRef = useRef(false);
 
   const selectedNote = workspace.notes.find(
     (note) => note.id === activeNoteId,
@@ -256,6 +270,7 @@ export function App() {
         setClosedNoteIds([]);
         setActiveView(selected?.view ?? "continue");
         setSaveState("saved");
+        workspaceReadyRef.current = true;
         if (snapshot.index.state === "needsRebuild") {
           setToast("Markdown 已打开；全文索引损坏，需要从状态栏明确重建。");
         } else if (snapshot.index.state === "unavailable") {
@@ -272,6 +287,88 @@ export function App() {
       });
     return () => {
       active = false;
+      workspaceReadyRef.current = false;
+    };
+  }, [nativeRuntime]);
+
+  useEffect(() => {
+    if (!nativeRuntime) {
+      return undefined;
+    }
+    let active = true;
+
+    const checkWorkspace = async (): Promise<void> => {
+      if (!workspaceReadyRef.current) {
+        return;
+      }
+      if (checkingExternalChangesRef.current) {
+        pendingExternalCheckRef.current = true;
+        return;
+      }
+      checkingExternalChangesRef.current = true;
+      try {
+        const current = workspaceRef.current;
+        const baseline = current.notes.flatMap((note) =>
+          note.path === undefined || note.revision === undefined
+            ? []
+            : [
+                {
+                  id: note.id,
+                  path: note.path,
+                  revision: note.revision,
+                },
+              ],
+        );
+        const result = await detectNativeWorkspaceChanges(baseline);
+        if (!active) {
+          return;
+        }
+        setNativeIndex(result.snapshot.index);
+        if (result.changes.length === 0) {
+          return;
+        }
+        setExternalChanges(result);
+        const affectedIds = new Set(
+          result.changes.map((change) => change.id),
+        );
+        const activeNote = current.notes.find(
+          (note) => note.id === activeNoteIdRef.current,
+        );
+        const activeHasConflictingEdits =
+          activeNote !== undefined &&
+          affectedIds.has(activeNote.id) &&
+          lastPersistedMarkdownRef.current.get(activeNote.id) !==
+            activeNote.markdown;
+        if (activeHasConflictingEdits) {
+          setSaveState("conflict");
+          setToast(
+            "外部文件与当前编辑内容同时变化；知织已保留编辑缓冲，点击底部“外部更改”处理。",
+          );
+        } else {
+          setToast(
+            `检测到 ${result.changes.length} 项外部文件变化；点击底部状态栏查看。`,
+          );
+        }
+      } catch {
+        if (active) {
+          setToast("外部文件发生变化，但重新核对工作区失败；没有覆盖编辑内容。");
+        }
+      } finally {
+        checkingExternalChangesRef.current = false;
+        if (active && pendingExternalCheckRef.current) {
+          pendingExternalCheckRef.current = false;
+          void checkWorkspace();
+        }
+      }
+    };
+
+    const stopListening = listen<number>(
+      "workspace-files-changed",
+      () => void checkWorkspace(),
+    );
+    return () => {
+      active = false;
+      void stopListening.then((unlisten) => unlisten());
     };
   }, [nativeRuntime]);
 
@@ -315,6 +412,10 @@ export function App() {
   useEffect(() => {
     activeNoteIdRef.current = activeNoteId;
   }, [activeNoteId]);
+
+  useEffect(() => {
+    workspaceRef.current = workspace;
+  }, [workspace]);
 
   useEffect(() => {
     for (const note of workspace.notes) {
@@ -450,17 +551,18 @@ export function App() {
   }, [toast]);
 
   useEffect(() => {
-    if (!isNewNoteOpen) {
+    if (!isNewNoteOpen && !isExternalChangesOpen) {
       return undefined;
     }
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setIsNewNoteOpen(false);
+        setIsExternalChangesOpen(false);
       }
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [isNewNoteOpen]);
+  }, [isExternalChangesOpen, isNewNoteOpen]);
 
   useEffect(() => {
     const compactWindow = window.matchMedia("(max-width: 960px)");
@@ -677,6 +779,10 @@ export function App() {
     if (!nativeRuntime) {
       return;
     }
+    if (saveState === "conflict" && externalChanges !== null) {
+      setIsExternalChangesOpen(true);
+      return;
+    }
     if (saveState === "mixed" && selectedNote !== undefined) {
       const confirmed = window.confirm(
         "这个文件混用了多种换行符。要明确统一为 LF 后再保存吗？",
@@ -760,6 +866,209 @@ export function App() {
     } catch {
       setSaveState("conflict");
       setToast("冲突恢复未完成；编辑器内容仍在当前窗口中，未覆盖源文件。");
+    }
+  }
+
+  async function applyVerifiedExternalChanges() {
+    if (externalChanges === null || isResolvingExternalChanges) {
+      return;
+    }
+    setIsResolvingExternalChanges(true);
+    try {
+      const beforeVerification = workspaceRef.current;
+      const baseline = beforeVerification.notes.flatMap((note) =>
+        note.path === undefined || note.revision === undefined
+          ? []
+          : [
+              {
+                id: note.id,
+                path: note.path,
+                revision: note.revision,
+              },
+            ],
+      );
+      const verified = await detectNativeWorkspaceChanges(baseline);
+      const merged = mergeExternalSnapshot(
+        workspaceRef.current,
+        verified.snapshot,
+        lastPersistedMarkdownRef.current,
+      );
+      const remainingChanges = verified.changes.filter((change) =>
+        merged.unresolvedNoteIds.has(change.id),
+      );
+      lastPersistedMarkdownRef.current = new Map(merged.persistedMarkdown);
+      latestMarkdownRef.current = new Map(
+        merged.workspace.notes.map((note) => [note.id, note.markdown]),
+      );
+      workspaceRef.current = merged.workspace;
+      setWorkspace(merged.workspace);
+      setNativeRoot(verified.snapshot.rootDisplay);
+      setNativeIndex(verified.snapshot.index);
+      const currentActiveId = activeNoteIdRef.current;
+      const nextActiveId =
+        currentActiveId !== null &&
+        merged.workspace.notes.some((note) => note.id === currentActiveId)
+          ? currentActiveId
+          : (merged.workspace.notes[0]?.id ?? null);
+      activeNoteIdRef.current = nextActiveId;
+      setActiveNoteId(nextActiveId);
+      const nextActive = merged.workspace.notes.find(
+        (note) => note.id === nextActiveId,
+      );
+      setActiveView(nextActive?.view ?? "continue");
+      setOpenNoteIds((current) => {
+        const retained = current.filter((id) =>
+          merged.workspace.notes.some((note) => note.id === id),
+        );
+        const selected = merged.workspace.selectedNoteId;
+        return selected.length > 0 && !retained.includes(selected)
+          ? [...retained, selected]
+          : retained;
+      });
+      setClosedNoteIds((current) =>
+        current.filter((id) =>
+          merged.workspace.notes.some((note) => note.id === id),
+        ),
+      );
+
+      if (remainingChanges.length === 0) {
+        setExternalChanges(null);
+        setIsExternalChangesOpen(false);
+        const selected = merged.workspace.notes.find(
+          (note) => note.id === merged.workspace.selectedNoteId,
+        );
+        setSaveState(
+          selected !== undefined &&
+            merged.persistedMarkdown.get(selected.id) !== selected.markdown
+            ? "dirty"
+            : "saved",
+        );
+        setToast("已按最新磁盘事实刷新；没有覆盖任何未保存编辑。");
+        return;
+      }
+
+      setExternalChanges({
+        snapshot: verified.snapshot,
+        changes: remainingChanges,
+      });
+      setSaveState(
+        nextActiveId !== null &&
+          merged.unresolvedNoteIds.has(nextActiveId)
+          ? "conflict"
+          : "dirty",
+      );
+      setToast(
+        `已应用无冲突变化；仍有 ${remainingChanges.length} 项编辑冲突等待处理。`,
+      );
+    } catch {
+      setToast("重新核对磁盘失败；当前编辑和外部更改列表都没有被覆盖。");
+    } finally {
+      setIsResolvingExternalChanges(false);
+    }
+  }
+
+  async function recoverEditsAndAcceptExternalChanges() {
+    if (externalChanges === null || isResolvingExternalChanges) {
+      return;
+    }
+    const capturedWorkspace = workspaceRef.current;
+    const dirtyNotes = capturedWorkspace.notes.filter(
+      (note) =>
+        lastPersistedMarkdownRef.current.get(note.id) !== note.markdown,
+    );
+    if (dirtyNotes.length === 0) {
+      await applyVerifiedExternalChanges();
+      return;
+    }
+    const confirmed = window.confirm(
+      `知织会先把 ${dirtyNotes.length} 篇尚未保存的编辑内容分别写入 recovery/，` +
+        "确认成功后才接受当前磁盘版本。继续吗？",
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setIsResolvingExternalChanges(true);
+    const recoveredIds = new Map<string, string>();
+    let recoveredCount = 0;
+    try {
+      const nonce = Date.now().toString(36);
+      for (const [index, note] of dirtyNotes.entries()) {
+        const recovery = await createNativeNote(
+          `recovery/${portableSlug(note.title)}-external-${nonce}-` +
+            `${index + 1}-${note.id.slice(0, 8)}.md`,
+          note.markdown,
+        );
+        recoveredIds.set(note.id, recovery.id);
+        recoveredCount += 1;
+      }
+
+      const snapshot = await loadNativeWorkspace();
+      const changedDuringRecovery = dirtyNotes.some((captured) => {
+        const latest = workspaceRef.current.notes.find(
+          (note) => note.id === captured.id,
+        );
+        return latest?.markdown !== captured.markdown;
+      });
+      if (changedDuringRecovery) {
+        throw new Error("editor changed during recovery");
+      }
+
+      const diskWorkspace = nativeSnapshotToWorkspace(snapshot);
+      const diskIds = new Set(diskWorkspace.notes.map((note) => note.id));
+      const previousActiveId = activeNoteIdRef.current;
+      const selectedNoteId =
+        previousActiveId !== null && diskIds.has(previousActiveId)
+          ? previousActiveId
+          : previousActiveId === null
+            ? diskWorkspace.selectedNoteId
+            : (recoveredIds.get(previousActiveId) ??
+              diskWorkspace.selectedNoteId);
+      const nextWorkspace: WorkspaceState = {
+        ...capturedWorkspace,
+        notes: diskWorkspace.notes,
+        selectedNoteId,
+      };
+      lastPersistedMarkdownRef.current = new Map(
+        nextWorkspace.notes.map((note) => [note.id, note.markdown]),
+      );
+      latestMarkdownRef.current = new Map(
+        nextWorkspace.notes.map((note) => [note.id, note.markdown]),
+      );
+      workspaceRef.current = nextWorkspace;
+      setWorkspace(nextWorkspace);
+      setNativeRoot(snapshot.rootDisplay);
+      setNativeIndex(snapshot.index);
+      setActiveNoteId(selectedNoteId || null);
+      setOpenNoteIds((current) => {
+        const retained = current.filter((id) => diskIds.has(id));
+        const recoveredOpenIds = current.flatMap((id) => {
+          const recoveryId = recoveredIds.get(id);
+          return recoveryId === undefined ? [] : [recoveryId];
+        });
+        return [...new Set([...retained, ...recoveredOpenIds, selectedNoteId])]
+          .filter((id) => id.length > 0);
+      });
+      setClosedNoteIds((current) => current.filter((id) => diskIds.has(id)));
+      const selected = nextWorkspace.notes.find(
+        (note) => note.id === selectedNoteId,
+      );
+      setActiveView(selected?.view ?? "continue");
+      setExternalChanges(null);
+      setIsExternalChangesOpen(false);
+      setSaveState("saved");
+      setToast(
+        `已接受磁盘版本；${recoveredCount} 篇编辑内容已分别保存在 recovery/。`,
+      );
+    } catch {
+      setSaveState("conflict");
+      setToast(
+        recoveredCount > 0
+          ? `处理未完成；已创建 ${recoveredCount} 份恢复副本，当前编辑缓冲仍未被覆盖。`
+          : "处理未完成；当前编辑缓冲仍在窗口中，没有覆盖磁盘文件。",
+      );
+    } finally {
+      setIsResolvingExternalChanges(false);
     }
   }
 
@@ -1250,6 +1559,17 @@ export function App() {
           : "索引不可用";
   const indexStatusActionable =
     nativeRuntime && nativeIndex?.state !== "ready";
+  const externalChangeCount = externalChanges?.changes.length ?? 0;
+  const externalChangeSummary =
+    externalChanges === null
+      ? ""
+      : externalChanges.changes
+          .map(
+            (change) =>
+              `${workspaceChangeKindLabel(change.kind)}：` +
+              (change.currentPath ?? change.previousPath ?? change.id),
+          )
+          .join("\n");
   const contextNote =
     contextMenu?.noteId === undefined
       ? selectedNote
@@ -1657,6 +1977,17 @@ export function App() {
             <Database />
             {indexStatusLabel}
           </button>
+          {externalChangeCount > 0 && (
+            <button
+              className="status-external"
+              onClick={() => setIsExternalChangesOpen(true)}
+              title={externalChangeSummary}
+              type="button"
+            >
+              <GitFork />
+              外部更改：{externalChangeCount}
+            </button>
+          )}
           <span className="status-version" title="当前版本节点数">
             <GitBranch />
             {selectedNote === undefined
@@ -1758,6 +2089,109 @@ export function App() {
                 </button>
               </footer>
             </form>
+          </section>
+        </div>
+      )}
+
+      {isExternalChangesOpen && externalChanges !== null && (
+        <div className="modal-backdrop">
+          <section
+            aria-labelledby="external-changes-title"
+            aria-modal="true"
+            className="external-changes-modal"
+            role="dialog"
+          >
+            <header>
+              <div>
+                <span className="eyebrow">Windows 文件变化</span>
+                <h2 id="external-changes-title">外部更改中心</h2>
+                <p>
+                  这些结果来自完整磁盘核对，不是未经验证的监听事件。
+                </p>
+              </div>
+              <button
+                aria-label="关闭外部更改中心"
+                disabled={isResolvingExternalChanges}
+                onClick={() => setIsExternalChangesOpen(false)}
+                type="button"
+              >
+                <X />
+              </button>
+            </header>
+            <div className="external-change-list">
+              {externalChanges.changes.map((change) => {
+                const local = workspace.notes.find(
+                  (note) => note.id === change.id,
+                );
+                const hasLocalEdits =
+                  local !== undefined &&
+                  lastPersistedMarkdownRef.current.get(local.id) !==
+                    local.markdown;
+                return (
+                  <article
+                    className={hasLocalEdits ? "has-conflict" : ""}
+                    key={`${change.kind}:${change.id}`}
+                  >
+                    <span className={`change-kind is-${change.kind}`}>
+                      {workspaceChangeKindLabel(change.kind)}
+                    </span>
+                    <div>
+                      <strong>
+                        {change.currentTitle ??
+                          local?.title ??
+                          change.previousPath ??
+                          "未知节点"}
+                      </strong>
+                      <p>
+                        {change.kind === "moved"
+                          ? `${change.previousPath} → ${change.currentPath}`
+                          : (change.currentPath ??
+                            change.previousPath ??
+                            change.id)}
+                      </p>
+                      {change.kind === "moved" &&
+                        change.contentChanged && (
+                          <small>移动时正文也发生了变化</small>
+                        )}
+                    </div>
+                    {hasLocalEdits && <em>保留着未保存编辑</em>}
+                  </article>
+                );
+              })}
+            </div>
+            <footer>
+              <p>
+                “安全应用”会刷新无冲突笔记，并继续保留有冲突的编辑缓冲。
+              </p>
+              <div>
+                <button
+                  disabled={isResolvingExternalChanges}
+                  onClick={() => setIsExternalChangesOpen(false)}
+                  type="button"
+                >
+                  稍后处理
+                </button>
+                <button
+                  disabled={isResolvingExternalChanges}
+                  onClick={() => void applyVerifiedExternalChanges()}
+                  type="button"
+                >
+                  <RotateCcw />
+                  安全应用无冲突更改
+                </button>
+                <button
+                  className="primary"
+                  disabled={isResolvingExternalChanges}
+                  onClick={() => void recoverEditsAndAcceptExternalChanges()}
+                  type="button"
+                >
+                  <Save />
+                  {isResolvingExternalChanges
+                    ? "正在创建恢复副本…"
+                    : "备份编辑并接受磁盘版本"}
+                </button>
+              </div>
+            </footer>
           </section>
         </div>
       )}
@@ -1941,6 +2375,14 @@ export function App() {
               >
                 <Database />
                 复制 Markdown 工作区位置
+              </button>
+              <button
+                disabled={externalChanges === null}
+                onClick={() => setIsExternalChangesOpen(true)}
+                role="menuitem"
+              >
+                <GitFork />
+                查看外部文件更改
               </button>
               <button
                 disabled={!nativeRuntime}
@@ -2502,6 +2944,21 @@ function formatBytes(value: number): string {
     return `${(value / 1_024).toFixed(1)} KB`;
   }
   return `${(value / 1_048_576).toFixed(1)} MB`;
+}
+
+function workspaceChangeKindLabel(
+  kind: NativeWorkspaceChangeKind,
+): string {
+  switch (kind) {
+    case "created":
+      return "新建";
+    case "modified":
+      return "修改";
+    case "deleted":
+      return "删除";
+    case "moved":
+      return "移动";
+  }
 }
 
 function isContextScope(

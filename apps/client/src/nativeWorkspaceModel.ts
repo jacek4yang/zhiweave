@@ -9,6 +9,12 @@ import type {
   NativeWorkspaceSnapshot,
 } from "./workspaceClient";
 
+export interface ExternalWorkspaceMerge {
+  readonly workspace: WorkspaceState;
+  readonly persistedMarkdown: ReadonlyMap<string, string>;
+  readonly unresolvedNoteIds: ReadonlySet<string>;
+}
+
 export function nativeSnapshotToWorkspace(
   snapshot: NativeWorkspaceSnapshot,
 ): WorkspaceState {
@@ -66,6 +72,63 @@ export function mergeSavedDocument(
     lineEnding: document.lineEnding,
     hasUtf8Bom: document.hasUtf8Bom,
     updatedAt: timestampToIso(document.modifiedAtMillis),
+  };
+}
+
+export function mergeExternalSnapshot(
+  current: WorkspaceState,
+  snapshot: NativeWorkspaceSnapshot,
+  persistedMarkdown: ReadonlyMap<string, string>,
+): ExternalWorkspaceMerge {
+  const currentById = new Map(current.notes.map((note) => [note.id, note]));
+  const snapshotIds = new Set(
+    snapshot.documents.map((document) => document.id),
+  );
+  const nextPersisted = new Map(persistedMarkdown);
+  const unresolvedNoteIds = new Set<string>();
+  const notes = snapshot.documents.map((document) => {
+    const local = currentById.get(document.id);
+    const localIsDirty =
+      local !== undefined &&
+      persistedMarkdown.get(local.id) !== local.markdown;
+    const diskChangedSinceAccepted =
+      local !== undefined &&
+      (local.path !== document.path || local.revision !== document.revision);
+    if (localIsDirty) {
+      if (diskChangedSinceAccepted) {
+        unresolvedNoteIds.add(local.id);
+      }
+      return local;
+    }
+    nextPersisted.set(document.id, document.markdown);
+    return nativeDocumentToLearningNote(document);
+  });
+
+  for (const local of current.notes) {
+    if (snapshotIds.has(local.id)) {
+      continue;
+    }
+    if (persistedMarkdown.get(local.id) !== local.markdown) {
+      notes.push(local);
+      unresolvedNoteIds.add(local.id);
+    } else {
+      nextPersisted.delete(local.id);
+    }
+  }
+
+  const selectedNoteId = notes.some(
+    (note) => note.id === current.selectedNoteId,
+  )
+    ? current.selectedNoteId
+    : (notes[0]?.id ?? "");
+  return {
+    workspace: {
+      ...current,
+      notes,
+      selectedNoteId,
+    },
+    persistedMarkdown: nextPersisted,
+    unresolvedNoteIds,
   };
 }
 

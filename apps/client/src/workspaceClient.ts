@@ -31,6 +31,32 @@ export interface NativeWorkspaceSnapshot {
   readonly index: NativeIndexStatus;
 }
 
+export interface NativeKnownNoteState {
+  readonly id: string;
+  readonly path: string;
+  readonly revision: string;
+}
+
+export type NativeWorkspaceChangeKind =
+  | "created"
+  | "modified"
+  | "deleted"
+  | "moved";
+
+export interface NativeWorkspaceChange {
+  readonly kind: NativeWorkspaceChangeKind;
+  readonly id: string;
+  readonly previousPath: string | null;
+  readonly currentPath: string | null;
+  readonly currentTitle: string | null;
+  readonly contentChanged: boolean;
+}
+
+export interface NativeWorkspaceChangesResult {
+  readonly snapshot: NativeWorkspaceSnapshot;
+  readonly changes: readonly NativeWorkspaceChange[];
+}
+
 export type NativeIndexState = "ready" | "needsRebuild" | "unavailable";
 
 export interface NativeIndexStatus {
@@ -74,6 +100,14 @@ export interface NativeWorkspaceFailure {
 
 export function loadNativeWorkspace(): Promise<NativeWorkspaceSnapshot> {
   return invoke<NativeWorkspaceSnapshot>("workspace_snapshot");
+}
+
+export function detectNativeWorkspaceChanges(
+  notes: readonly NativeKnownNoteState[],
+): Promise<NativeWorkspaceChangesResult> {
+  return invoke<NativeWorkspaceChangesResult>("workspace_changes", {
+    request: { notes },
+  });
 }
 
 export function createNativeNote(

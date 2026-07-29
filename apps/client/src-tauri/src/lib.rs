@@ -1,15 +1,91 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    path::{Component, Path},
+    sync::{
+        Arc, Mutex,
+        mpsc::{self, Receiver, RecvTimeoutError},
+    },
+    time::Duration,
+};
 
-use tauri::{Manager, State};
+use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
+use tauri::{Emitter, Manager, State};
 use zhiweave_application::{
-    CreateNoteRequest, NoteDocument, RebuildIndexResult, RenameNoteRequest, SaveNoteRequest,
-    SaveNoteResult, SearchNoteResult, SearchNotesRequest, SystemStatus, WorkspaceApplication,
-    WorkspaceFailure, WorkspaceSnapshot,
+    CreateNoteRequest, DetectWorkspaceChangesRequest, NoteDocument, RebuildIndexResult,
+    RenameNoteRequest, SaveNoteRequest, SaveNoteResult, SearchNoteResult, SearchNotesRequest,
+    SystemStatus, WorkspaceApplication, WorkspaceChangesResult, WorkspaceFailure,
+    WorkspaceSnapshot,
 };
 use zhiweave_domain::PortablePath;
 use zhiweave_storage::FileWorkspace;
 
 type NativeWorkspace = Arc<Mutex<WorkspaceApplication<FileWorkspace>>>;
+
+const WORKSPACE_CHANGED_EVENT: &str = "workspace-files-changed";
+const WATCH_DEBOUNCE: Duration = Duration::from_millis(300);
+
+struct NativeWorkspaceWatcher {
+    _watcher: Mutex<RecommendedWatcher>,
+}
+
+impl NativeWorkspaceWatcher {
+    fn start(root: &Path, app: tauri::AppHandle) -> notify::Result<Self> {
+        let root_for_callback = root.to_path_buf();
+        // Capacity one deliberately coalesces event storms without blocking the
+        // platform watcher callback. A queued wake-up already guarantees a
+        // complete application-level rescan.
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let mut watcher = notify::recommended_watcher(move |event| {
+            if watcher_event_requires_rescan(&root_for_callback, &event) {
+                let _ = sender.try_send(());
+            }
+        })?;
+        watcher.watch(root, RecursiveMode::Recursive)?;
+        std::thread::Builder::new()
+            .name("zhiweave-workspace-watch".to_owned())
+            .spawn(move || emit_debounced_workspace_changes(&receiver, &app))
+            .map_err(notify::Error::io)?;
+        Ok(Self {
+            _watcher: Mutex::new(watcher),
+        })
+    }
+}
+
+fn watcher_event_requires_rescan(root: &Path, event: &notify::Result<Event>) -> bool {
+    let Ok(event) = event else {
+        return true;
+    };
+    event.need_rescan()
+        || event.paths.is_empty()
+        || event
+            .paths
+            .iter()
+            .any(|path| !is_hidden_workspace_metadata(root, path))
+}
+
+fn is_hidden_workspace_metadata(root: &Path, path: &Path) -> bool {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .components()
+        .next()
+        .is_some_and(
+            |component| matches!(component, Component::Normal(name) if name == ".zhiweave"),
+        )
+}
+
+fn emit_debounced_workspace_changes(receiver: &Receiver<()>, app: &tauri::AppHandle) {
+    let mut sequence = 0_u64;
+    while receiver.recv().is_ok() {
+        loop {
+            match receiver.recv_timeout(WATCH_DEBOUNCE) {
+                Ok(()) => {}
+                Err(RecvTimeoutError::Timeout) => break,
+                Err(RecvTimeoutError::Disconnected) => return,
+            }
+        }
+        sequence = sequence.saturating_add(1);
+        let _ = app.emit(WORKSPACE_CHANGED_EVENT, sequence);
+    }
+}
 
 #[tauri::command]
 fn system_status() -> SystemStatus {
@@ -27,6 +103,23 @@ async fn workspace_snapshot(
             .lock()
             .map_err(|_| WorkspaceFailure::Unavailable)?
             .snapshot()
+    })
+    .await
+    .map_err(|_| WorkspaceFailure::Unavailable)?
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri command extractors are ABI values.
+async fn workspace_changes(
+    workspace: State<'_, NativeWorkspace>,
+    request: DetectWorkspaceChangesRequest,
+) -> Result<WorkspaceChangesResult, WorkspaceFailure> {
+    let workspace = Arc::clone(workspace.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        workspace
+            .lock()
+            .map_err(|_| WorkspaceFailure::Unavailable)?
+            .detect_changes(&request)
     })
     .await
     .map_err(|_| WorkspaceFailure::Unavailable)?
@@ -199,14 +292,17 @@ pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             let root = app.path().app_data_dir()?.join("workspace");
-            let application = WorkspaceApplication::new(FileWorkspace::new(root)?);
+            let application = WorkspaceApplication::new(FileWorkspace::new(root.clone())?);
             seed_empty_workspace(&application)?;
+            let watcher = NativeWorkspaceWatcher::start(&root, app.handle().clone())?;
             app.manage(Arc::new(Mutex::new(application)));
+            app.manage(watcher);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             system_status,
             workspace_snapshot,
+            workspace_changes,
             note_create,
             note_save,
             note_rename,
@@ -231,7 +327,14 @@ mod tests {
     };
     use zhiweave_storage::FileWorkspace;
 
-    use super::seed_empty_workspace;
+    use notify::{
+        Error, Event,
+        event::{EventKind, Flag},
+    };
+
+    use super::{
+        is_hidden_workspace_metadata, seed_empty_workspace, watcher_event_requires_rescan,
+    };
 
     struct TestDirectory(PathBuf);
 
@@ -328,5 +431,45 @@ mod tests {
                 .iter()
                 .any(|result| result.id == welcome_id)
         );
+    }
+
+    #[test]
+    fn watcher_ignores_only_application_owned_hidden_metadata() {
+        let root = Path::new(r"C:\workspace");
+        assert!(is_hidden_workspace_metadata(
+            root,
+            Path::new(r"C:\workspace\.zhiweave\index.sqlite3")
+        ));
+        assert!(!is_hidden_workspace_metadata(
+            root,
+            Path::new(r"C:\workspace\topics\ownership.md")
+        ));
+        assert!(!is_hidden_workspace_metadata(
+            root,
+            Path::new(r"C:\workspace\.other\notes.md")
+        ));
+    }
+
+    #[test]
+    fn dropped_or_incomplete_watcher_events_always_request_a_verified_rescan() {
+        let root = Path::new(r"C:\workspace");
+        let hidden_event =
+            Event::new(EventKind::Any).add_path(root.join(r".zhiweave\index.sqlite3"));
+        let source_event = Event::new(EventKind::Any).add_path(root.join(r"topics\ownership.md"));
+        let dropped_event = Event::new(EventKind::Any)
+            .add_path(root.join(r".zhiweave\index.sqlite3"))
+            .set_flag(Flag::Rescan);
+
+        assert!(!watcher_event_requires_rescan(root, &Ok(hidden_event)));
+        assert!(watcher_event_requires_rescan(root, &Ok(source_event)));
+        assert!(watcher_event_requires_rescan(root, &Ok(dropped_event)));
+        assert!(watcher_event_requires_rescan(
+            root,
+            &Err(Error::generic("platform event loss"))
+        ));
+        assert!(watcher_event_requires_rescan(
+            root,
+            &Ok(Event::new(EventKind::Any))
+        ));
     }
 }

@@ -75,7 +75,7 @@ Markdown 使用 `zhiweave-lab` fenced block 携带版本化 JSON。运行时经�
 
 ## ADR-0009：固定工作区、原子替换与内容修订
 
-状态：Accepted（文件层 + 稳定身份/索引）；文件监控仍为后续切片
+状态：Accepted（文件层 + 稳定身份/索引）
 
 Windows Tauri 端只打开应用数据目录下的固定 `workspace`，前端命令不能传入任意根目录。所有用户路径先转为跨平台 `PortablePath`：仅允许相对 Markdown 路径，统一 `/`，拒绝盘符、UNC、空组件、`.`、`..`、NUL、控制字符、Windows 设备名和不可移植字符；文件适配器再逐段拒绝符号链接并校验 canonical root。
 
@@ -105,6 +105,25 @@ Windows Tauri 端只打开应用数据目录下的固定 `workspace`，前端命
 绝不覆盖，失败时优先保留两份。它不是跨平台原子 rename：强杀可能留下重复副本，外部“改名
 同时改正文”无法启发式保留身份，删源前仍有极窄 TOCTOU 窗口。
 
-尚无文件 watcher；后续用 watcher、平台锁研究和冲突中心缩小并显式处理。新建采用
-`create_new` 空文件占位后原子替换，若占位后进程被杀，可能留下可见的空 Markdown 文件，但
-不会覆盖已有正文；恢复扫描和创建日志属于下一步。
+新建采用 `create_new` 空文件占位后原子替换，若占位后进程被杀，可能留下可见的空 Markdown
+文件，但不会覆盖已有正文；恢复扫描和创建日志属于下一步。
+
+## ADR-0010：文件 watcher 只负责唤醒，完整快照比较才是事实
+
+状态：Accepted（Windows 本机工作区 alpha）
+
+使用 `notify 8.2.0` 的 `RecommendedWatcher` 递归监控固定工作区。回调不把事件 kind、路径或
+rename 配对送入业务层，只向容量 1 的队列发送无路径唤醒；300 ms 安静期后向 WebView 发一个
+递增序号。`.zhiweave` 是应用自己的 identity/index/recovery 区，单纯隐藏区写入不唤醒前端；
+平台错误、空路径和 `need_rescan` 必须唤醒。
+
+前端携带上次接受的稳定 ID、path、revision 调用 application `detect_changes`。application
+重新读取受验证的完整 Markdown 快照，再分类 created/modified/deleted/moved；移动时可同时
+标记正文变化。这样平台把 rename 拆成 create/delete、顺序错乱、重复或漏掉中间事件都不会
+直接改变用户状态。
+
+外部更改中心只自动应用干净缓冲。脏缓冲保持原对象与旧 revision，直到用户明确选择；接受磁盘
+版本前先把所有未保存编辑逐篇创建到 `recovery/`，任何创建失败或恢复期间继续输入都会中止重载。
+
+代价：每次有效事件都会完整扫描正文，尚未达到 10,000 篇目标；底层平台完全不发事件且不发
+rescan 时只能在后续事件或重启发现。网络文件系统不在当前固定本机工作区支持范围。
