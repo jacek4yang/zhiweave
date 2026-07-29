@@ -97,6 +97,21 @@
 
 只读检查服务器 `~/.config/nvim` 后确认其使用 TokyoNight Moon 与按语法角色分配颜色的逻辑。知织采用“背景/正文/弱化/标题/关键字/字符串/数字/注释/错误”等角色映射，并重新实现 CSS token 与 CodeMirror HighlightStyle；没有复制插件源代码、品牌或配置文件。
 
+## 原子文件与内容修订
+
+来源：
+
+- [`atomic-write-file` 0.3.0 文档](https://docs.rs/atomic-write-file/0.3.0/atomic_write_file/)
+- [RustCrypto `sha2` 0.10.9 文档](https://docs.rs/sha2/0.10.9/sha2/)
+- [Rust `std::fs::canonicalize`](https://doc.rust-lang.org/std/fs/fn.canonicalize.html)
+
+结论：
+
+- 原子覆盖必须让临时文件与目标位于同一目录，完成写入和同步后再 commit；未 commit 的 writer 被销毁时旧目标保持可读。
+- `atomic-write-file` 同时实现 Windows 与 Unix 替换语义，但不提供“目标从未存在”的通用 `create_new` 原子承诺；知织的新建先用系统 `create_new` 预留空目标，再以已准备好的临时文件替换，并把强杀留下空占位记录为待恢复风险。
+- expected revision 对包含 BOM 和原始换行的精确字节做 SHA-256，而不是对 UI 规范化文本做哈希，避免不同落盘表示被误判为同一版本。
+- canonicalize 只是一层边界检查；仍需逐段 `symlink_metadata` 和 portable path 验证。检查与使用之间的 TOCTOU 不能靠单次 canonicalize 消除。
+
 ## 后续研究队列
 
 - Typora 的光标揭示与移动输入边界。

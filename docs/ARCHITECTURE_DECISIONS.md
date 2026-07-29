@@ -53,3 +53,31 @@ React/TypeScript 负责 UI、输入、编辑器和浏览器测试；Rust 负责�
 Markdown 使用 `zhiweave-lab` fenced block 携带版本化 JSON。运行时经过大小上限、schema、kind、字段白名单和值域校验后，只能进入知织内置的受信任 React 组件。拒绝通用 JavaScript、动态模块、远程插件和隐式能力。
 
 理由：学习实验需要交互和动画，但 Markdown 必须继续可移植、可审计、可增量版本化。声明式定义能在普通阅读器中自然降级，也让未知版本、恶意输入和 AI 输出统一经过零信任验证。
+
+## ADR-0009：固定工作区、原子替换与内容修订
+
+状态：Accepted（文件层）；SQLite 索引、文件监控和重命名身份仍为后续切片
+
+Windows Tauri 端只打开应用数据目录下的固定 `workspace`，前端命令不能传入任意根目录。所有用户路径先转为跨平台 `PortablePath`：仅允许相对 Markdown 路径，统一 `/`，拒绝盘符、UNC、空组件、`.`、`..`、NUL、控制字符、Windows 设备名和不可移植字符；文件适配器再逐段拒绝符号链接并校验 canonical root。
+
+读取时：
+
+- 原始字节不得超过 16 MiB，工作区快照最多 10,000 篇、12 层目录；
+- 只接受严格 UTF-8；
+- 记录 UTF-8 BOM 和 LF/CRLF/CR/Mixed；
+- 编辑器内统一为 LF，但保存时恢复原来的单一换行风格与 BOM；
+- Mixed 必须由用户明确选择规范化，不能静默改写。
+
+保存时：
+
+- 对精确原始字节计算 SHA-256 修订；
+- UI 必须提交上次读取的 expected revision；
+- 写入同目录临时文件并同步，再次读取源文件校验修订，最后原子替换并回读验证；
+- 外部修改返回结构化 `conflict`，绝不自动 last-write-wins；
+- UI 保留编辑器缓冲；用户选择恢复时先另存 `recovery/`，再载入外部版本。
+
+浏览器预览仍使用独立 `localStorage` 演示状态，并在界面明确标注，不会作为 Tauri 命令失败时的回退。
+
+文件扫描、创建和保存通过 Tauri blocking worker 执行；不在 WebView/IPC 响应线程同步遍历磁盘。单一 workspace mutex 先保证同一进程内写入串行，后续基准证明需要时再引入更细粒度并发。
+
+已知边界：当前笔记 ID 暂由 portable path 派生，重命名身份保持要等可重建 SQLite manifest；尚无文件 watcher。通用文件系统无法提供跨外部编辑器的无窗口 compare-and-swap，最后一次修订检查与 rename 之间仍有极窄 TOCTOU 窗口；后续用 watcher、平台锁研究和冲突中心缩小并显式处理。新建采用 `create_new` 空文件占位后原子替换，若占位后进程被杀，可能留下可见的空 Markdown 文件，但不会覆盖已有正文；恢复扫描和创建日志属于下一步。

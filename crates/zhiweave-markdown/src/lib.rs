@@ -19,6 +19,65 @@ pub enum ImportError {
     UnterminatedFrontmatter,
 }
 
+/// Returns the first visible ATX level-one heading without rewriting Markdown.
+///
+/// YAML frontmatter and fenced code blocks are ignored. The returned text is
+/// trimmed and excludes optional closing `#` markers.
+#[must_use]
+pub fn first_level_one_heading(markdown: &str) -> Option<String> {
+    let normalized = markdown.replace("\r\n", "\n").replace('\r', "\n");
+    let mut lines = normalized.lines().peekable();
+    let mut in_frontmatter = matches!(lines.peek(), Some(&"---"));
+    if in_frontmatter {
+        lines.next();
+    }
+    let mut in_fence: Option<char> = None;
+
+    for line in lines {
+        if in_frontmatter {
+            if line == "---" {
+                in_frontmatter = false;
+            }
+            continue;
+        }
+
+        let trimmed = line.trim_start_matches(' ');
+        let indentation = line.len().saturating_sub(trimmed.len());
+        if indentation <= 3 {
+            let fence_character = trimmed.chars().next();
+            if matches!(fence_character, Some('`' | '~'))
+                && trimmed
+                    .chars()
+                    .take_while(|character| Some(*character) == fence_character)
+                    .count()
+                    >= 3
+            {
+                match in_fence {
+                    Some(open) if Some(open) == fence_character => in_fence = None,
+                    None => in_fence = fence_character,
+                    _ => {}
+                }
+                continue;
+            }
+        }
+        if in_fence.is_some() {
+            continue;
+        }
+        if indentation > 3 {
+            continue;
+        }
+
+        let Some(heading) = trimmed.strip_prefix("# ") else {
+            continue;
+        };
+        let heading = heading.trim().trim_end_matches('#').trim_end().to_owned();
+        if !heading.is_empty() {
+            return Some(heading);
+        }
+    }
+    None
+}
+
 /// Removes only top-level Learning Loop internal YAML keys.
 ///
 /// Ordinary user properties and the Markdown body remain byte-for-byte stable
@@ -64,7 +123,7 @@ pub fn remove_learning_loop_properties(markdown: &str) -> Result<ImportedMarkdow
 
 #[cfg(test)]
 mod tests {
-    use super::{ImportError, remove_learning_loop_properties};
+    use super::{ImportError, first_level_one_heading, remove_learning_loop_properties};
 
     #[test]
     fn old_internal_properties_are_hidden_but_user_properties_survive() {
@@ -91,5 +150,30 @@ mod tests {
             remove_learning_loop_properties("---\nll_id: 123\n").unwrap_err(),
             ImportError::UnterminatedFrontmatter
         );
+    }
+
+    #[test]
+    fn title_comes_from_first_visible_level_one_heading() {
+        let markdown = concat!(
+            "---\n",
+            "title: metadata is not the visible title\n",
+            "---\n",
+            "```markdown\n",
+            "# Example only\n",
+            "```\n",
+            "  # Ownership and borrowing ##\n",
+        );
+
+        assert_eq!(
+            first_level_one_heading(markdown).as_deref(),
+            Some("Ownership and borrowing")
+        );
+    }
+
+    #[test]
+    fn title_is_absent_for_deeper_headings_and_empty_text() {
+        assert_eq!(first_level_one_heading("## Detail\n"), None);
+        assert_eq!(first_level_one_heading("# \n"), None);
+        assert_eq!(first_level_one_heading("    # code, not a heading\n"), None);
     }
 }

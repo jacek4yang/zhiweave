@@ -16,6 +16,8 @@ tauri-build.workspace = true
 [dependencies]
 tauri.workspace = true
 zhiweave-application = { path = "../../../crates/zhiweave-application" }
+zhiweave-domain = { path = "../../../crates/zhiweave-domain" }
+zhiweave-storage = { path = "../../../crates/zhiweave-storage" }
 
 [lints]
 workspace = true

@@ -224,4 +224,32 @@ describe("workspace model", () => {
     ).toBe("新的节点名称");
     expect(titleFromMarkdown("## 只有二级标题", "保留名称")).toBe("保留名称");
   });
+
+  it("repairs stale display names from the Markdown H1 when loading", () => {
+    const workspace = createInitialWorkspace();
+    const stale = {
+      ...workspace,
+      notes: workspace.notes.map((note, index) =>
+        index === 0
+          ? {
+              ...note,
+              title: "旧的缓存名称",
+              markdown: "# Markdown 才是真实名称\n",
+            }
+          : note,
+      ),
+    };
+
+    expect(parseWorkspace(JSON.stringify(stale)).notes[0]?.title).toBe(
+      "Markdown 才是真实名称",
+    );
+  });
+
+  it("keeps every seed node display name aligned with its Markdown H1", () => {
+    for (const note of createInitialWorkspace().notes) {
+      expect(note.title).toBe(
+        titleFromMarkdown(note.markdown, note.title),
+      );
+    }
+  });
 });

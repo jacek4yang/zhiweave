@@ -13,6 +13,10 @@ export interface LearningNote {
   readonly view: Exclude<ViewKey, "versions">;
   readonly kind?: "journal" | "learning_node" | "note";
   readonly journalDate?: string;
+  readonly path?: string;
+  readonly revision?: string;
+  readonly lineEnding?: "none" | "lf" | "crlf" | "cr" | "mixed";
+  readonly hasUtf8Bom?: boolean;
   readonly markdown: string;
   readonly updatedAt: string;
 }
@@ -79,7 +83,7 @@ export const VIEW_COPY: Readonly<
 const INITIAL_NOTES: readonly LearningNote[] = [
   {
     id: "welcome",
-    title: "独立跨平台架构",
+    title: "欢迎来到知织",
     view: "continue",
     updatedAt: "2026-07-29T14:00:00.000Z",
     markdown: `# 欢迎来到知织
@@ -117,7 +121,7 @@ const INITIAL_NOTES: readonly LearningNote[] = [
   },
   {
     id: "english-learning",
-    title: "技术英语：ownership",
+    title: "ownership",
     view: "topics",
     updatedAt: "2026-07-29T14:02:00.000Z",
     markdown: `# ownership
@@ -134,7 +138,7 @@ Ownership describes who is responsible for a value and when that value is releas
   },
   {
     id: "paper-reading",
-    title: "论文阅读：先判断证据",
+    title: "论文阅读",
     view: "sources",
     updatedAt: "2026-07-29T14:03:00.000Z",
     markdown: `# 论文阅读
@@ -153,7 +157,7 @@ Ownership describes who is responsible for a value and when that value is releas
   },
   {
     id: "programming-experiment",
-    title: "编程实验：同步健康检查",
+    title: "同步健康检查",
     view: "experiments",
     updatedAt: "2026-07-29T14:04:00.000Z",
     markdown: `# 同步健康检查
@@ -175,7 +179,7 @@ Ownership describes who is responsible for a value and when that value is releas
   },
   {
     id: "review-card",
-    title: "主动回忆：为什么离线优先",
+    title: "为什么离线优先？",
     view: "review",
     updatedAt: "2026-07-29T14:05:00.000Z",
     markdown: `# 为什么离线优先？
@@ -200,7 +204,10 @@ const INITIAL_CHECKS: Readonly<Record<string, boolean>> = {
 
 export function createInitialWorkspace(): WorkspaceState {
   return {
-    notes: INITIAL_NOTES.map((note) => ({ ...note })),
+    notes: INITIAL_NOTES.map((note) => ({
+      ...note,
+      title: titleFromMarkdown(note.markdown, note.title),
+    })),
     selectedNoteId: "welcome",
     completedChecks: { ...INITIAL_CHECKS },
     snapshots: [],
@@ -219,7 +226,13 @@ export function parseWorkspace(raw: string | null): WorkspaceState {
     if (normalized === undefined) {
       return createInitialWorkspace();
     }
-    return normalized;
+    return {
+      ...normalized,
+      notes: normalized.notes.map((note) => ({
+        ...note,
+        title: titleFromMarkdown(note.markdown, note.title),
+      })),
+    };
   } catch {
     return createInitialWorkspace();
   }
@@ -742,6 +755,17 @@ function isLearningNote(value: unknown): value is LearningNote {
     typeof candidate.title === "string" &&
     typeof candidate.markdown === "string" &&
     typeof candidate.updatedAt === "string" &&
+    (candidate.path === undefined || typeof candidate.path === "string") &&
+    (candidate.revision === undefined ||
+      typeof candidate.revision === "string") &&
+    (candidate.lineEnding === undefined ||
+      candidate.lineEnding === "none" ||
+      candidate.lineEnding === "lf" ||
+      candidate.lineEnding === "crlf" ||
+      candidate.lineEnding === "cr" ||
+      candidate.lineEnding === "mixed") &&
+    (candidate.hasUtf8Bom === undefined ||
+      typeof candidate.hasUtf8Bom === "boolean") &&
     (candidate.kind === undefined ||
       candidate.kind === "journal" ||
       candidate.kind === "learning_node" ||

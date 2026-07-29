@@ -18,13 +18,29 @@
 - `pnpm install --frozen-lockfile`：通过，142 个 lockfile 条目通过供应链策略。
 - `pnpm typecheck`：通过。
 - `pnpm lint`：通过（当前等同 TypeScript noEmit，需加入真实 ESLint）。
-- `pnpm test`：通过，3 files / 15 tests；包含版本增量/分支删除/旧数据迁移/日记/H1 命名与交互实验 schema/UUID 位解析。
+- `pnpm test`：通过，5 files / 22 tests；包含版本增量/分支删除/旧数据迁移/日记/H1 命名、种子一致性与旧显示名修复、交互实验 schema/UUID 位解析，以及 native DTO、结构化错误与并发保存状态合并。
 - `pnpm build`：通过，主 chunk 有 >500 KB 警告。
 - `pnpm audit --prod --audit-level high`：无已知漏洞。
 - 浏览器：搜索、阅读/编辑、分栏、标签、刷新恢复、复制保真、上下文菜单分流、输入粘贴、编辑撤销、UUID 生成/校验/提示词通过。
 - 视口：1280×720、1366×768、1440×900、1920×1080、2560×1440、320×720、390×844、412×915、915×412 均无水平溢出。
 - Rust 1.95.0 基线 fmt、Clippy 与 workspace tests 已在 Windows 通过；合并前必须对最终差异重跑。
-- `cargo-audit`：环境未安装，尚未运行。
+- `cargo audit --no-fetch --stale`：2026-07-28 advisory DB 扫描 444 个 lockfile 依赖，无已知 vulnerability；有 17 个 allowed warning。GTK3/glib 项来自非 Windows 的 Tauri target 依赖（当前 Windows `cargo tree -i glib/atk` 不在目标图），其中 `glib` 有一项 unsound advisory；`urlpattern` 链含 6 个 unmaintained `unic-*`，另有 `proc-macro-error` warning。发布前必须在各目标平台更新 Tauri/传递依赖并以 `-D warnings` 重新评估，不能忽略。
+
+## Markdown 文件纵切证据
+
+- Rust：21 项 workspace 测试通过，其中 storage 7 项、portable path 5 项、Tauri seed/restart 1 项。
+- 原子保存：真实临时目录创建、修改、无变化保存、回读修订与 H1 标题通过。
+- 字节往返：UTF-8 BOM + CRLF 编辑后精确保留；Mixed 保存失败并要求明确规范化。
+- 冲突：读取后由外部进程改写，保存返回结构化 conflict，外部正文逐字节保留。
+- 覆盖保护：重复 create 返回 AlreadyExists；普通文件占据父目录时失败且不生成子文件。
+- 只读：源文件 readonly 时保存返回 permissionDenied，原文保持不变。
+- 中断：`AtomicWriteFile` 写入临时文件后不 commit 即销毁，旧 Markdown 保持可读。
+- 输入边界：绝对路径、UNC、`..`、Windows 设备名、非法字符、无效 UTF-8、16 MiB 超限被拒绝；反序列化不能绕过路径校验。
+- Windows Tauri：开发进程完成重编译并在固定应用数据工作区生成 6 个种子 Markdown，证明 setup → application service → storage adapter 链路可运行。
+- Tauri seed/restart：首次生成 6 篇；用户修改 welcome 后再次初始化不会覆盖正文。
+- 浏览器：桌面重新载入后无新增 console error/warning；状态栏上下文菜单按环境分流；390×844 与 320×720 无页面水平溢出。
+
+尚未完成：稳定 Windows 磁盘满/只读目录故障注入、Tauri IPC 自动 E2E、文件 watcher 竞态、占位后强杀恢复、10,000 文件性能基准、Android 文件系统验证。
 
 ## 故障注入矩阵
 

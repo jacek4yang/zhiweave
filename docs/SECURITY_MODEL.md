@@ -28,9 +28,22 @@
 - Prompt 外泄：默认最小上下文，复制前预览范围与敏感信息提示，不自动上传。
 - Markdown 交互实验：只接受 `zhiweave/lab@1` 声明式 JSON、16 KB 上限、严格字段白名单和内置组件；无 eval、脚本、网络、文件或密钥能力，失败时显示原始 fence。
 
-## 当前基线风险
+## 当前文件安全基线
 
-当前仍没有文件、加密或同步实现；capability 只含 `core:default`，Tauri 只暴露只读 `system_status`。浏览器正文全量保存在 `localStorage`，不适合真实个人数据；页面刷新可恢复，但没有磁盘原子性、权限错误、备份或冲突保护。交互实验的零能力边界已落地，但通用 Markdown HTML/SVG 清洗管线尚未实现。
+- Tauri 只暴露 `system_status`、工作区快照、创建笔记和冲突安全保存；根目录固定，命令没有任意路径、shell、网络或数据库能力。
+- `PortablePath` 在 Rust 反序列化入口再次验证，不能由前端绕过；文件遍历逐段拒绝符号链接并校验 canonical root。
+- 正文使用同目录原子替换，精确字节 SHA-256 expected revision 阻止常规外部修改覆盖；成功后回读校验。
+- 浏览器 `localStorage` 只保留明确标识的 UI 预览数据。原生端启动后从 Markdown 文件加载正文，不把正文写入 WebView `localStorage`。
+- 冲突不覆盖，编辑器内容先恢复为独立 Markdown 文件后才重新载入外部版本。
+
+## 当前剩余风险
+
+- 还没有 SQLite 可重建索引、文件 watcher、备份包、工作区迁移、重命名身份保持、加密或同步。
+- 最后一次修订检查与原子 rename 之间存在文件系统级极窄竞态；尚未完成平台锁和 watcher 的组合验证。
+- 新建文件在空占位后被强制终止可能留下空 Markdown；不会覆盖旧正文，但还没有自动恢复任务。
+- 磁盘满与目录只读已有结构化错误设计，仍需可重复的 Windows 故障注入夹具。
+- 交互实验的零能力边界已落地，但通用 Markdown HTML/SVG 清洗管线尚未实现。
+- Cargo advisory 扫描无已知 vulnerability，但仍有 17 个传递依赖维护/unsound warning；Windows 当前目标图不包含 GTK3/glib，`unic-*` 来自 Tauri 的 `urlpattern` 链。跨平台发布前必须升级或完成逐项风险接受，不能把 exit code 0 表述成零供应链风险。
 
 ## 验证
 

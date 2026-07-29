@@ -64,10 +64,38 @@ import {
 } from "./MarkdownEditor";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { createUuidLabMarkdown } from "./embeddedLabModel";
-import { loadSystemStatus, type SystemStatus } from "./system";
+import {
+  folderForView,
+  formatLocalDate,
+  mergeSavedDocument,
+  nativeDocumentToLearningNote,
+  nativeSnapshotToWorkspace,
+  portableSlug,
+} from "./nativeWorkspaceModel";
+import {
+  isNativeRuntime,
+  loadSystemStatus,
+  type SystemStatus,
+} from "./system";
+import {
+  asWorkspaceFailure,
+  createNativeNote,
+  loadNativeWorkspace,
+  saveNativeNote,
+  type NativeNoteDocument,
+} from "./workspaceClient";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 type EditorMode = "edit" | "preview" | "split";
+type SaveState =
+  | "preview"
+  | "loading"
+  | "saved"
+  | "dirty"
+  | "saving"
+  | "conflict"
+  | "error"
+  | "mixed";
 
 interface ContextMenuState {
   readonly x: number;
@@ -119,8 +147,11 @@ const NOTE_VIEWS = [...PRIMARY_NAVIGATION, ...SECONDARY_NAVIGATION]
   .map((item) => item.key);
 
 export function App() {
+  const nativeRuntime = isNativeRuntime();
   const [workspace, setWorkspace] = useState<WorkspaceState>(() =>
-    parseWorkspace(readStoredWorkspace()),
+    nativeRuntime
+      ? createInitialWorkspace()
+      : parseWorkspace(readStoredWorkspace()),
   );
   const [activeView, setActiveView] = useState<ViewKey>(
     () =>
@@ -147,10 +178,20 @@ export function App() {
   const [query, setQuery] = useState("");
   const [toast, setToast] = useState("");
   const [status, setStatus] = useState<SystemStatus>();
+  const [nativeRoot, setNativeRoot] = useState("");
+  const [saveState, setSaveState] = useState<SaveState>(
+    nativeRuntime ? "loading" : "preview",
+  );
+  const [saveRetry, setSaveRetry] = useState(0);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<MarkdownEditorHandle>(null);
   const contextTargetRef = useRef<HTMLElement | null>(null);
+  const lastPersistedMarkdownRef = useRef(new Map<string, string>());
+  const latestMarkdownRef = useRef(new Map<string, string>());
+  const activeNoteIdRef = useRef<string | null>(activeNoteId);
+  const savingNoteIdsRef = useRef(new Set<string>());
+  const saveAttemptRef = useRef(0);
 
   const selectedNote = workspace.notes.find(
     (note) => note.id === activeNoteId,
@@ -169,12 +210,164 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (!nativeRuntime) {
+      return undefined;
+    }
+    let active = true;
+    setSaveState("loading");
+    void loadNativeWorkspace()
+      .then((snapshot) => {
+        if (!active) {
+          return;
+        }
+        const next = nativeSnapshotToWorkspace(snapshot);
+        const selected = next.notes.find(
+          (note) => note.id === next.selectedNoteId,
+        );
+        lastPersistedMarkdownRef.current = new Map(
+          next.notes.map((note) => [note.id, note.markdown]),
+        );
+        latestMarkdownRef.current = new Map(
+          next.notes.map((note) => [note.id, note.markdown]),
+        );
+        setWorkspace(next);
+        setNativeRoot(snapshot.rootDisplay);
+        setActiveNoteId(selected?.id ?? null);
+        setOpenNoteIds(selected === undefined ? [] : [selected.id]);
+        setClosedNoteIds([]);
+        setActiveView(selected?.view ?? "continue");
+        setSaveState("saved");
+      })
+      .catch(() => {
+        if (active) {
+          setSaveState("error");
+          setToast(
+            "无法打开本地 Markdown 工作区；没有用演示数据替代真实文件。",
+          );
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [nativeRuntime]);
+
+  useEffect(() => {
+    activeNoteIdRef.current = activeNoteId;
+  }, [activeNoteId]);
+
+  useEffect(() => {
+    for (const note of workspace.notes) {
+      latestMarkdownRef.current.set(note.id, note.markdown);
+    }
+  }, [workspace.notes]);
+
+  useEffect(() => {
+    if (nativeRuntime) {
+      return;
+    }
     try {
       localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(workspace));
     } catch {
       setToast("本机存储不可用，本次修改可能无法保留。");
     }
-  }, [workspace]);
+  }, [nativeRuntime, workspace]);
+
+  useEffect(() => {
+    if (
+      !nativeRuntime ||
+      selectedNote?.path === undefined ||
+      selectedNote.revision === undefined ||
+      selectedNote.lineEnding === undefined
+    ) {
+      return undefined;
+    }
+    if (
+      lastPersistedMarkdownRef.current.get(selectedNote.id) ===
+      selectedNote.markdown
+    ) {
+      setSaveState("saved");
+      return undefined;
+    }
+    if (selectedNote.lineEnding === "mixed") {
+      setSaveState("mixed");
+      return undefined;
+    }
+
+    setSaveState("dirty");
+    const timer = window.setTimeout(() => {
+      const captured = selectedNote;
+      if (savingNoteIdsRef.current.has(captured.id)) {
+        setSaveState("dirty");
+        return;
+      }
+      savingNoteIdsRef.current.add(captured.id);
+      const attempt = ++saveAttemptRef.current;
+      setSaveState("saving");
+      void saveNativeNote({
+        path: captured.path!,
+        markdown: captured.markdown,
+        revision: captured.revision!,
+        lineEnding: captured.lineEnding!,
+        hasUtf8Bom: captured.hasUtf8Bom ?? false,
+      })
+        .then(({ document }) => {
+          lastPersistedMarkdownRef.current.set(
+            captured.id,
+            captured.markdown,
+          );
+          setWorkspace((current) => ({
+            ...current,
+            notes: current.notes.map((note) =>
+              note.id === captured.id
+                ? mergeSavedDocument(note, captured.markdown, document)
+                : note,
+            ),
+          }));
+          if (
+            saveAttemptRef.current === attempt &&
+            activeNoteIdRef.current === captured.id
+          ) {
+            const latest = latestMarkdownRef.current.get(captured.id);
+            setSaveState(
+              latest === captured.markdown ? "saved" : "dirty",
+            );
+          }
+        })
+        .catch((error: unknown) => {
+          if (
+            saveAttemptRef.current !== attempt ||
+            activeNoteIdRef.current !== captured.id
+          ) {
+            return;
+          }
+          const failure = asWorkspaceFailure(error);
+          if (failure?.code === "conflict") {
+            setSaveState("conflict");
+            setToast(
+              "源文件已在外部修改，知织没有覆盖它；可从底部状态栏安全恢复。",
+            );
+          } else if (failure?.code === "mixedLineEndings") {
+            setSaveState("mixed");
+          } else {
+            setSaveState("error");
+            setToast("Markdown 保存失败，编辑内容仍保留在当前窗口。");
+          }
+        })
+        .finally(() => {
+          savingNoteIdsRef.current.delete(captured.id);
+        });
+    }, 550);
+    return () => window.clearTimeout(timer);
+  }, [
+    nativeRuntime,
+    saveRetry,
+    selectedNote?.hasUtf8Bom,
+    selectedNote?.id,
+    selectedNote?.lineEnding,
+    selectedNote?.markdown,
+    selectedNote?.path,
+    selectedNote?.revision,
+  ]);
 
   useEffect(() => {
     if (toast.length === 0) {
@@ -243,6 +436,10 @@ export function App() {
     if (selectedNote === undefined) {
       return;
     }
+    latestMarkdownRef.current.set(selectedNote.id, markdown);
+    if (nativeRuntime) {
+      setSaveState("dirty");
+    }
     const updatedAt = new Date().toISOString();
     setWorkspace((current) => ({
       ...current,
@@ -265,7 +462,32 @@ export function App() {
     setIsNewNoteOpen(true);
   }
 
-  function openTodayJournal() {
+  async function openTodayJournal() {
+    if (nativeRuntime) {
+      const journalDate = formatLocalDate(new Date());
+      const path = `daily/${journalDate}.md`;
+      const existing = workspace.notes.find((note) => note.path === path);
+      if (existing !== undefined) {
+        activateNote(existing);
+        setQuery("");
+        setToast(`已打开 ${existing.title}。`);
+        return;
+      }
+      const draft = openOrCreateDailyJournal(workspace).note;
+      try {
+        const document = await createNativeNote(path, draft.markdown);
+        addCreatedNativeDocument(document);
+        setToast(`已创建 ${document.title} 的 Markdown 源文件。`);
+      } catch (error: unknown) {
+        const failure = asWorkspaceFailure(error);
+        setToast(
+          failure?.code === "alreadyExists"
+            ? "今日日记已由另一个窗口创建，请重新载入工作区。"
+            : "无法创建今日日记；现有内容没有被覆盖。",
+        );
+      }
+      return;
+    }
     const result = openOrCreateDailyJournal(workspace);
     setWorkspace(result.workspace);
     activateNote(result.note);
@@ -273,8 +495,24 @@ export function App() {
     setToast(`已打开 ${result.note.title}。`);
   }
 
-  function createUuidLab() {
+  async function createUuidLab() {
     const title = "UUID 结构实验室";
+    if (nativeRuntime) {
+      try {
+        const document = await createNativeNote(
+          `experiments/uuid-lab-${Date.now().toString(36)}.md`,
+          createUuidLabMarkdown(title),
+        );
+        addCreatedNativeDocument(document);
+        setEditorMode("split");
+        setToast(
+          "UUID 交互实验已写入 Markdown；左侧可编辑，右侧会实时运行。",
+        );
+      } catch {
+        setToast("UUID 实验创建失败，没有覆盖任何已有文件。");
+      }
+      return;
+    }
     const note: LearningNote = {
       ...createBlankNote(title, "experiments"),
       kind: "learning_node",
@@ -296,12 +534,31 @@ export function App() {
     setToast("UUID 交互实验已创建；左侧可编辑，右侧会实时运行。");
   }
 
-  function createNote(event: FormEvent<HTMLFormElement>) {
+  async function createNote(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (newTitle.trim().length === 0) {
       return;
     }
     const note = createBlankNote(newTitle, newView);
+    if (nativeRuntime) {
+      const path =
+        `${folderForView(newView)}/${portableSlug(newTitle)}-` +
+        `${Date.now().toString(36)}.md`;
+      try {
+        const document = await createNativeNote(path, note.markdown);
+        addCreatedNativeDocument(document);
+        setIsNewNoteOpen(false);
+        setToast(`已创建“${document.title}”的 Markdown 源文件。`);
+      } catch (error: unknown) {
+        const failure = asWorkspaceFailure(error);
+        setToast(
+          failure?.code === "alreadyExists"
+            ? "同名源文件已经存在，未执行覆盖。"
+            : "无法创建 Markdown 源文件，请检查工作区状态。",
+        );
+      }
+      return;
+    }
     setWorkspace((current) => ({
       ...current,
       notes: [note, ...current.notes],
@@ -312,7 +569,120 @@ export function App() {
     setClosedNoteIds((current) => current.filter((id) => id !== note.id));
     setActiveView(note.view);
     setIsNewNoteOpen(false);
-    setToast(`已创建“${note.title}”，草稿已保存在本机。`);
+    setToast(
+      `已创建“${note.title}”的浏览器预览数据；没有生成桌面端文件。`,
+    );
+  }
+
+  function addCreatedNativeDocument(document: NativeNoteDocument) {
+    const note = nativeDocumentToLearningNote(document);
+    lastPersistedMarkdownRef.current.set(note.id, note.markdown);
+    latestMarkdownRef.current.set(note.id, note.markdown);
+    setWorkspace((current) => ({
+      ...current,
+      notes: [
+        note,
+        ...current.notes.filter((candidate) => candidate.id !== note.id),
+      ],
+      selectedNoteId: note.id,
+    }));
+    setActiveNoteId(note.id);
+    setOpenNoteIds((current) =>
+      current.includes(note.id) ? current : [...current, note.id],
+    );
+    setClosedNoteIds((current) => current.filter((id) => id !== note.id));
+    setActiveView(note.view);
+    setQuery("");
+    setSaveState("saved");
+  }
+
+  async function handleSaveStatusAction() {
+    if (!nativeRuntime) {
+      return;
+    }
+    if (saveState === "mixed" && selectedNote !== undefined) {
+      const confirmed = window.confirm(
+        "这个文件混用了多种换行符。要明确统一为 LF 后再保存吗？",
+      );
+      if (!confirmed) {
+        return;
+      }
+      setWorkspace((current) => ({
+        ...current,
+        notes: current.notes.map((note) =>
+          note.id === selectedNote.id
+            ? { ...note, lineEnding: "lf" }
+            : note,
+        ),
+      }));
+      setSaveState("dirty");
+      setToast("已选择 LF；知织将执行一次冲突安全保存。");
+      return;
+    }
+    if (saveState === "error") {
+      setSaveRetry((value) => value + 1);
+      setSaveState("dirty");
+      return;
+    }
+    if (
+      saveState !== "conflict" ||
+      selectedNote?.path === undefined
+    ) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "源文件已在外部修改。知织会先把当前编辑内容另存到 recovery/，再重新载入外部版本；继续吗？",
+    );
+    if (!confirmed) {
+      return;
+    }
+    const captured = selectedNote;
+    try {
+      const recovery = await createNativeNote(
+        `recovery/${portableSlug(captured.title)}-conflict-` +
+          `${Date.now().toString(36)}.md`,
+        captured.markdown,
+      );
+      const snapshot = await loadNativeWorkspace();
+      const source = snapshot.documents.find(
+        (document) => document.path === captured.path,
+      );
+      if (source === undefined) {
+        throw new Error("source disappeared during conflict recovery");
+      }
+      const sourceNote = nativeDocumentToLearningNote(source);
+      const recoveryNote = nativeDocumentToLearningNote(recovery);
+      lastPersistedMarkdownRef.current.set(
+        sourceNote.id,
+        sourceNote.markdown,
+      );
+      lastPersistedMarkdownRef.current.set(
+        recoveryNote.id,
+        recoveryNote.markdown,
+      );
+      latestMarkdownRef.current.set(sourceNote.id, sourceNote.markdown);
+      latestMarkdownRef.current.set(recoveryNote.id, recoveryNote.markdown);
+      setNativeRoot(snapshot.rootDisplay);
+      setWorkspace((current) => ({
+        ...current,
+        notes: [
+          ...current.notes.map((note) =>
+            note.id === captured.id ? sourceNote : note,
+          ),
+          ...(current.notes.some((note) => note.id === recoveryNote.id)
+            ? []
+            : [recoveryNote]),
+        ],
+      }));
+      setSaveState("saved");
+      setToast(
+        `已重新载入外部版本；编辑器内容已安全保存在 ${recovery.path}。`,
+      );
+    } catch {
+      setSaveState("conflict");
+      setToast("冲突恢复未完成；编辑器内容仍在当前窗口中，未覆盖源文件。");
+    }
   }
 
   async function copyForAi(note = selectedNote) {
@@ -446,6 +816,12 @@ export function App() {
   }
 
   function resetDemoData() {
+    if (nativeRuntime) {
+      setToast(
+        "原生 Markdown 工作区不会执行演示重置；请通过明确的笔记操作管理文件。",
+      );
+      return;
+    }
     const confirmed = window.confirm(
       "这会清除当前设备上的全部知织演示笔记、任务状态和本地版本。确定继续吗？",
     );
@@ -619,9 +995,17 @@ export function App() {
         event.preventDefault();
         setIsSidebarOpen(true);
         window.setTimeout(() => searchInputRef.current?.focus(), 0);
-      } else if (key === "s" && !event.shiftKey) {
+      } else if (key === "s" && event.altKey && !event.shiftKey) {
         event.preventDefault();
         saveVersion();
+      } else if (key === "s" && !event.shiftKey) {
+        event.preventDefault();
+        if (nativeRuntime) {
+          setSaveRetry((value) => value + 1);
+          setToast("正在保存当前 Markdown 源文件。");
+        } else {
+          setToast("浏览器预览状态已保存在此浏览器。");
+        }
       } else if (key === "n" && !event.shiftKey) {
         event.preventDefault();
         openNewNote();
@@ -657,6 +1041,26 @@ export function App() {
       : editorMode === "split"
         ? "实时分栏"
         : "Markdown";
+  const saveStatusLabel = nativeRuntime
+    ? {
+        loading: "正在打开 Markdown 工作区",
+        saved: "Markdown 源文件已安全保存",
+        dirty: "有尚未保存的修改",
+        saving: "正在原子保存",
+        conflict: "检测到外部修改（点击安全恢复）",
+        error: "保存失败（点击重试）",
+        mixed: "混合换行（点击明确统一为 LF）",
+        preview: "浏览器预览",
+      }[saveState]
+    : "浏览器预览：仅保存在此浏览器";
+  const lineEndingLabel =
+    selectedNote?.lineEnding?.toLocaleUpperCase() ??
+    (nativeRuntime ? "—" : "LF");
+  const saveStatusActionable =
+    nativeRuntime &&
+    (saveState === "conflict" ||
+      saveState === "error" ||
+      saveState === "mixed");
   const contextNote =
     contextMenu?.noteId === undefined
       ? selectedNote
@@ -841,7 +1245,13 @@ export function App() {
         </section>
 
         <footer className="explorer-footer">
-          <span>所有内容保存在本机</span>
+          <span title={nativeRoot}>
+            {nativeRuntime
+              ? nativeRoot.length > 0
+                ? "Markdown 文件是内容事实源"
+                : "正在打开本地工作区"
+              : "浏览器预览数据，不是桌面端文件"}
+          </span>
         </footer>
       </aside>
 
@@ -1022,10 +1432,17 @@ export function App() {
         </section>
 
         <footer className="status-bar" data-context="status">
-          <span className="save-status">
+          <button
+            aria-disabled={!saveStatusActionable}
+            className={`save-status is-${saveState}`}
+            onClick={() => void handleSaveStatusAction()}
+            tabIndex={saveStatusActionable ? 0 : -1}
+            title={saveStatusLabel}
+            type="button"
+          >
             <i />
-            已在本机自动保存
-          </span>
+            {saveStatusLabel}
+          </button>
           <span className="status-version" title="当前版本节点数">
             <GitBranch />
             {selectedNote === undefined
@@ -1047,8 +1464,10 @@ export function App() {
           <span className="status-characters">
             {editorStatus.characters} 字符
           </span>
-          <span className="status-encoding">UTF-8</span>
-          <span className="status-line-ending">LF</span>
+          <span className="status-encoding">
+            UTF-8{selectedNote?.hasUtf8Bom ? " BOM" : ""}
+          </span>
+          <span className="status-line-ending">{lineEndingLabel}</span>
           <span className="status-mode">{editorLabel}</span>
           <span className="status-sync" title="同步服务尚未连接">
             同步：本机
@@ -1106,7 +1525,11 @@ export function App() {
                   ))}
                 </select>
               </label>
-              <p>创建后立即保存在本机，可随时导出为 Markdown。</p>
+              <p>
+                {nativeRuntime
+                  ? "创建后立即写入本地 Markdown 工作区。"
+                  : "浏览器模式仅用于界面预览，不会创建桌面端文件。"}
+              </p>
               <footer>
                 <button onClick={() => setIsNewNoteOpen(false)} type="button">
                   取消
@@ -1197,8 +1620,7 @@ export function App() {
 
           {(contextMenu.scope === "editor" ||
             contextMenu.scope === "preview" ||
-            contextMenu.scope === "embedded-lab" ||
-            contextMenu.scope === "status") && (
+            contextMenu.scope === "embedded-lab") && (
             <>
               <span className="context-label">
                 {contextMenu.scope === "embedded-lab" ? "当前实验" : "当前笔记"}
@@ -1236,7 +1658,7 @@ export function App() {
               >
                 <Save />
                 保存版本节点
-                <kbd>Ctrl+S</kbd>
+                <kbd>Ctrl+Alt+S</kbd>
               </button>
               <button
                 disabled={contextNote === undefined}
@@ -1272,6 +1694,46 @@ export function App() {
                 <GitBranch />
                 查看这个节点的版本图
               </button>
+            </>
+          )}
+
+          {contextMenu.scope === "status" && (
+            <>
+              <span className="context-label">保存与工作区</span>
+              <button
+                disabled={
+                  !nativeRuntime ||
+                  !["conflict", "error", "mixed"].includes(saveState)
+                }
+                onClick={() => void handleSaveStatusAction()}
+                role="menuitem"
+              >
+                <Save />
+                {saveState === "conflict"
+                  ? "备份编辑内容并重新载入"
+                  : saveState === "mixed"
+                    ? "明确统一为 LF 并保存"
+                    : "重试保存"}
+              </button>
+              <button
+                disabled={!nativeRuntime || nativeRoot.length === 0}
+                onClick={() => {
+                  void copyText(nativeRoot).then(
+                    () => setToast("Markdown 工作区位置已复制。"),
+                    () => setToast("无法复制工作区位置。"),
+                  );
+                }}
+                role="menuitem"
+              >
+                <Database />
+                复制 Markdown 工作区位置
+              </button>
+              {!nativeRuntime && (
+                <button onClick={resetDemoData} role="menuitem">
+                  <RotateCcw />
+                  重置浏览器预览数据
+                </button>
+              )}
             </>
           )}
 

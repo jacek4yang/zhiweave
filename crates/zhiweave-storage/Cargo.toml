@@ -1,0 +1,17 @@
+[package]
+name = "zhiweave-storage"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+atomic-write-file.workspace = true
+sha2.workspace = true
+zhiweave-application = { path = "../zhiweave-application" }
+zhiweave-domain = { path = "../zhiweave-domain" }
+zhiweave-markdown = { path = "../zhiweave-markdown" }
+
+[lints]
+workspace = true
