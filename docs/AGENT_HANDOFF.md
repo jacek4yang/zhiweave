@@ -15,11 +15,9 @@
 - 工作目录：`%USERPROFILE%\Desktop\Projects\zhiweave`
 - 分支：`agent/professional-workbench`
 - Draft PR：[jacek4yang/zhiweave#1](https://github.com/jacek4yang/zhiweave/pull/1)
-- 最新已发布功能/验证提交：`f9ad649 feat(attachments): add controlled native import` /
-  `c97e106 docs: record controlled import validation` / `5dae41b docs: record controlled import CI`；
-  已通过 Linux 中继上传。
-- 当前本地未发布切片：输入可靠性（composition 延迟释放与多光标状态），待完整门禁、提交和
-  Linux 中继上传。
+- 最新已发布功能提交：`1c3bf82 fix(editor): settle IME composition safely`；已通过 Linux
+  一次性裸仓库中继上传。
+- GitHub CI run `30514256379`：Frontend 与 Rust 全部通过。
 - GitHub CI run `30512970355`：Frontend 与 Rust 全部通过。
 - GitHub CI run `30512755304`：Frontend 与 Rust 全部通过。
 - GitHub CI run `30509720758`：Frontend（26 s）与 Rust（3 min 40 s）全部通过。
@@ -252,8 +250,8 @@ gzip 约 316.77 KB 超预算，KaTeX 字体资产待收敛，同步后端仍只�
 - tmux 会话：不使用；所有开发与验证在当前 Windows 电脑完成。
 - Windows Tauri/Vite/调试进程：已关闭。
 - 阻塞：无工程阻塞；物理微软拼音候选窗仍需在不干扰用户输入的独立窗口完成。
-- 下一条精确命令：运行 frontend、Rust、audit 与 Windows Tauri 完整门禁，排除用户未跟踪的
-  `AGENTS.md` 后提交输入可靠性切片，并只经 Linux 临时裸仓库中继上传。
+- 下一条精确任务：在隔离输入焦点下完成物理微软拼音候选窗与点击回源码验收，再进入 Android
+  软键盘；持续排除用户未跟踪的 `AGENTS.md`。
 - 恢复步骤：进入 `%USERPROFILE%\Desktop\Projects\zhiweave`，核对分支
-  `agent/professional-workbench`、最新提交和 `AGENTS.md` 排除；CI run `30512970355` 已通过，
-  从输入可靠性切片的完整门禁开始。
+  `agent/professional-workbench`、最新提交和 `AGENTS.md` 排除；CI run `30514256379` 已通过，
+  从物理候选窗/点击回源码验收开始。
