@@ -1,6 +1,6 @@
 # Agent 交接
 
-最近更新：2026-07-30 12:00 CST
+最近更新：2026-07-30 12:04 CST
 
 ## 不可改变的用户约束
 
@@ -15,9 +15,9 @@
 - 工作目录：`%USERPROFILE%\Desktop\Projects\zhiweave`
 - 分支：`agent/professional-workbench`
 - Draft PR：[jacek4yang/zhiweave#1](https://github.com/jacek4yang/zhiweave/pull/1)
-- 最新已发布提交：`c5a5f00 docs: record attachment CI`。当前本地功能提交：
-  `f9ad649 feat(attachments): add controlled native import`；已完成 Windows 全门禁、真实系统
-  选择器取消验收与原生安装包构建，等待通过 Linux 中继上传。
+- 最新已发布功能/验证提交：`f9ad649 feat(attachments): add controlled native import` /
+  `c97e106 docs: record controlled import validation`；已通过 Linux 中继上传。
+- GitHub CI run `30512755304`：Frontend 与 Rust 全部通过。
 - GitHub CI run `30509720758`：Frontend（26 s）与 Rust（3 min 40 s）全部通过。
 - 上一 GitHub CI run `30506855740`：Frontend 与 Rust 全部通过。
 - GitHub CI run `30504384326`：Frontend 20 s、Rust 3 min 19 s，全部通过；只保留既有
@@ -236,8 +236,8 @@ gzip 约 316.48 KB 超预算，KaTeX 字体资产待收敛，同步后端仍只�
 - tmux 会话：不使用；所有开发与验证在当前 Windows 电脑完成。
 - Windows Tauri/Vite/调试进程：已关闭。
 - 阻塞：无工程阻塞；本轮应用内浏览器能力隔离与响应式检查已经实际通过。
-- 下一条精确命令：完成本轮最终全门禁，确认只有用户未跟踪的 `AGENTS.md` 未暂存，再通过
-  Linux 临时裸仓库中继推送并等待 Draft PR CI。
+- 下一条精确命令：确认只有用户未跟踪的 `AGENTS.md` 留在工作树，从扩展 Live Preview 的
+  真实 Windows IME/多光标验收开始下一纵切。
 - 恢复步骤：进入 `%USERPROFILE%\Desktop\Projects\zhiweave`，核对分支
-  `agent/professional-workbench`、最新提交和 `AGENTS.md` 排除；确认新 CI 后从受控附件导入/
-  引用写入事务开始下一纵切。
+  `agent/professional-workbench`、最新提交和 `AGENTS.md` 排除；CI run `30512755304` 已通过，
+  从扩展 Live Preview 的 Windows IME/多光标验收开始下一纵切。

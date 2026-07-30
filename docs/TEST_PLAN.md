@@ -39,6 +39,8 @@
   与 workspace all-feature tests。
 - GitHub CI run `30509720758` 在 Linux runner 上再次通过 Frontend、fmt、workspace
   all-target/all-feature Clippy `-D warnings` 与 workspace all-feature tests。
+- GitHub CI run `30512755304` 对受控原生附件导入提交再次通过 Frontend、fmt、workspace
+  all-target/all-feature Clippy `-D warnings` 与 workspace all-feature tests。
 - `cargo audit --no-fetch --stale`：advisory DB 扫描 475 个 lockfile 依赖，无已知 vulnerability；有 17 个 allowed warning。GTK3/glib 项来自非 Windows 的 Tauri target 依赖（当前 Windows `cargo tree -i glib/atk` 不在目标图），其中 `glib` 有一项 unsound advisory；`urlpattern` 链含 6 个 unmaintained `unic-*`，另有 `proc-macro-error` warning。发布前必须在各目标平台更新 Tauri/传递依赖并以 `-D warnings` 重新评估，不能忽略。
 
 ## Markdown 文件纵切证据
