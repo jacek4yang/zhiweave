@@ -16,7 +16,11 @@
 - 分支：`agent/professional-workbench`
 - Draft PR：[jacek4yang/zhiweave#1](https://github.com/jacek4yang/zhiweave/pull/1)
 - 最新已发布功能/验证提交：`f9ad649 feat(attachments): add controlled native import` /
-  `c97e106 docs: record controlled import validation`；已通过 Linux 中继上传。
+  `c97e106 docs: record controlled import validation` / `5dae41b docs: record controlled import CI`；
+  已通过 Linux 中继上传。
+- 当前本地未发布切片：输入可靠性（composition 延迟释放与多光标状态），待完整门禁、提交和
+  Linux 中继上传。
+- GitHub CI run `30512970355`：Frontend 与 Rust 全部通过。
 - GitHub CI run `30512755304`：Frontend 与 Rust 全部通过。
 - GitHub CI run `30509720758`：Frontend（26 s）与 Rust（3 min 40 s）全部通过。
 - 上一 GitHub CI run `30506855740`：Frontend 与 Rust 全部通过。
@@ -169,14 +173,25 @@ SQLite/稳定身份稳定切片增加：
   聚焦 primary；随后取消，6 篇 Markdown 组合摘要不变、提议附件不存在。原生编辑器右键有导入，
   浏览器工具栏/面板/右键无导入。
 
+当前输入可靠性切片增加：
+
+- Live Preview composition 状态带单调 generation；`compositionend` 后等待 60 ms 才恢复
+  Decoration，新 composition 取消旧计时器，旧 release 不能关闭更新的输入会话；
+- 编辑器状态汇总全部 selection ranges，并在状态栏显示实际光标数与总选区长度；
+- Windows Tauri WebView2 实测 2 光标同步输入与单步撤销；装饰按
+  `5 → 0 → 0（结束后 20 ms）→ 5（总计 90 ms）` 恢复，验收前后 6 篇 Markdown 和 identity
+  摘要完全一致，未创建笔记、附件或版本；
+- 物理微软拼音候选窗因用户正在操作其他前台窗口，在发送任何按键前中止，输入布局恢复英文；
+  此项仍待独立人工验收，不能以 CDP composition 生命周期替代。
+
 ## 最近验证
 
-- 最终差异通过 typecheck、11 files / 57 tests 和 production build；主 JS 约 955.27 KB
-  （gzip 316.48 KB），仍触发体积警告。
+- 当前输入可靠性差异通过 typecheck、11 files / 59 tests 和 production build；主 JS 约
+  956.28 KB（gzip 316.77 KB），仍触发体积警告。
 - Rust workspace 74 项、fmt 与全 target/all feature Clippy `-D warnings` 全部通过；
   Markdown 7 项、storage 49 项覆盖 Wiki 解析/创建、附件安全边界/导入、迁移、增量替换、歧义、
   重命名/删除/重建与正向解析，同时保留历史、备份和恢复回归。
-- `pnpm tauri build` 在当前 Windows 电脑通过，生成 6,119,424 B MSI 与 4,617,633 B NSIS；
+- `pnpm tauri build` 在当前 Windows 电脑通过，生成 6,119,424 B MSI 与 4,617,467 B NSIS；
   SHA-256 记录在 `TEST_PLAN.md`，产物位于忽略的 `target/`。
 - Windows Tauri 原生验收覆盖保存、分支、重启、删除/空间回收和恢复；测试正文与版本均已清理，固定工作区保持 6 个 Markdown。
 - GitHub CI run `30482533535`：Frontend 21 s、Rust 3 min 1 s，全部通过；Node 20 actions deprecation annotation 尚待 workflow 维护。
@@ -211,7 +226,8 @@ SQLite/稳定身份稳定切片增加：
 
 ## 下一步顺序
 
-1. 补扩展 Live Preview 的真实 Windows IME/多光标和 Android 验收。
+1. 补物理 Windows 中文候选窗、点击回源码和 Android 软键盘验收；WebView2 composition
+   生命周期、延迟恢复与多光标输入/撤销已有证据。
 2. 增加 Wiki 关系的 10,000/100,000 节点基准、Unicode 归一化契约与 corpus/fuzz。
 3. 增加局部图谱、快捷键编辑器、预览标签和移动端命令入口。
 4. 补 watcher 高频压力、休眠恢复、占位强杀、只读目录和卷级磁盘满夹具。
@@ -227,7 +243,7 @@ create 强杀可能留下空占位，安全移动强杀可能留下重复副本�
 阅读器、扩展 Live Preview、可交互大纲、Wiki 双向导航、missing 显式创建与受限静态附件预览
 及受控导入已落地，但局部图谱、导出/版本 diff 尚未接入；关系 resolver 每次全局变化仍构造全部候选映射，缺少 10,000/
 100,000 节点基准和跨 Rust/JavaScript Unicode 归一化契约。快捷键编辑器尚未完成，主 bundle
-gzip 约 316.48 KB 超预算，KaTeX 字体资产待收敛，同步后端仍只是协议/健康状态骨架。
+gzip 约 316.77 KB 超预算，KaTeX 字体资产待收敛，同步后端仍只是协议/健康状态骨架。
 
 ## 运行现场与恢复
 
@@ -235,9 +251,9 @@ gzip 约 316.48 KB 超预算，KaTeX 字体资产待收敛，同步后端仍只�
 - SSH 隧道：不使用；用户已明确 Linux 只作 GitHub 上传中转，不在其上运行 Vite/Tauri。
 - tmux 会话：不使用；所有开发与验证在当前 Windows 电脑完成。
 - Windows Tauri/Vite/调试进程：已关闭。
-- 阻塞：无工程阻塞；本轮应用内浏览器能力隔离与响应式检查已经实际通过。
-- 下一条精确命令：确认只有用户未跟踪的 `AGENTS.md` 留在工作树，从扩展 Live Preview 的
-  真实 Windows IME/多光标验收开始下一纵切。
+- 阻塞：无工程阻塞；物理微软拼音候选窗仍需在不干扰用户输入的独立窗口完成。
+- 下一条精确命令：运行 frontend、Rust、audit 与 Windows Tauri 完整门禁，排除用户未跟踪的
+  `AGENTS.md` 后提交输入可靠性切片，并只经 Linux 临时裸仓库中继上传。
 - 恢复步骤：进入 `%USERPROFILE%\Desktop\Projects\zhiweave`，核对分支
-  `agent/professional-workbench`、最新提交和 `AGENTS.md` 排除；CI run `30512755304` 已通过，
-  从扩展 Live Preview 的 Windows IME/多光标验收开始下一纵切。
+  `agent/professional-workbench`、最新提交和 `AGENTS.md` 排除；CI run `30512970355` 已通过，
+  从输入可靠性切片的完整门禁开始。

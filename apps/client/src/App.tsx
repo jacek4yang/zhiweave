@@ -205,6 +205,7 @@ const EMPTY_EDITOR_STATUS: EditorStatus = {
   lines: 1,
   characters: 0,
   words: 0,
+  selectionCount: 1,
   selectionLength: 0,
   undoDepth: 0,
   redoDepth: 0,
@@ -3938,6 +3939,11 @@ export function App() {
           {editorStatus.selectionLength > 0 && (
             <span className="status-selection">
               已选择 {editorStatus.selectionLength} 字符
+            </span>
+          )}
+          {editorStatus.selectionCount > 1 && (
+            <span className="status-selections">
+              {editorStatus.selectionCount} 个光标
             </span>
           )}
           <span className="status-cursor">

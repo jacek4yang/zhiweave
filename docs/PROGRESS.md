@@ -131,12 +131,15 @@
   inert Wiki 附件引用；CodeMirror 一次 transaction 插入，`Ctrl+Z` 只撤销引用、不删除附件。
 - 附件命令进入统一 registry：仅原生、当前可编辑知识节点和编辑器右键/命令面板显示；浏览器、
   预览模式、附件对象与其他上下文不冒充能力。确认页支持焦点陷阱、Esc/取消和窄窗内部滚动。
+- Live Preview composition gate 改为 generation-aware 状态机；`compositionend` 后等待 60 ms
+  再恢复装饰，新组合输入会取消旧计时器且旧 generation 不能误释放。状态栏按全部选区汇总
+  选中文字，并在多选区时显示实际光标数。
 
 ## 当前质量证据
 
 - `pnpm typecheck`：通过。
 - `pnpm lint`：通过。
-- `pnpm test`：11 files / 57 tests，通过。
+- `pnpm test`：11 files / 59 tests，通过。
 - `pnpm build`：通过。
 - 交互实验独立 chunk：5.99 KB（gzip 2.46 KB）。
 - Markdown 阅读器 / AST 独立 chunk：14.08 / 92.24 KB（gzip 4.81 / 26.01 KB）。
@@ -145,12 +148,12 @@
 - Wiki heading 导航独立 chunk：0.34 KB（gzip 0.26 KB）。
 - KaTeX/mathRenderer 独立 chunk：259.23 KB（gzip 77.61 KB），只在公式出现时加载。
 - 主 CSS：61.10 KB（gzip 11.20 KB）。
-- 主 JavaScript：约 955.27 KB（gzip 316.48 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
+- 主 JavaScript：约 956.28 KB（gzip 316.77 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
 - Rust workspace 74 项测试通过，其中 application 4 项、Tauri 6 项、storage 49 项、
   Markdown 7 项、domain 6 项、protocol/server 各 1 项；fmt 和全 workspace Clippy
   `-D warnings` 通过。
 - `pnpm audit --prod --audit-level high`：无已知漏洞；`cargo audit --no-fetch --stale` 扫描 475 个 lockfile 依赖，无已知 vulnerability，17 项既有 allowed warning。
-- `pnpm tauri build` 在当前 Windows 电脑通过，生成 6,119,424 B MSI 与 4,617,633 B NSIS；
+- `pnpm tauri build` 在当前 Windows 电脑通过，生成 6,119,424 B MSI 与 4,617,467 B NSIS；
   两个 SHA-256 已写入 `TEST_PLAN.md`，构建产物保持在忽略的 `target/`。
 - Windows 原生进程：`知织 · ZhiWeave` 正常运行；固定工作区有 6 个真实 Markdown、identity v1 的 6 个唯一 ID/路径和有效 SQLite 3 数据库。
 - 共享 Markdown AST 功能提交 `27bf009` 已推送；GitHub CI run `30497652526` 的 Frontend 与
@@ -209,6 +212,14 @@
   MSI/NSIS 全部通过；`cargo audit --no-fetch --stale` 无已知 vulnerability。
 - 受控原生附件导入功能/验证提交 `f9ad649`/`c97e106` 已在当前 Windows 电脑完成上述门禁，
   仅经 Linux 中继上传；GitHub CI run `30512755304` 的 Frontend 与 Rust 全部通过。
+- 附件验证记录提交 `5dae41b` 已经 Linux 中继上传；GitHub CI run `30512970355` 的 Frontend
+  与 Rust 全部通过。
+- Windows Tauri WebView2 原生输入验收确认：`Ctrl+Alt+↑` 创建 2 个光标并显示状态，单键
+  82→84 字符、单次撤销恢复 82；组合输入期间 Live Preview 装饰 5→0，结束 20 ms 后仍为 0，
+  总计 90 ms 后恢复 5。验收前后 6 篇 Markdown 与 identity 摘要完全一致，未创建版本、附件或
+  笔记，所有验证进程与端口已关闭。
+- 物理微软拼音候选窗验收因检测到用户正在操作其他前台窗口，在发送任何按键前安全中止并恢复
+  英文输入布局；该项仍未通过，不能用 CDP composition 生命周期证据替代。
 - 本轮应用内浏览器在本地导航和 DOM 读取阶段连续超时，未把反向链接浏览器点击/E2E 标记为
   通过；浏览器预览按能力边界也不会伪造 SQLite 关系。
 - Live Preview 性能回归：2 MiB 窄视口约 322 ms；10,000 行 fence 可见 24 行用例约 9 ms。
@@ -218,7 +229,8 @@
 
 ## 当前任务
 
-1. 为扩展后的 Live Preview 补真实 Windows IME/多光标、点击回源码与 Android 验收。
+1. 补物理 Windows 中文候选窗、点击回源码与 Android 软键盘验收；WebView2 composition
+   生命周期、延迟恢复和多光标输入/撤销已覆盖。
 2. 扩展 Markdown Corpus、局部输入 P95/深层/恶意输入以及 10,000/100,000 节点关系基准。
 3. 增加局部图谱、快捷键编辑器、预览标签和移动触控入口。
 4. 补 watcher 高频压力、文件锁、磁盘满、只读目录和强杀恢复夹具。
@@ -235,7 +247,7 @@
 - 通用阅读器、Lezer Decoration、大纲、Rust Wiki 双向解析、missing 显式创建、受限静态附件
   预览和导入已按显式 source/身份契约对齐；局部图谱、导出和版本差异尚未统一完成。Rust/JavaScript 的 Unicode
   归一化跨平台一致性及 10,000/100,000 节点关系性能仍需基准。
-- 首屏 JS gzip 超预算 111.35 KB；CodeMirror/图标/工作台和命令面板需进一步分包和测量。
+- 首屏 JS gzip 超预算 116.77 KB；CodeMirror/图标/工作台和命令面板需进一步分包和测量。
 - KaTeX 虽按需加载，但构建仍携带上游 WOFF2/WOFF/TTF 多格式字体，安装包资产需要收敛。
 - 已有可校验完整工作区目录包和重启前目录切换恢复，但尚无外部备份包选择/导入、跨设备恢复
   演练、备份加密或同步加密；本地 SQLite 与备份包目前未加密，不得宣称客户端密码保护已完成。

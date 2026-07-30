@@ -18,7 +18,7 @@
 - `pnpm install --frozen-lockfile`：通过，142 个 lockfile 条目通过供应链策略。
 - `pnpm typecheck`：通过。
 - `pnpm lint`：通过（当前等同 TypeScript noEmit，需加入真实 ESLint）。
-- `pnpm test`：通过，11 files / 57 tests；除原有版本/分支、日记/H1、持久版本 DTO、种子、
+- `pnpm test`：通过，11 files / 59 tests；除原有版本/分支、日记/H1、持久版本 DTO、种子、
   交互实验和保存状态用例外，新增 command id/快捷键唯一性、IME 防误触、上下文矩阵、原生能力
   隔离、禁用条件、中文/别名检索、共享 Markdown AST/安全渲染，以及 Lezer frontmatter/Wiki、
   光标揭示、composition 停用、任务/Callout、数学/图片/脚注/fence、多光标、大输入和源码
@@ -27,9 +27,9 @@
 - `pnpm build`：最终差异通过，主 chunk 有 >500 KB 警告。
 - `pnpm audit --prod --audit-level high`：先使用用户指定 SOCKS5 代理，registry audit 请求重试后
   失败；不下载依赖的直接网络回退通过，无已知漏洞。代理地址不写入仓库。
-- `pnpm tauri build`：在当前 Windows 电脑通过，生成 6,119,424 B MSI 与 4,617,633 B NSIS；
-  SHA-256 分别为 `2EB68ABD09962BB4D8E6CBB3A3AD6170F25FD408E3DA1FF63AE5996015438384`
-  和 `FB1058F437A14875905A3212A2D3DB0A8ADE2320C379499968246FDA5ABB4235`。
+- `pnpm tauri build`：在当前 Windows 电脑通过，生成 6,119,424 B MSI 与 4,617,467 B NSIS；
+  SHA-256 分别为 `B1B00657F606EB054309CE92D448B626AE3FB27AD8C2704DAF710F406A944BC2`
+  和 `7EA887E0E853B793A00566F0E8F73B9210BFB7EE788B22C4EE475D5D3E2861B5`。
 - 浏览器：搜索、阅读/编辑、分栏、标签、刷新恢复、复制保真、上下文菜单分流、输入粘贴、编辑撤销、UUID 生成/校验/提示词通过；命令面板中文筛选、方向键、Enter、Esc、焦点恢复和 390×844/1280×800 布局通过。
 - 本轮 Wiki 正向导航浏览器自动化因应用内浏览器本地导航与 DOM 读取连续超时尚未通过，不得用
   原生截图替代；Windows 原生 IPC、WebView2 DOM 检查、DWM 截图与临时目录/Tauri 集成测试是
@@ -40,6 +40,8 @@
 - GitHub CI run `30509720758` 在 Linux runner 上再次通过 Frontend、fmt、workspace
   all-target/all-feature Clippy `-D warnings` 与 workspace all-feature tests。
 - GitHub CI run `30512755304` 对受控原生附件导入提交再次通过 Frontend、fmt、workspace
+  all-target/all-feature Clippy `-D warnings` 与 workspace all-feature tests。
+- GitHub CI run `30512970355` 对附件验证记录提交再次通过 Frontend、fmt、workspace
   all-target/all-feature Clippy `-D warnings` 与 workspace all-feature tests。
 - `cargo audit --no-fetch --stale`：advisory DB 扫描 475 个 lockfile 依赖，无已知 vulnerability；有 17 个 allowed warning。GTK3/glib 项来自非 Windows 的 Tauri target 依赖（当前 Windows `cargo tree -i glib/atk` 不在目标图），其中 `glib` 有一项 unsound advisory；`urlpattern` 链含 6 个 unmaintained `unic-*`，另有 `proc-macro-error` warning。发布前必须在各目标平台更新 Tauri/传递依赖并以 `-D warnings` 重新评估，不能忽略。
 
@@ -180,6 +182,8 @@
   能力矩阵；未修改 Markdown、版本或备份，原生进程与 9335 调试端口均关闭。
 - Live Preview 单元覆盖数学、图片安全占位、脚注、闭合/未闭合 fence、未知/截断指令块、
   转义美元、货币、超限公式、composition 和四处多光标同时揭示，均核对 source 未改变。
+- 输入可靠性回归覆盖 composition generation：旧计时器不能释放更新的组合输入，稳定窗口不少于
+  50 ms；状态栏按所有 selection ranges 汇总选区，并报告实际光标数。
 - missing Wiki 创建集成测试覆盖安全标题/path 提案、可选 heading、确认时重验证、目的地
   已存在不覆盖和创建后稳定身份/索引可见；Tauri 命令覆盖完整提案到真实临时目录发布。
 - 附件测试覆盖来源相对路径、Wiki 根/`attachments` 候选、未知扩展 inert 附件、歧义、
@@ -201,9 +205,15 @@
   Decoration 白屏，新增任何插件 widget/replace 范围不得跨换行的回归断言。
 - Windows 自动性能门覆盖 2 MiB 窄视口（约 322 ms）和 10,000 行 fence 可见行上限
   （约 9 ms、最多 24 行装饰）。
+- Windows Tauri WebView2 实际验证 `Ctrl+Alt+↑` 产生 2 个光标且状态栏同步显示；单次输入让
+  82 字符变为 84，单次 `Ctrl+Z` 精确恢复 82。composition gate 的 Live Preview 装饰数按
+  `5 → 0 → 0（结束后 20 ms）→ 5（总计 90 ms）` 变化。
+- 验收前后 6 篇用户 Markdown 的组合 SHA-256 与 identity 摘要逐字节相同；未创建版本、附件或
+  笔记，Tauri/Vite/9335 进程和端口均已关闭。物理微软拼音候选窗尝试因用户正在使用前台窗口而
+  在发送任何按键前中止，输入布局已恢复英文，因此不得将物理候选窗标记为通过。
 
 尚未完成的 Markdown 测试：CommonMark 官方全集快照、round-trip 属性/模糊测试、局部输入
-P95/滚动与内存基准、真实 IME + Live Preview Decoration、隔离应用数据下附件 picker →
+P95/滚动与内存基准、物理 Windows 中文候选窗与 Android 软键盘、隔离应用数据下附件 picker →
 确认 → 编辑器 undo 的完整 UI E2E、局部图谱、Mermaid 和导出。
 
 尚未完成：稳定 Windows 磁盘满/只读目录故障注入、Tauri IPC 自动 E2E、watcher 高频压力/休眠恢复、

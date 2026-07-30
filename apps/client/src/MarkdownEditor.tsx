@@ -6,7 +6,7 @@ import {
 } from "react";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
-import { Compartment } from "@codemirror/state";
+import { Compartment, type EditorState } from "@codemirror/state";
 import {
   redo,
   redoDepth,
@@ -42,6 +42,7 @@ export interface EditorStatus {
   readonly lines: number;
   readonly characters: number;
   readonly words: number;
+  readonly selectionCount: number;
   readonly selectionLength: number;
   readonly undoDepth: number;
   readonly redoDepth: number;
@@ -241,13 +242,15 @@ export const MarkdownEditor = forwardRef<
             onChangeRef.current(update.state.doc.toString());
           }
           if (update.docChanged || update.selectionSet) {
-            onStatusChangeRef.current?.(editorStatus(update.view));
+            onStatusChangeRef.current?.(
+              editorStatusFromState(update.state),
+            );
           }
         }),
       ],
     });
     viewRef.current = view;
-    onStatusChangeRef.current?.(editorStatus(view));
+    onStatusChangeRef.current?.(editorStatusFromState(view.state));
     return () => {
       viewRef.current = null;
       view.destroy();
@@ -306,9 +309,9 @@ export const MarkdownEditor = forwardRef<
   );
 });
 
-function editorStatus(view: EditorView): EditorStatus {
-  const document = view.state.doc;
-  const selection = view.state.selection.main;
+export function editorStatusFromState(state: EditorState): EditorStatus {
+  const document = state.doc;
+  const selection = state.selection.main;
   const line = document.lineAt(selection.head);
   const text = document.toString();
   return {
@@ -317,9 +320,13 @@ function editorStatus(view: EditorView): EditorStatus {
     lines: document.lines,
     characters: text.length,
     words: countWords(text),
-    selectionLength: Math.abs(selection.to - selection.from),
-    undoDepth: undoDepth(view.state),
-    redoDepth: redoDepth(view.state),
+    selectionCount: state.selection.ranges.length,
+    selectionLength: state.selection.ranges.reduce(
+      (total, range) => total + Math.abs(range.to - range.from),
+      0,
+    ),
+    undoDepth: undoDepth(state),
+    redoDepth: redoDepth(state),
   };
 }
 

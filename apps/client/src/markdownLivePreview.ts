@@ -102,18 +102,101 @@ interface VisibleRange {
   readonly to: number;
 }
 
-const setComposition = StateEffect.define<boolean>();
-const compositionState = StateField.define<boolean>({
-  create: () => false,
+export const IME_PREVIEW_SETTLE_DELAY_MS = 60;
+
+export interface CompositionPreviewState {
+  readonly active: boolean;
+  readonly generation: number;
+}
+
+export type CompositionPreviewAction =
+  | { readonly kind: "start" }
+  | { readonly generation: number; readonly kind: "release" };
+
+export function advanceCompositionPreviewState(
+  state: CompositionPreviewState,
+  action: CompositionPreviewAction,
+): CompositionPreviewState {
+  if (action.kind === "start") {
+    return {
+      active: true,
+      generation: state.generation + 1,
+    };
+  }
+  return action.generation === state.generation
+    ? { active: false, generation: state.generation }
+    : state;
+}
+
+const beginComposition = StateEffect.define<void>();
+const releaseComposition = StateEffect.define<number>();
+const compositionState = StateField.define<CompositionPreviewState>({
+  create: () => ({ active: false, generation: 0 }),
   update(value, transaction) {
     for (const effect of transaction.effects) {
-      if (effect.is(setComposition)) {
-        return effect.value;
+      if (effect.is(beginComposition)) {
+        value = advanceCompositionPreviewState(value, { kind: "start" });
+      } else if (effect.is(releaseComposition)) {
+        value = advanceCompositionPreviewState(value, {
+          kind: "release",
+          generation: effect.value,
+        });
       }
     }
     return value;
   },
 });
+
+const compositionPreviewGate = ViewPlugin.fromClass(
+  class {
+    private releaseTimer: number | null = null;
+
+    constructor(private readonly view: EditorView) {}
+
+    start() {
+      this.clearReleaseTimer();
+      this.view.dispatch({ effects: beginComposition.of(undefined) });
+    }
+
+    end() {
+      this.clearReleaseTimer();
+      const generation = this.view.state.field(compositionState).generation;
+      this.releaseTimer = this.ownerWindow().setTimeout(() => {
+        this.releaseTimer = null;
+        this.view.dispatch({
+          effects: releaseComposition.of(generation),
+        });
+      }, IME_PREVIEW_SETTLE_DELAY_MS);
+    }
+
+    destroy() {
+      this.clearReleaseTimer();
+    }
+
+    private clearReleaseTimer() {
+      if (this.releaseTimer !== null) {
+        this.ownerWindow().clearTimeout(this.releaseTimer);
+        this.releaseTimer = null;
+      }
+    }
+
+    private ownerWindow(): Window {
+      return this.view.dom.ownerDocument.defaultView ?? window;
+    }
+  },
+  {
+    eventHandlers: {
+      compositionstart() {
+        this.start();
+        return false;
+      },
+      compositionend() {
+        this.end();
+        return false;
+      },
+    },
+  },
+);
 
 export interface WikiTargetAtPosition {
   readonly kind: "link" | "embed";
@@ -126,16 +209,9 @@ export function markdownLivePreview(
 ): Extension {
   return [
     compositionState,
+    compositionPreviewGate,
     createLivePreviewPlugin(resolveAttachment),
     EditorView.domEventHandlers({
-      compositionstart(_event, view) {
-        view.dispatch({ effects: setComposition.of(true) });
-        return false;
-      },
-      compositionend(_event, view) {
-        view.dispatch({ effects: setComposition.of(false) });
-        return false;
-      },
       click(event, view) {
         if (
           onOpenWikiTarget === undefined ||
@@ -402,8 +478,8 @@ function createLivePreviewPlugin(
           update.docChanged ||
           update.selectionSet ||
           update.viewportChanged ||
-          update.startState.field(compositionState) !==
-            update.state.field(compositionState)
+          update.startState.field(compositionState).active !==
+            update.state.field(compositionState).active
         ) {
           this.decorations = buildDecorations(
             update.view,
@@ -426,7 +502,7 @@ function buildDecorations(
     view.state,
     view.visibleRanges,
     view.state.selection.ranges,
-    view.state.field(compositionState),
+    view.state.field(compositionState).active,
   );
   const decorations = tokens.map((token) => {
     if (token.kind === "line") {

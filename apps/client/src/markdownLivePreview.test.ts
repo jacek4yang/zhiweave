@@ -5,7 +5,9 @@ import { describe, expect, it } from "vitest";
 
 import { zhiweaveMarkdownExtensions } from "./markdownLezerExtensions";
 import {
+  advanceCompositionPreviewState,
   collectLivePreviewTokens,
+  IME_PREVIEW_SETTLE_DELAY_MS,
   wikiTargetAtPosition,
   type LivePreviewToken,
 } from "./markdownLivePreview";
@@ -144,6 +146,33 @@ describe("Markdown live preview", () => {
         true,
       ),
     ).toEqual([]);
+  });
+
+  it("keeps a newer IME composition closed against stale release timers", () => {
+    const initial = { active: false, generation: 0 };
+    const first = advanceCompositionPreviewState(initial, {
+      kind: "start",
+    });
+    const second = advanceCompositionPreviewState(first, {
+      kind: "start",
+    });
+
+    expect(IME_PREVIEW_SETTLE_DELAY_MS).toBeGreaterThanOrEqual(50);
+    expect(
+      advanceCompositionPreviewState(second, {
+        kind: "release",
+        generation: first.generation,
+      }),
+    ).toEqual(second);
+    expect(
+      advanceCompositionPreviewState(second, {
+        kind: "release",
+        generation: second.generation,
+      }),
+    ).toEqual({
+      active: false,
+      generation: second.generation,
+    });
   });
 
   it("projects math, safe images, footnotes, and closed code fences", () => {

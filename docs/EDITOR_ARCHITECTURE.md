@@ -11,8 +11,10 @@ Markdown 主编辑器采用 CodeMirror 6 + Lezer。Tree-sitter WASM 不进入主
 `MarkdownEditor.tsx` 创建长生命周期 `EditorView`，启用 `basicSetup`、`@codemirror/lang-markdown`、
 自动换行和 update listener，并通过 transaction 同步外部恢复值。输入侧现有
 `markdownLezerExtensions.ts` 为 YAML frontmatter 与 Wiki Link/嵌入提供增量节点；
-`markdownLivePreview.ts` 以 StateField 记录 composition、以 ViewPlugin 持有 DecorationSet，
-只扫描可见行并让所有选区决定源码揭示。标题、强调、删除线、链接、Wiki、行内代码、任务与
+`markdownLivePreview.ts` 以带 generation 的 StateField 记录 composition、以 ViewPlugin 持有
+DecorationSet，只扫描可见行并让所有选区决定源码揭示。`compositionend` 后保留 60 ms
+稳定窗口；期间发生的新 composition 会使旧释放任务失效，避免 WebView2 尚未提交候选文本时
+重新挂载替换装饰。标题、强调、删除线、链接、Wiki、行内代码、任务与
 Callout 之外，数学、图片安全占位、脚注和闭合代码围栏也已接入；未知指令块与未闭合结构不
 替换。任务切换仍通过普通 transaction 进入撤销历史，不直接改 DOM 或源码；KaTeX 只在可见
 公式出现时动态加载，`trust=false`。
@@ -27,7 +29,8 @@ Callout 之外，数学、图片安全占位、脚注和闭合代码围栏也已
 - 暴露完整保存、选区、视口或 composition telemetry；
 - 配置主题、国际化、可访问性或移动输入策略；
 - 动态解析 fenced code language；
-- 覆盖真实 Windows IME、Android、多光标交互和恢复自动化；多光标与大文件目前只有自动回归。
+- 覆盖物理 Windows 中文候选窗、Android 软键盘和完整恢复自动化；Windows WebView2 的
+  composition 生命周期、延迟恢复和多光标输入/单步撤销已有原生自动证据。
 
 ## 目标模块
 
