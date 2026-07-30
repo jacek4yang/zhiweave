@@ -91,6 +91,38 @@ describe("command registry", () => {
     ]);
   });
 
+  it("offers only the tab state transition that matches the clicked tab", () => {
+    const previewCommands = commandsForContext(
+      context(["note", "tab", "previewTab", "multiTabs"], "tab"),
+    );
+    const pinnedCommands = commandsForContext(
+      context(["note", "tab", "pinnedTab", "multiTabs"], "tab"),
+    );
+
+    expect(
+      previewCommands
+        .filter((command) => ["tab.pin", "tab.unpin"].includes(command.id))
+        .map((command) => command.id),
+    ).toEqual(["tab.pin"]);
+    expect(
+      pinnedCommands
+        .filter((command) => ["tab.pin", "tab.unpin"].includes(command.id))
+        .map((command) => command.id),
+    ).toEqual(["tab.unpin"]);
+    expect(
+      commandsForPalette(
+        context(["note", "tab", "previewTab"]),
+        "固定标签",
+      ).map((command) => command.id),
+    ).toContain("tab.pin");
+    expect(
+      commandsForPalette(
+        context(["note", "tab", "pinnedTab"]),
+        "临时预览标签",
+      ).map((command) => command.id),
+    ).toContain("tab.unpin");
+  });
+
   it("hides native-only commands in browser preview", () => {
     const native = commandsForContext(
       context(["native", "backupIdle"], "workspace"),

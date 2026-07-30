@@ -664,6 +664,15 @@ button:disabled {
   white-space: nowrap;
 }
 
+.editor-tabs > div.is-preview strong {
+  color: var(--ink);
+  font-style: italic;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 46%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
 .editor-stage {
   position: relative;
   min-width: 0;
@@ -4414,5 +4423,16 @@ button.preview-wiki-embed:focus-visible {
 
   .external-changes-modal > footer button {
     justify-content: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .editor-workspace.has-inspector .document-outline,
+  .editor-workspace.has-inspector .backlinks-panel,
+  .editor-workspace.has-inspector .local-graph-panel,
+  .editor-workspace.has-inspector.has-graph .local-graph-panel {
+    width: 100%;
+    border-left: 0;
+    box-shadow: none;
   }
 }

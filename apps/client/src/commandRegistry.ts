@@ -38,6 +38,7 @@ export type CommandId =
   | "note.copyPlainText"
   | "note.copyTitle"
   | "note.open"
+  | "note.preview"
   | "note.openSplit"
   | "note.rename"
   | "note.showVersions"
@@ -46,8 +47,10 @@ export type CommandId =
   | "tab.close"
   | "tab.closeOthers"
   | "tab.next"
+  | "tab.pin"
   | "tab.previous"
   | "tab.reopenClosed"
+  | "tab.unpin"
   | "version.copyMarkdown"
   | "version.delete"
   | "version.openNote"
@@ -110,6 +113,8 @@ export type CommandCapability =
   | "newNoteReady"
   | "note"
   | "noteRename"
+  | "pinnedTab"
+  | "previewTab"
   | "redo"
   | "retentionPreview"
   | "root"
@@ -305,6 +310,8 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
   ],
   tab: [
     "note.open",
+    "tab.pin",
+    "tab.unpin",
     "note.openSplit",
     "note.copyTitle",
     "note.rename",
@@ -454,6 +461,10 @@ export const COMMANDS: readonly CommandDefinition[] = [
     palette: false,
     visibleRequires: ["note"],
   }),
+  command("note.preview", "临时预览知识节点", "知识节点", "note", 111, {
+    palette: false,
+    visibleRequires: ["note"],
+  }),
   command("wiki.open", "打开 Wiki 链接目标", "知识节点", "wiki", 112, {
     contexts: ["wiki-link"],
     palette: false,
@@ -573,6 +584,16 @@ export const COMMANDS: readonly CommandDefinition[] = [
     keywords: ["close", "关闭标签"],
     shortcut: shortcut("w", "Ctrl+W"),
     enabledRequires: ["tab"],
+  }),
+  command("tab.pin", "固定当前标签", "标签", "tabs", 181, {
+    contexts: ["tab"],
+    keywords: ["pin", "keep open", "固定", "保留"],
+    visibleRequires: ["previewTab"],
+  }),
+  command("tab.unpin", "转为临时预览标签", "标签", "tabs", 182, {
+    contexts: ["tab"],
+    keywords: ["preview tab", "unpin", "临时", "预览"],
+    visibleRequires: ["pinnedTab"],
   }),
   command("tab.closeOthers", "关闭其他标签", "标签", "tabs", 190, {
     contexts: ["tab"],

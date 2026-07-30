@@ -104,6 +104,18 @@ import {
   type SystemStatus,
 } from "./system";
 import {
+  closeOtherTabsInSession,
+  closeTabInSession,
+  createTabSession,
+  makeTabPreview,
+  openPinnedTab,
+  openPreviewTab,
+  pinTab,
+  reconcileTabSession,
+  remapTabSession,
+  reopenClosedTabInSession,
+} from "./tabModel";
+import {
   applyNativeVersionRetention,
   asWorkspaceFailure,
   cancelNativeAttachmentImport,
@@ -255,10 +267,9 @@ export function App() {
   const [activeNoteId, setActiveNoteId] = useState<string | null>(
     workspace.selectedNoteId,
   );
-  const [openNoteIds, setOpenNoteIds] = useState<readonly string[]>([
-    workspace.selectedNoteId,
-  ]);
-  const [closedNoteIds, setClosedNoteIds] = useState<readonly string[]>([]);
+  const [tabSession, setTabSession] = useState(() =>
+    createTabSession(workspace.selectedNoteId),
+  );
   const [editorMode, setEditorMode] = useState<EditorMode>("edit");
   const [livePreviewEnabled, setLivePreviewEnabled] = useState(
     () => readWorkbenchPreferences().livePreviewEnabled,
@@ -369,6 +380,7 @@ export function App() {
   const selectedNote = workspace.notes.find(
     (note) => note.id === activeNoteId,
   );
+  const { closedNoteIds, openNoteIds, previewNoteId } = tabSession;
   const openNotes = openNoteIds
     .map((id) => workspace.notes.find((note) => note.id === id))
     .filter((note): note is LearningNote => note !== undefined);
@@ -447,8 +459,7 @@ export function App() {
         setNativeRoot(snapshot.rootDisplay);
         setNativeIndex(snapshot.index);
         setActiveNoteId(selected?.id ?? null);
-        setOpenNoteIds(selected === undefined ? [] : [selected.id]);
-        setClosedNoteIds([]);
+        setTabSession(createTabSession(selected?.id ?? null));
         setActiveView(selected?.view ?? "continue");
         setSaveState("saved");
         workspaceReadyRef.current = true;
@@ -1008,21 +1019,29 @@ export function App() {
     }
     const first = notesForView(workspace.notes, view)[0];
     if (first !== undefined) {
-      activateNote(first);
+      activateNote(first, "preview");
     }
   }
 
-  function activateNote(note: LearningNote) {
+  function selectNote(note: LearningNote) {
     setActiveNoteId(note.id);
-    setOpenNoteIds((current) =>
-      current.includes(note.id) ? current : [...current, note.id],
-    );
-    setClosedNoteIds((current) => current.filter((id) => id !== note.id));
     setWorkspace((current) => ({
       ...current,
       selectedNoteId: note.id,
     }));
     setActiveView(note.view);
+  }
+
+  function activateNote(
+    note: LearningNote,
+    disposition: "pinned" | "preview" = "pinned",
+  ) {
+    setTabSession((current) =>
+      disposition === "preview"
+        ? openPreviewTab(current, note.id)
+        : openPinnedTab(current, note.id),
+    );
+    selectNote(note);
   }
 
   function openBacklink(reference: NativeBacklinkReference) {
@@ -1035,7 +1054,7 @@ export function App() {
       );
       return;
     }
-    activateNote(source);
+    activateNote(source, "preview");
     setEditorMode("edit");
     window.setTimeout(() => {
       editorRef.current?.revealOffset(
@@ -1055,7 +1074,7 @@ export function App() {
       );
       return;
     }
-    activateNote(note);
+    activateNote(note, "preview");
   }
 
   async function openWikiTarget(
@@ -1114,7 +1133,7 @@ export function App() {
       } else {
         setPendingWikiNavigation(null);
       }
-      activateNote(target);
+      activateNote(target, "preview");
       setToast(
         resolution.heading === null
           ? `已打开知识节点“${target.title}”。`
@@ -1328,6 +1347,7 @@ export function App() {
     if (selectedNote === undefined) {
       return;
     }
+    setTabSession((current) => pinTab(current, selectedNote.id));
     latestMarkdownRef.current.set(selectedNote.id, markdown);
     if (nativeRuntime) {
       setSaveState("dirty");
@@ -1415,12 +1435,7 @@ export function App() {
       notes: [note, ...current.notes],
       selectedNoteId: note.id,
     }));
-    setActiveNoteId(note.id);
-    setOpenNoteIds((current) =>
-      current.includes(note.id) ? current : [...current, note.id],
-    );
-    setClosedNoteIds((current) => current.filter((id) => id !== note.id));
-    setActiveView("experiments");
+    activateNote(note);
     setEditorMode("split");
     setQuery("");
     setToast("UUID 交互实验已创建；左侧可编辑，右侧会实时运行。");
@@ -1455,10 +1470,7 @@ export function App() {
       notes: [note, ...current.notes],
       selectedNoteId: note.id,
     }));
-    setActiveNoteId(note.id);
-    setOpenNoteIds((current) => [...current, note.id]);
-    setClosedNoteIds((current) => current.filter((id) => id !== note.id));
-    setActiveView(note.view);
+    activateNote(note);
     setIsNewNoteOpen(false);
     setToast(
       `已创建“${note.title}”的浏览器预览数据；没有生成桌面端文件。`,
@@ -1477,12 +1489,7 @@ export function App() {
       ],
       selectedNoteId: note.id,
     }));
-    setActiveNoteId(note.id);
-    setOpenNoteIds((current) =>
-      current.includes(note.id) ? current : [...current, note.id],
-    );
-    setClosedNoteIds((current) => current.filter((id) => id !== note.id));
-    setActiveView(note.view);
+    activateNote(note);
     setQuery("");
     setSaveState("saved");
     setNativeRelationEpoch((epoch) => epoch + 1);
@@ -1636,19 +1643,11 @@ export function App() {
         (note) => note.id === nextActiveId,
       );
       setActiveView(nextActive?.view ?? "continue");
-      setOpenNoteIds((current) => {
-        const retained = current.filter((id) =>
-          merged.workspace.notes.some((note) => note.id === id),
-        );
-        const selected = merged.workspace.selectedNoteId;
-        return selected.length > 0 && !retained.includes(selected)
-          ? [...retained, selected]
-          : retained;
-      });
-      setClosedNoteIds((current) =>
-        current.filter((id) =>
-          merged.workspace.notes.some((note) => note.id === id),
-        ),
+      const validNoteIds = new Set(
+        merged.workspace.notes.map((note) => note.id),
+      );
+      setTabSession((current) =>
+        reconcileTabSession(current, validNoteIds, nextActiveId),
       );
 
       if (remainingChanges.length === 0) {
@@ -1761,16 +1760,19 @@ export function App() {
       setNativeIndex(snapshot.index);
       setNativeRelationEpoch((epoch) => epoch + 1);
       setActiveNoteId(selectedNoteId || null);
-      setOpenNoteIds((current) => {
-        const retained = current.filter((id) => diskIds.has(id));
-        const recoveredOpenIds = current.flatMap((id) => {
-          const recoveryId = recoveredIds.get(id);
-          return recoveryId === undefined ? [] : [recoveryId];
-        });
-        return [...new Set([...retained, ...recoveredOpenIds, selectedNoteId])]
-          .filter((id) => id.length > 0);
-      });
-      setClosedNoteIds((current) => current.filter((id) => diskIds.has(id)));
+      setTabSession((current) =>
+        remapTabSession(
+          current,
+          (id) => {
+            if (diskIds.has(id)) {
+              return id;
+            }
+            return recoveredIds.get(id) ?? null;
+          },
+          diskIds,
+          selectedNoteId || null,
+        ),
+      );
       const selected = nextWorkspace.notes.find(
         (note) => note.id === selectedNoteId,
       );
@@ -2098,14 +2100,7 @@ export function App() {
         ),
         selectedNoteId: note.id,
       }));
-      setActiveNoteId(note.id);
-      setOpenNoteIds((current) =>
-        current.includes(note.id) ? current : [...current, note.id],
-      );
-      setClosedNoteIds((current) =>
-        current.filter((candidate) => candidate !== note.id),
-      );
-      setActiveView(restoredNote.view);
+      activateNote(restoredNote);
       setSaveState("saved");
 
       try {
@@ -2499,8 +2494,7 @@ export function App() {
     const initial = createInitialWorkspace();
     setWorkspace(initial);
     setActiveNoteId(initial.selectedNoteId);
-    setOpenNoteIds([initial.selectedNoteId]);
-    setClosedNoteIds([]);
+    setTabSession(createTabSession(initial.selectedNoteId));
     setActiveView("continue");
     setEditorMode("edit");
     setQuery("");
@@ -2512,12 +2506,9 @@ export function App() {
     if (index < 0) {
       return;
     }
-    const remaining = openNoteIds.filter((id) => id !== noteId);
-    setOpenNoteIds(remaining);
-    setClosedNoteIds((current) => [
-      noteId,
-      ...current.filter((id) => id !== noteId),
-    ].slice(0, 20));
+    const nextSession = closeTabInSession(tabSession, noteId);
+    const remaining = nextSession.openNoteIds;
+    setTabSession(nextSession);
     if (activeNoteId !== noteId) {
       return;
     }
@@ -2525,11 +2516,7 @@ export function App() {
     setActiveNoteId(nextId);
     const next = workspace.notes.find((note) => note.id === nextId);
     if (next !== undefined) {
-      setWorkspace((current) => ({
-        ...current,
-        selectedNoteId: next.id,
-      }));
-      setActiveView(next.view);
+      selectNote(next);
     }
   }
 
@@ -2548,13 +2535,19 @@ export function App() {
   }
 
   function closeOtherTabs(note: LearningNote) {
-    const closed = openNoteIds.filter((id) => id !== note.id);
-    activateNote(note);
-    setOpenNoteIds([note.id]);
-    setClosedNoteIds((current) => [
-      ...closed,
-      ...current.filter((id) => id !== note.id && !closed.includes(id)),
-    ].slice(0, 20));
+    setTabSession((current) => closeOtherTabsInSession(current, note.id));
+    selectNote(note);
+  }
+
+  function pinOpenTab(note: LearningNote) {
+    setTabSession((current) => pinTab(current, note.id));
+    setToast(`已固定“${note.title}”；浏览其他节点时不会替换它。`);
+  }
+
+  function makeOpenTabPreview(note: LearningNote) {
+    setTabSession((current) => makeTabPreview(current, note.id));
+    selectNote(note);
+    setToast(`“${note.title}”已转为临时预览；下次浏览会复用这个位置。`);
   }
 
   function openVersionsFor(note: LearningNote) {
@@ -2568,13 +2561,16 @@ export function App() {
   }
 
   function reopenClosedTab() {
-    const id = closedNoteIds[0];
-    const note = workspace.notes.find((item) => item.id === id);
+    const reopened = reopenClosedTabInSession(
+      tabSession,
+      new Set(workspace.notes.map((note) => note.id)),
+    );
+    setTabSession(reopened.session);
+    const note = workspace.notes.find((item) => item.id === reopened.noteId);
     if (note === undefined) {
       return;
     }
-    setClosedNoteIds((current) => current.slice(1));
-    activateNote(note);
+    selectNote(note);
   }
 
   function cycleTab(direction: 1 | -1) {
@@ -2588,7 +2584,7 @@ export function App() {
       (item) => item.id === openNoteIds[nextIndex],
     );
     if (note !== undefined) {
-      activateNote(note);
+      selectNote(note);
     }
   }
 
@@ -2705,6 +2701,11 @@ export function App() {
       target.noteId !== undefined
     ) {
       capabilities.add("tab");
+    }
+    if (note !== undefined && openNoteIds.includes(note.id)) {
+      capabilities.add(
+        previewNoteId === note.id ? "previewTab" : "pinnedTab",
+      );
     }
     if (backupState === "idle") {
       capabilities.add("backupIdle");
@@ -2851,6 +2852,12 @@ export function App() {
           setQuery("");
         }
         return;
+      case "note.preview":
+        if (note !== undefined) {
+          activateNote(note, "preview");
+          setQuery("");
+        }
+        return;
       case "wiki.open":
         if (note !== undefined && target.rawWikiTarget !== undefined) {
           void openWikiTarget(target.rawWikiTarget, note.id);
@@ -2980,6 +2987,16 @@ export function App() {
           closeActiveTab();
         } else {
           closeTab(target.noteId);
+        }
+        return;
+      case "tab.pin":
+        if (note !== undefined) {
+          pinOpenTab(note);
+        }
+        return;
+      case "tab.unpin":
+        if (note !== undefined) {
+          makeOpenTabPreview(note);
         }
         return;
       case "tab.closeOthers":
@@ -3569,7 +3586,11 @@ export function App() {
               data-context="note-item"
               data-note-id={note.id}
               key={note.id}
-              onClick={() => runCommand("note.open", { noteId: note.id })}
+              onClick={() => runCommand("note.preview", { noteId: note.id })}
+              onDoubleClick={() =>
+                runCommand("note.open", { noteId: note.id })
+              }
+              title="单击临时预览，双击固定标签"
               type="button"
             >
               <span>{note.title}</span>
@@ -3804,18 +3825,37 @@ export function App() {
           ) : (
             openNotes.map((note) => (
               <div
-                className={note.id === activeNoteId ? "is-active" : ""}
+                className={`${note.id === activeNoteId ? "is-active" : ""}${
+                  note.id === previewNoteId ? " is-preview" : ""
+                }`}
                 data-context="tab"
                 data-note-id={note.id}
+                data-tab-kind={
+                  note.id === previewNoteId ? "preview" : "pinned"
+                }
                 key={note.id}
               >
                 <button
+                  aria-label={
+                    note.id === previewNoteId
+                      ? `临时预览 ${note.title}，双击固定`
+                      : note.title
+                  }
                   aria-selected={note.id === activeNoteId}
                   className="tab-main"
-                  onClick={() => runCommand("note.open", { noteId: note.id })}
+                  onClick={() =>
+                    runCommand("note.preview", { noteId: note.id })
+                  }
+                  onDoubleClick={() =>
+                    runCommand("tab.pin", { noteId: note.id })
+                  }
                   role="tab"
                   tabIndex={note.id === activeNoteId ? 0 : -1}
-                  title={note.title}
+                  title={
+                    note.id === previewNoteId
+                      ? `${note.title} · 临时预览，双击固定`
+                      : note.title
+                  }
                   type="button"
                 >
                   <span>#</span>
@@ -5324,6 +5364,10 @@ function contextCommandTitle(
       return "重做";
     case "note.open":
       return note === undefined ? command.title : `打开“${note.title}”`;
+    case "tab.pin":
+      return "固定标签，不再被临时预览替换";
+    case "tab.unpin":
+      return "转为临时预览标签";
     case "wiki.open":
       return "解析并打开目标";
     case "wiki.copyTarget":
@@ -5401,6 +5445,7 @@ function commandIcon(id: CommandId) {
     case "note.copyLearningPrompt":
       return Sparkles;
     case "note.open":
+    case "note.preview":
     case "version.openNote":
     case "view.preview":
     case "wiki.open":
@@ -5424,6 +5469,8 @@ function commandIcon(id: CommandId) {
     case "version.save":
       return GitBranch;
     case "retention.apply":
+    case "tab.pin":
+    case "tab.unpin":
     case "version.toggleCheckpoint":
       return Bookmark;
     case "retention.preview":
