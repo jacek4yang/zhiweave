@@ -241,3 +241,9 @@ schema v1→v2 在事务中新增 nullable `wiki_revision` 和严格 `wiki_edge`
 IPC 对外标明 `sourceByteStart/sourceByteEnd`，防止把 Rust UTF-8 byte offset 误当成 JavaScript
 UTF-16 position。客户端在打开来源时执行受测转换再交给 CodeMirror。右侧关系检查器仅在
 Tauri + ready index 能力下出现；浏览器 UI 预览不得用前端正则或演示数据冒充生产关系。
+
+同一 resolver 也通过 `ResolveWikiTargetRequest` 提供正向读取：输入只有稳定来源 ID 与 authored
+target，输出是 `resolved/missing/ambiguous`、可选稳定目标元数据和 heading。阅读视图直接单击，
+Live Preview 用 `Ctrl/Cmd+单击` 避免破坏插入点；heading 再由共享 mdast 大纲位置定位。
+missing/ambiguous 失败关闭，不创建文件、不回退猜测。Wiki DOM 使用独立 `wiki-link` command
+scope，右键菜单不继承整个预览区的通用操作；浏览器预览只允许复制 target，不显示原生打开。

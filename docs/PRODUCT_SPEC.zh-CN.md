@@ -53,7 +53,8 @@ RC 必须至少包含真实 Markdown 文件、原子保存、SQLite/FTS 索引�
 `v0.1.1` 仍是 alpha 尖峰，不可用于唯一一份真实敏感数据。Windows 原生端已使用真实 Markdown、
 冲突安全原子保存、隐藏稳定 ID、可重建 SQLite/FTS、文件 watcher/外部冲突中心，以及可校验的
 内容寻址版本 DAG、命名检查点、保留预览、完整本机工作区备份/重启恢复和 source-preserving
-Markdown AST 安全阅读器，以及从 Markdown 可重建、按稳定节点查询的 Wiki 反向链接；
-浏览器模式仍只是明确标识的 UI 预览。Wiki 正向打开/附件解析、外部备份导入器、客户端密码
+Markdown AST 安全阅读器，以及从 Markdown 可重建、按稳定节点查询并失败关闭的 Wiki 双向导航；
+浏览器模式仍只是明确标识的 UI 预览。missing 目标的显式创建、附件解析、局部图谱、外部备份
+导入器、客户端密码
 加密同步、10,000 篇启动预算验证、跨设备恢复演练或 Android 文件系统验收尚未完成，因此
 不能称为 RC 或完整长期数据保证。

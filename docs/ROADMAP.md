@@ -50,8 +50,8 @@ Workspace 打开 → Markdown 列表 → 原子保存 → expected revision 冲�
 - [进行中] Lezer/mdast 语义适配与 Typora 式 Live Preview：标题/行内/任务/Callout、数学、
   图片安全占位、脚注、闭合 fence、composition 停用和全选区揭示已完成；真实 IME/Android
   与点击交互验收待完成。
-- [进行中] mdast offset 驱动的大纲 UI 与稳定 ID Wiki 反向链接已完成；Wiki 正向打开、附件、
-  导出与版本语义 diff 待完成。
+- [进行中] mdast offset 驱动的大纲 UI、稳定 ID Wiki 反向链接与权威正向打开已完成；
+  missing 目标的显式创建、真实附件、局部图谱、导出与版本语义 diff 待完成。
 - [ ] Language Registry、Tier 1 动态 grammar、缓存、折叠、高亮行和未知语言回退。
 
 ## 阶段 5–8：知识与学习

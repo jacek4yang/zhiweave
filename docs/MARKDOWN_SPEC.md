@@ -27,11 +27,11 @@ UTF-8 Markdown source
 Setext H1 标题识别和可交互大纲使用明确适配器。CodeMirror 的 Lezer 树负责输入期增量解析，
 新增 frontmatter、Wiki Link/嵌入、数学、脚注和保真指令块节点。Live Preview Decoration
 现覆盖标题、强调、链接、Wiki、行内代码、任务、Callout、数学、图片安全占位、脚注和闭合
-代码围栏；Wiki、公式与脚注长度以及 Callout 名称映射由小型共享契约约束。原生反向链接已由
-共享 Rust Markdown 扫描器产生可重建关系边，真实附件目标、版本差异和导出尚未全部接入同一
+代码围栏；Wiki、公式与脚注长度以及 Callout 名称映射由小型共享契约约束。原生双向 Wiki
+导航复用 Rust 权威 resolver 与可重建关系边，真实附件目标、版本差异和导出尚未全部接入同一
 范围契约。
 
-## Wiki 关系与反向链接
+## Wiki 关系、正向打开与反向链接
 
 - 支持 `[[target]]`、`[[target|alias]]` 与 `![[target]]`；索引只读取，不改写原始 Markdown。
 - YAML frontmatter、fenced/indented code、跨行 inline code、HTML comment、转义标记、嵌套/
@@ -43,6 +43,12 @@ Setext H1 标题识别和可交互大纲使用明确适配器。CodeMirror 的 L
   stem；带目录的引用不得回退为标题。`[[#heading]]` 只指向当前稳定节点。
 - 大小写折叠后的多个 path、H1 或 stem 候选一律标记为 ambiguous，不猜测其中一个。缺失目标
   保持 missing；后续创建、重命名、删除或全量快照会重新解析。
+- 正向打开只向 Rust 传入稳定来源 ID 与 authored target；返回 `resolved/missing/ambiguous`、
+  稳定目标身份及可选 heading fragment。前端不得另写正则、目录距离或“最接近标题”规则。
+- 原生阅读视图单击 Wiki Link/嵌入占位可打开目标；Live Preview 使用 VS Code 风格
+  `Ctrl/Cmd+单击`，普通单击仍保留光标编辑。heading 通过共享 mdast 大纲 offset 定位。
+- missing 只显示明确诊断，不隐式新建文件；ambiguous 提示改用完整 Markdown path。两者都不
+  跳到猜测节点。Wiki 元素右键只显示“解析并打开目标”和“复制目标文本”等对象命令。
 - `wiki_edge` 是 SQLite schema v2 的派生表。删除或显式重建索引后必须从 Markdown 与
   identity 得到相同已解析关系；正文不进入只能由关系表恢复的状态。
 
@@ -70,7 +76,7 @@ Setext H1 标题识别和可交互大纲使用明确适配器。CodeMirror 的 L
 | --- | --- |
 | 标题、段落、强调、删除线、任务/嵌套列表、引用、表格、脚注 | 语义 HTML 渲染 |
 | YAML frontmatter | 默认折叠的只读源码面板 |
-| Wiki Link / 嵌入 / 图片 | 阅读视图显示安全占位；原生索引解析 Wiki 目标和反向链接，但尚不主动加载附件资源 |
+| Wiki Link / 嵌入 / 图片 | 原生阅读视图可经 Rust resolver 打开知识节点与 heading；浏览器预览保持无原生跳转的安全占位，附件资源仍不主动加载 |
 | 普通链接 | 仅 `http`、`https`、`mailto` 可点击，并使用新窗口与 `noopener noreferrer` |
 | fenced code | 显示语言、title、高亮行元数据和精确源码复制；不执行 |
 | 行内/块数学 | 按需加载 KaTeX，`trust=false`；可复制块公式源码 |
@@ -96,7 +102,7 @@ Corpus 至少覆盖 CommonMark 官方示例、GFM、深层列表、表格、脚�
 
 - Live Preview 已覆盖数学、图片安全占位、脚注和闭合 fence；光标进入任一结构时恢复完整源码，
   composition 期间停止结构替换，未知/截断指令块与未闭合公式/围栏保持原文；
-- 阅读视图中的 Wiki/附件仍是安全占位；稳定 ID 反向链接已接入，正向打开、附件解析与局部图谱
+- Wiki 正向打开与稳定 ID 反向链接已接入；missing 的显式新建流程、真实附件解析和局部图谱
   尚未完成；
 - Mermaid、Graphviz、导出、版本语义 diff 和 Corpus snapshot/fuzz 尚未完成；
 - 远程图片默认不加载；后续必须经过工作区资源策略与隐私提示，不能直接恢复任意 `src`；

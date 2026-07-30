@@ -1,6 +1,6 @@
 # 开发进度
 
-最后更新：2026-07-30 09:04 CST
+最后更新：2026-07-30 09:46 CST
 
 ## 执行拓扑
 
@@ -100,24 +100,34 @@
   转换成 CodeMirror UTF-16 position 再定位。
 - 关系检查器与大纲互斥、可关闭并持久化界面偏好；面板空白与具体来源 occurrence 使用不同
   右键上下文，来源项的命令始终作用于来源知识节点。
+- application、storage、Tauri 与 TypeScript 新增统一 Wiki 正向 resolver：只接受稳定来源 ID
+  和有界 authored target，返回 `resolved/missing/ambiguous`、稳定目标元数据与可选 heading；
+  精确路径优先，带路径引用不回退标题，同名歧义和缺失目标绝不猜测或隐式创建。
+- 阅读模式中可解析 Wiki 为可聚焦按钮；编辑器沿用 VS Code 语义，只在 `Ctrl/Cmd+单击` 时按
+  Lezer Wiki 节点打开，普通单击继续编辑。目标 heading 使用共享 mdast outline offset 定位。
+- Wiki Link 右键上下文已独立为 `wiki-link`：原生只提供“解析并打开目标”和“复制目标文本”，
+  浏览器预览只提供复制。missing/ambiguous 通过明确提示失败关闭。
+- 正向导航和 heading 定位按需分包；长行在 Live Preview 中换行，不再因窗口或检查器宽度造成
+  内容看似消失。浏览器预览没有原生 resolver 时仍显示完整惰性 Wiki 文本。
 
 ## 当前质量证据
 
 - `pnpm typecheck`：通过。
 - `pnpm lint`：通过。
-- `pnpm test`：9 files / 49 tests，通过。
-- `pnpm build`：通过，最近一次约 513 ms。
+- `pnpm test`：10 files / 53 tests，通过。
+- `pnpm build`：通过。
 - 交互实验独立 chunk：5.99 KB（gzip 2.46 KB）。
-- Markdown 阅读器 / AST 独立 chunk：11.18 / 92.24 KB（gzip 3.92 / 26.02 KB）。
+- Markdown 阅读器 / AST 独立 chunk：12.21 / 92.24 KB（gzip 4.05 / 26.02 KB）。
 - 文档大纲独立 chunk：1.16 KB（gzip 0.67 KB）。
 - 反向链接检查器独立 chunk：2.71 KB（gzip 1.26 KB）。
+- Wiki heading 导航独立 chunk：0.34 KB（gzip 0.26 KB）。
 - KaTeX/mathRenderer 独立 chunk：259.23 KB（gzip 77.61 KB），只在公式出现时加载。
-- 主 CSS：57.99 KB（gzip 10.70 KB）。
-- 主 JavaScript：937.15 KB（gzip 311.35 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
-- Rust workspace 55 项测试通过，其中 application 4 项、Tauri 4 项、storage 33 项、
+- 主 CSS：58.46 KB（gzip 10.78 KB）。
+- 主 JavaScript：941.06 KB（gzip 312.66 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
+- Rust workspace 56 项测试通过，其中 application 4 项、Tauri 4 项、storage 34 项、
   Markdown 7 项、portable path 5 项；fmt 和全 workspace Clippy `-D warnings` 通过。
 - `pnpm audit --prod --audit-level high`：无已知漏洞；`cargo audit --no-fetch --stale` 扫描 471 个 lockfile 依赖，无已知 vulnerability，17 项既有 allowed warning。
-- `pnpm tauri build` 在当前 Windows 电脑通过，生成 5,853,184 B MSI 与 4,438,364 B NSIS；
+- `pnpm tauri build` 在当前 Windows 电脑通过，生成 5,877,760 B MSI 与 4,451,887 B NSIS；
   两个 SHA-256 已写入 `TEST_PLAN.md`，构建产物保持在忽略的 `target/`。
 - Windows 原生进程：`知织 · ZhiWeave` 正常运行；固定工作区有 6 个真实 Markdown、identity v1 的 6 个唯一 ID/路径和有效 SQLite 3 数据库。
 - 共享 Markdown AST 功能提交 `27bf009` 已推送；GitHub CI run `30497652526` 的 Frontend 与
@@ -156,6 +166,12 @@
   非空关系由 storage/Tauri 临时工作区集成测试验证。
 - Wiki 反向链接功能与验证记录 `cb70abe`/`d9e2fa3` 已通过 Linux 上传中继推送；GitHub CI
   run `30504384326` 的 Frontend（20 s）与 Rust（3 min 19 s）全部通过。
+- Wiki 正向导航功能提交 `4ee24cf` 已在 Windows 完成全质量门：10 个前端文件/53 项测试、
+  Rust workspace 56 项测试、fmt、Clippy、生产构建、依赖审计和 Tauri 安装包均通过。
+- Windows 原生只读验证确认：当前用户工作区的 `#下一步` 自引用可解析并定位 heading，缺失目标
+  返回 missing；内存临时 Wiki DOM 右键只出现对应两项命令，未保存、注入或改写用户 Markdown。
+- 1942×1214 物理像素原生截图与 WebView2 DOM 核对确认 1280×800 CSS viewport、24 px 状态栏、
+  编辑器和长正文完整显示。当前用户工作区只有一篇既有 welcome 笔记，未伪造跨节点链接。
 - 本轮应用内浏览器在本地导航和 DOM 读取阶段连续超时，未把反向链接浏览器点击/E2E 标记为
   通过；浏览器预览按能力边界也不会伪造 SQLite 关系。
 - Live Preview 性能回归：2 MiB 窄视口约 322 ms；10,000 行 fence 可见 24 行用例约 9 ms。
@@ -165,9 +181,9 @@
 
 ## 当前任务
 
-1. 提交并通过 Linux 中继推送本次 CI 记录。
-2. 下一纵切完成 Wiki 正向目标解析/打开、missing/ambiguous 诊断和阅读/编辑一致交互，再连接
-   真实附件解析；不得在前端另写正则或伪造浏览器关系。
+1. 提交本轮规范、Windows 证据和截图，并仅通过 Linux 中继推送后核对 GitHub CI。
+2. 下一纵切实现 missing 目标的显式创建确认与真实附件 resolver/安全嵌入；不得把 target 当
+   路径、URL 或活动资源直接加载，也不得在浏览器预览中伪造原生能力。
 3. 为扩展后的 Live Preview 补真实 Windows 光标/IME/多光标、点击回源码与窄屏验收。
 4. 扩展 Markdown Corpus、局部输入 P95/深层/恶意输入以及 10,000/100,000 节点关系基准。
 5. 增加快捷键编辑器、预览标签和移动触控入口。
@@ -182,19 +198,20 @@
 - 外部“改名同时改正文”无法仅凭 revision 自动识别为同一节点；应用内显式重命名可以稳定保持身份。
 - watcher 只保证“事件后完整核对”，不保证底层平台一定投递事件；网络文件系统不在当前固定本机工作区支持范围，高频事件压力和进程休眠恢复仍需基准。
 - create 的空占位后若进程强杀可能留下空 Markdown，自动恢复日志未完成。
-- 通用阅读器、Lezer Decoration、大纲和 Rust 反向关系已按显式 source offset 契约对齐；
-  Wiki 正向打开、真实附件、导出和版本差异尚未统一完成。Rust/JavaScript 的 Unicode
+- 通用阅读器、Lezer Decoration、大纲与 Rust Wiki 双向解析已按显式 source offset 契约对齐；
+  missing 目标的显式创建、真实附件、局部图谱、导出和版本差异尚未统一完成。Rust/JavaScript 的 Unicode
   归一化跨平台一致性及 10,000/100,000 节点关系性能仍需基准。
 - 首屏 JS gzip 超预算 111.35 KB；CodeMirror/图标/工作台和命令面板需进一步分包和测量。
 - KaTeX 虽按需加载，但构建仍携带上游 WOFF2/WOFF/TTF 多格式字体，安装包资产需要收敛。
 - 已有可校验完整工作区目录包和重启前目录切换恢复，但尚无系统文件选择器导入、跨设备恢复演练、备份加密或同步加密；本地 SQLite 与备份包目前未加密，不得宣称客户端密码保护已完成。
-- Command registry/命令面板与原生反向链接第一纵切已完成，但快捷键编辑器、完整树/属性、
-  正向 Wiki/局部图谱、FSRS 与深度学习 schema 尚未完成。
-- 当前垂直切片已发布到 Draft PR 且功能/验证提交 CI 通过；根目录 `AGENTS.md` 仍是用户未跟踪
-  文件，严禁暂存。
+- Command registry/命令面板与原生 Wiki 双向导航第一纵切已完成，但快捷键编辑器、完整树/属性、
+  missing 创建/局部图谱、FSRS 与深度学习 schema 尚未完成。
+- 上一垂直切片已发布到 Draft PR 且 CI 通过；本轮正向导航待 Linux 中继推送与 CI。根目录
+  `AGENTS.md` 仍是用户未跟踪文件，严禁暂存。
 
 ## 当前截图
 
 - [Windows 工作台 1280×720](./baseline/workbench-windows-1280x720.png)
 - [窄屏工作台 390×844](./baseline/workbench-narrow-390x844.png)
 - [Windows 原生反向链接检查器 2560×1368](./baseline/backlinks-windows-2560x1368.png)
+- [Windows 原生 Wiki 正向导航基线 1942×1214](./baseline/wiki-forward-navigation-windows.png)

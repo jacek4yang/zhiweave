@@ -36,6 +36,9 @@
 - Wiki 关系混淆/资源滥用：只扫描 Markdown 正文安全范围，target/alias 有 500 字符上限；
   path/H1/stem 多候选保留 ambiguous，不用目录距离或排序猜测；反向链接参数绑定且最多返回
   200 个 occurrence。
+- Wiki 正向打开：IPC 只接受当前固定工作区内的稳定来源 ID 与最多 500 Unicode scalar 的
+  单行 target；Rust 返回三态结果和固定根内的 portable path。unknown source、控制字符、
+  超限或空 target 结构化拒绝，浏览器预览不伪造原生 resolver。
 - 文件事件欺骗/丢失：watcher 事件仅作为无路径唤醒信号，不直接修改 UI 状态；每次由固定根
   `WorkspacePort` 重新读取、验证并比较完整快照。平台错误、空路径和 `Rescan` 都按可能漏报处理。
 
@@ -50,6 +53,9 @@
 - 稳定 ID 位于 `.zhiweave/identity.json`，不写普通笔记；SQLite 只保存可删除的本机派生副本。
 - Wiki occurrence 只保存派生 link/embed、原始 target、有界上下文和来源范围；YAML、代码、
   HTML comment、转义/畸形语法不进入关系表，删除 SQLite 后可从 Markdown 重建。
+- Wiki 点击不会把 authored target 当作系统路径、URL 或 shell 参数；resolved 结果必须先映射
+  回当前稳定工作区快照。missing/ambiguous 不打开任何节点，heading 只在既有 Markdown AST
+  中查找并滚动，不执行内容。
 - 显式索引重建先完整生成/校验候选库，再保存旧数据库到 recovery；失败不会修改 Markdown。
 - 应用内移动采用目标 `create_new`、完整写入/sync/校验、源 revision 复查、最后删源；目的地
   存在时失败，不使用平台相关的覆盖式 rename。
