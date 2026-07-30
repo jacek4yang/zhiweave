@@ -15,8 +15,9 @@
 - 工作目录：`%USERPROFILE%\Desktop\Projects\zhiweave`
 - 分支：`agent/professional-workbench`
 - Draft PR：[jacek4yang/zhiweave#1](https://github.com/jacek4yang/zhiweave/pull/1)
-- 最新本地功能提交：`a9fa6c6 Add resizable workbench panels`；验证文档待本轮提交和 Linux
-  一次性裸仓库中继上传。
+- 最新已发布功能提交：`a9fa6c6 Add resizable workbench panels`；验证文档提交
+  `962ce3d Document resizable panel validation`，均已通过 Linux 一次性裸仓库中继上传。
+- GitHub CI run `30527471482`：Frontend 与 Rust 全部通过。
 - 最新已发布功能提交：`2051f85 Add customizable shortcut editor`；标题栏权限修复
   `5238a81 Fix custom titlebar window controls`；验证文档提交 `e9aac5b Document shortcut
   editor validation`。都已通过 Linux 一次性裸仓库中继上传。
@@ -357,5 +358,5 @@ resolver 每次全局变化仍构造全部候选映射，缺少 10,000/
 - 下一条精确任务：在隔离输入焦点下完成物理微软拼音候选窗与点击回源码验收，再进入 Android
   软键盘；持续排除用户未跟踪的 `AGENTS.md`。
 - 恢复步骤：进入 `%USERPROFILE%\Desktop\Projects\zhiweave`，核对分支
-  `agent/professional-workbench`、最新提交和 `AGENTS.md` 排除；本轮面板提交上传和 CI 完成后，
+  `agent/professional-workbench`、最新提交和 `AGENTS.md` 排除；CI run `30527471482` 已通过，
   从物理候选窗/点击回源码、面板停靠位置或关系大数据基准开始。
