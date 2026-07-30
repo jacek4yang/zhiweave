@@ -61,7 +61,10 @@
   反向链接和显式索引重建；根目录固定，命令没有任意根路径、SQL、shell 或网络能力。
 - `PortablePath` 在 Rust 反序列化入口再次验证，不能由前端绕过；文件遍历逐段拒绝符号链接并校验 canonical root。
 - 正文使用同目录原子替换，精确字节 SHA-256 expected revision 阻止常规外部修改覆盖；成功后回读校验。
-- 浏览器 `localStorage` 只保留明确标识的 UI 预览数据。原生端启动后从 Markdown 文件加载正文，不把正文写入 WebView `localStorage`。
+- 浏览器 `localStorage` 只保留明确标识的 UI 预览数据。原生端启动后从 Markdown 文件加载
+  正文，不把正文写入 WebView `localStorage`。独立工作台 v2 只保存最多 50 个打开 ID、
+  20 个关闭 ID 和有限 UI 枚举；控制字符、过长 ID、损坏/未来 schema 失败关闭，永不保存
+  Markdown、未保存缓冲、revision、路径、工作区根、附件、SQLite 或版本 DAG。
 - 冲突不覆盖，编辑器内容先恢复为独立 Markdown 文件后才重新载入外部版本。
 - 稳定 ID 位于 `.zhiweave/identity.json`，不写普通笔记；SQLite 只保存可删除的本机派生副本。
 - Wiki occurrence 只保存派生 link/embed、原始 target、有界上下文和来源范围；YAML、代码、

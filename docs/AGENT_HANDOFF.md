@@ -1,6 +1,6 @@
 # Agent 交接
 
-最近更新：2026-07-30 13:45 CST
+最近更新：2026-07-30 14:30 CST
 
 ## 不可改变的用户约束
 
@@ -15,6 +15,8 @@
 - 工作目录：`%USERPROFILE%\Desktop\Projects\zhiweave`
 - 分支：`agent/professional-workbench`
 - Draft PR：[jacek4yang/zhiweave#1](https://github.com/jacek4yang/zhiweave/pull/1)
+- 最新本地功能提交：`7955800 Restore workbench sessions across restarts`；本节质量门已在
+  Windows 完成，尚待本轮 Linux 一次性中继上传与 PR CI。
 - 最新已发布功能提交：`1b203f1 Add preview and pinned tab sessions`；验证文档提交
   `4b4fbca Record tab session validation`；都已通过 Linux 一次性裸仓库中继上传。
 - GitHub CI run `30517970089`：Frontend 与 Rust 全部通过。
@@ -208,21 +210,37 @@ SQLite/稳定身份稳定切片增加：
 - `tab.pin` / `tab.unpin` 进入同一 command registry。标签对象菜单和命令面板按 capability
   只展示与当前状态相反的动作；预览标题同时用 accessible name 和柔和斜体下划线表达；
 - 外部快照、删除和 recovery 按稳定 ID 协调/重映射会话，清除悬空预览；会话状态不进入
-  Markdown、identity、SQLite 或版本 DAG，跨进程布局恢复仍待单独实现；
+  Markdown、identity、SQLite 或版本 DAG，并已由独立 v2 UI 会话跨进程恢复；
 - ≤480 px 的大纲、反向链接和图谱改为完整正文宽度覆盖层，避免留下看似被裁切的正文窄条；
 - 应用内浏览器与 Windows Tauri WebView2 均通过预览→固定→替换和状态相关右键验收。原生验收
   前后 6 篇 Markdown/1004 B 和 1171 B identity 摘要完全一致。
 
+当前工作台会话恢复切片增加：
+
+- `workbenchPreferences.ts` 提供 v2 schema、v1 迁移、严格解析/序列化和启动恢复；只保存活动
+  稳定 ID、编辑模式、实时语法、桌面侧栏意图、唯一检查器、版本视图与标签会话；
+- 打开标签最多 50 个、关闭历史最多 20 个，ID 最长 200 字符并拒绝控制字符；去重后与当前
+  Rust 快照有效 ID 求交，预览必须属于打开集合，活动节点有效时确保打开；
+- 明确关闭全部标签的空会话保持为空；全部旧打开 ID 失效时才回退当前 Markdown 快照选择；
+  原生异步快照 ready 前禁止写回，避免演示占位 ID 覆盖真实会话；
+- 390×844 启动强制隐藏侧栏但不修改桌面侧栏意图；回到 1280×800 后恢复。浏览器不恢复原生
+  专属反向链接/图谱检查器；
+- v2 不含 Markdown、CodeMirror state、revision、portable path、root、附件、SQLite 或版本
+  DAG；原生测试态记录仅 366 B/8 字段。
+
 ## 最近验证
 
-- 当前标签差异通过 typecheck、13 files / 71 tests 和 production build；图谱独立
-  5.13 KB（gzip 2.42 KB），主 JS 约 961.46 KB（gzip 318.01 KB），仍触发体积警告。
+- 当前差异通过 typecheck、14 files / 80 tests 和 production build；图谱独立
+  5.13 KB（gzip 2.42 KB），主 JS 约 964.48 KB（gzip 318.88 KB），仍触发体积警告。
 - Rust workspace 75 项、fmt 与全 target/all feature Clippy `-D warnings` 全部通过；
   Markdown 7 项、storage 50 项覆盖 Wiki 解析/创建、附件安全边界/导入、局部图谱聚合/截断、
   迁移、增量替换、歧义、
   重命名/删除/重建与正向解析，同时保留历史、备份和恢复回归。
-- `pnpm tauri build` 在当前 Windows 电脑通过，生成 6,144,000 B MSI 与 4,637,433 B NSIS；
+- `pnpm tauri build` 在当前 Windows 电脑通过，生成 6,144,000 B MSI 与 4,637,095 B NSIS；
   SHA-256 记录在 `TEST_PLAN.md`，产物位于忽略的 `target/`。
+- 应用内浏览器验证跨重载保留 preview/pinned 标签、活动节点、split、大纲与桌面侧栏意图；
+  390×844 和 1280×800 均无水平溢出。Windows Tauri WebView2 两次关闭/重启继续验证上述
+  状态和版本视图；前后 6 篇 Markdown/1004 B 逐文件摘要与 1171 B identity 完全一致。
 - 局部图谱提交 `9faa7bc` 仅经 Linux 一次性裸仓库中继上传；GitHub CI run `30516132915`
   的 Frontend 与 Rust 全部通过。
 - Windows Tauri 原生验收覆盖保存、分支、重启、删除/空间回收和恢复；测试正文与版本均已清理，固定工作区保持 6 个 Markdown。
@@ -264,7 +282,7 @@ SQLite/稳定身份稳定切片增加：
    生命周期、延迟恢复与多光标输入/撤销已有证据。
 2. 增加 Wiki 关系/局部查询的 10,000/100,000 节点基准、全局分片图谱、Unicode 归一化契约
    与 corpus/fuzz。
-3. 增加快捷键编辑器、完整工作台布局恢复和移动端命令入口；临时预览/固定标签已完成。
+3. 增加快捷键编辑器、可拖动/可调面板与移动端命令入口；标签和当前 UI 会话恢复已完成。
 4. 补 watcher 高频压力、休眠恢复、占位强杀、只读目录和卷级磁盘满夹具。
 5. 增加外部备份导入/跨设备恢复演练，再进入客户端加密和同步；持续排除根 `AGENTS.md`、
    真实工作区文件、地址、密钥和数据库。
@@ -278,8 +296,8 @@ create 强杀可能留下空占位，安全移动强杀可能留下重复副本�
 阅读器、扩展 Live Preview、可交互大纲、Wiki 双向导航、missing 显式创建与受限静态附件预览
 及受控导入、有界一跳局部图谱已落地，但全局分片图谱、导出/版本 diff 尚未接入；关系
 resolver 每次全局变化仍构造全部候选映射，缺少 10,000/
-100,000 节点基准和跨 Rust/JavaScript Unicode 归一化契约。快捷键编辑器与跨进程布局恢复尚未
-完成，主 bundle gzip 约 318.01 KB 超预算，KaTeX 字体资产待收敛，同步后端仍只是协议/健康
+100,000 节点基准和跨 Rust/JavaScript Unicode 归一化契约。快捷键编辑器与可调面板尚未
+完成，主 bundle gzip 约 318.88 KB 超预算，KaTeX 字体资产待收敛，同步后端仍只是协议/健康
 状态骨架。
 
 ## 运行现场与恢复

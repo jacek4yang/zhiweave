@@ -63,6 +63,9 @@ id，由 `App` 的执行器连接现有工作流；编辑器撤销、重做、�
 `tabModel.ts` 独立维护打开、关闭和唯一临时预览 ID：预览替换不产生伪关闭历史，显式打开和
 编辑把当前预览固定，外部快照刷新只按仍有效的稳定节点 ID 协调或恢复标签，不进入 Markdown、
 SQLite 或版本历史。切换已有标签只改变活动节点，不暗中改变固定状态。
+`workbenchPreferences.ts` 只序列化有界稳定 ID 和 UI 枚举；原生启动必须先取得 Rust Markdown
+快照再协调标签，快照 ready 前不允许占位会话写回。损坏/未来 schema 回到安全默认，v1
+显示开关只读迁移。该模块不得接收 note markdown、CodeMirror state、revision、路径或附件。
 局部图谱也使用同一命令边界：面板背景是 `graph` scope，SVG 节点是带稳定 ID 的
 `note-item` scope；事件目标允许 HTMLElement/SVGElement，避免右键落在 `<g>/<rect>/<text>`
 时错误回退成工作区菜单。图谱、大纲和反向链接共享互斥检查器槽位，但各自保持独立按需模块。

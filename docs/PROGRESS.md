@@ -1,6 +1,6 @@
 # 开发进度
 
-最后更新：2026-07-30 13:45 CST
+最后更新：2026-07-30 14:30 CST
 
 ## 执行拓扑
 
@@ -19,6 +19,8 @@
 - Windows 原生无系统标题栏：客户区顶部差为 1 px，仅保留可缩放边框；自定义最小化/最大化/关闭按钮。
 - 多标签、关闭/重开/切换、单槽临时预览/固定、VS Code 风格快捷键、详细状态栏、实时分栏和
   阅读预览；单击浏览复用预览，双击、显式打开或编辑固定。
+- 版本化工作台 UI 会话跨进程恢复：活动节点、标签顺序/预览/关闭历史、编辑/阅读/分栏、
+  实时语法、互斥检查器、版本视图和桌面侧栏意图；v1 自动迁移，紧凑窗口不会覆盖桌面偏好。
 - H1 驱动知识节点显示名，恢复同一笔记版本时编辑器正确同步。
 - 持久化父节点版本 DAG、分支、图形历史、恢复保护、旧节点安全删除/子节点重接与真实存储摘要。
 - 幂等今日日记入口；学习、知识库、复习、收集箱、实验与旧学习节点入口均保留。
@@ -148,24 +150,26 @@
 
 - `pnpm typecheck`：通过。
 - `pnpm lint`：通过。
-- `pnpm test`：13 files / 71 tests，通过。
+- `pnpm test`：14 files / 80 tests，通过。
 - `pnpm build`：通过。
-- 交互实验独立 chunk：5.99 KB（gzip 2.46 KB）。
-- Markdown 阅读器 / AST 独立 chunk：14.08 / 92.24 KB（gzip 4.81 / 26.01 KB）。
+- 交互实验独立 chunk：5.99 KB（gzip 2.45 KB）。
+- Markdown 阅读器 / AST 独立 chunk：14.08 / 92.24 KB（gzip 4.81 / 26.02 KB）。
 - 文档大纲独立 chunk：1.16 KB（gzip 0.67 KB）。
 - 反向链接检查器独立 chunk：2.71 KB（gzip 1.26 KB）。
 - 局部图谱独立 chunk：5.13 KB（gzip 2.42 KB）。
 - Wiki heading 导航独立 chunk：0.34 KB（gzip 0.26 KB）。
 - KaTeX/mathRenderer 独立 chunk：259.23 KB（gzip 77.61 KB），只在公式出现时加载。
 - 主 CSS：65.56 KB（gzip 11.89 KB）。
-- 主 JavaScript：约 961.46 KB（gzip 318.01 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
+- 主 JavaScript：约 964.48 KB（gzip 318.88 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
 - Rust workspace 75 项测试通过，其中 application 4 项、Tauri 6 项、storage 50 项、
   Markdown 7 项、domain 6 项、protocol/server 各 1 项；fmt 和全 workspace Clippy
   `-D warnings` 通过。
-- `pnpm audit --prod --audit-level high`：无已知漏洞；`cargo audit --no-fetch --stale` 扫描 475 个 lockfile 依赖，无已知 vulnerability，17 项既有 allowed warning。
-- `pnpm tauri build` 在当前 Windows 电脑通过，生成 6,144,000 B MSI 与 4,637,433 B NSIS；
+- `pnpm audit --audit-level high`：无已知漏洞；`cargo audit` 扫描 475 个 lockfile 依赖，
+  无已知 vulnerability，17 项既有 allowed warning。
+- `pnpm tauri build` 在当前 Windows 电脑通过，生成 6,144,000 B MSI 与 4,637,095 B NSIS；
   两个 SHA-256 已写入 `TEST_PLAN.md`，构建产物保持在忽略的 `target/`。
-- Windows 原生进程：`知织 · ZhiWeave` 正常运行；固定工作区有 6 个真实 Markdown、identity v1 的 6 个唯一 ID/路径和有效 SQLite 3 数据库。
+- Windows 原生验收进程已关闭；固定工作区保持 6 个真实 Markdown、identity v1 的 6 个唯一
+  ID/路径和有效 SQLite 3 数据库。
 - 共享 Markdown AST 功能提交 `27bf009` 已推送；GitHub CI run `30497652526` 的 Frontend 与
   Rust 全部通过。
 - Live Preview 与语义大纲提交 `5c060b9` 已经 Linux 中继推送；GitHub CI run `30499669886`
@@ -252,6 +256,18 @@
   `E9CF4C6438DE888803B85E6123BF27680F830C31338A62679C6CB7EFA00D07E2`。
 - 标签功能/验证提交 `1b203f1`/`4b4fbca` 已经 Linux 一次性裸仓库中继上传；GitHub CI run
   `30517970089` 的 Frontend 与 Rust 全部通过。
+- 工作台会话提交 `7955800` 增加独立 v2 schema：只保存有界稳定 ID 与 UI 枚举，最多
+  50 个打开标签、20 个关闭历史，损坏/未来 schema 失败关闭；原生 Markdown 快照 ready 前
+  不允许占位状态写回。
+- 应用内浏览器跨重载保持两标签中的唯一临时预览、活动节点、实时分栏、大纲和侧栏；390×844
+  强制隐藏侧栏且 `scrollWidth === innerWidth === 390`，返回 1280×800 后桌面侧栏意图恢复，
+  分栏和大纲仍在，无新增 console error/warning。
+- Windows Tauri WebView2 经过两次完整进程关闭/重启，标签/预览、活动节点、分栏、大纲、
+  隐藏侧栏和版本视图均恢复。验收记录为 366 B、8 个 UI 字段，不含 Markdown、content、
+  revision、root、path 或 attachment；清理后旧 v1 偏好仍可无损迁移。
+- 会话验收前后 6 篇 Markdown 仍为 1004 B，逐文件 SHA-256 和 1171 B identity 摘要
+  `E9CF4C6438DE888803B85E6123BF27680F830C31338A62679C6CB7EFA00D07E2` 不变；未创建正文、
+  版本或附件，Tauri/Vite/9335 进程和端口已清理。
 - 本轮应用内浏览器在本地导航和 DOM 读取阶段连续超时，未把反向链接浏览器点击/E2E 标记为
   通过；浏览器预览按能力边界也不会伪造 SQLite 关系。
 - Live Preview 性能回归：2 MiB 窄视口约 322 ms；10,000 行 fence 可见 24 行用例约 9 ms。
@@ -265,13 +281,14 @@
    生命周期、延迟恢复和多光标输入/撤销已覆盖。
 2. 扩展 Markdown Corpus、局部输入 P95/深层/恶意输入，以及 10,000/100,000 节点关系与
    全局分片图谱基准。
-3. 增加快捷键编辑器、工作台布局恢复和移动触控入口；临时预览/固定标签已完成。
+3. 增加快捷键编辑器、可调面板尺寸/位置和移动触控入口；标签与当前工作台会话恢复已完成。
 4. 补 watcher 高频压力、文件锁、磁盘满、只读目录和强杀恢复夹具。
 5. 继续集合、Canvas 与跨设备加密备份/同步设计；现有本机目录备份不能冒充加密云备份。
 
 ## 未解决风险
 
-- 原生正文和版本 DAG 已移出 `localStorage`；浏览器预览仍保留独立演示历史，布局持久化尚未独立建模。
+- 原生正文和版本 DAG 已移出 `localStorage`；独立 v2 只保存有界 UI 会话。浏览器预览仍保留
+  明确标识的独立演示正文，不能冒充原生 Vault。
 - 隐藏 ID 和 SQLite/FTS 已落地，但启动快照仍扫描并读取全部 Markdown，尚未达到 10,000/100,000 篇性能预算。
 - 显式移动采用安全的“新建目标 → 写入/同步/校验 → 再删源”以避免跨平台覆盖；强杀最坏可能留下两份文件，且删源前仍有极窄外部竞态。
 - 外部“改名同时改正文”无法仅凭 revision 自动识别为同一节点；应用内显式重命名可以稳定保持身份。
@@ -281,7 +298,7 @@
   预览、导入和有界一跳局部图谱已按显式 source/身份契约对齐；全局图谱、导出和版本差异尚未
   统一完成。Rust/JavaScript 的 Unicode
   归一化跨平台一致性及 10,000/100,000 节点关系性能仍需基准。
-- 首屏 JS gzip 超预算约 118.01 KB；CodeMirror/图标/工作台和命令面板需进一步分包和测量。
+- 首屏 JS gzip 超预算约 118.88 KB；CodeMirror/图标/工作台和命令面板需进一步分包和测量。
 - KaTeX 虽按需加载，但构建仍携带上游 WOFF2/WOFF/TTF 多格式字体，安装包资产需要收敛。
 - 已有可校验完整工作区目录包和重启前目录切换恢复，但尚无外部备份包选择/导入、跨设备恢复
   演练、备份加密或同步加密；本地 SQLite 与备份包目前未加密，不得宣称客户端密码保护已完成。
