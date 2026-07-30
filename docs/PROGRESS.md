@@ -1,6 +1,6 @@
 # 开发进度
 
-最后更新：2026-07-30 09:56 CST
+最后更新：2026-07-30 10:46 CST
 
 ## 执行拓扑
 
@@ -109,25 +109,37 @@
   浏览器预览只提供复制。missing/ambiguous 通过明确提示失败关闭。
 - 正向导航和 heading 定位按需分包；长行在 Live Preview 中换行，不再因窗口或检查器宽度造成
   内容看似消失。浏览器预览没有原生 resolver 时仍显示完整惰性 Wiki 文本。
+- missing Wiki 目标接入显式创建提案：界面展示经 Rust 推导的标题、portable path 与可选 H2，
+  用户确认时重新快照和解析；目标不再 missing、路径变化或文件已存在都会失败关闭，最终写入
+  使用 `create_new`，不覆盖既有 Markdown。
+- Markdown 图片和 Wiki 嵌入接入真实本地附件 resolver。普通图片按来源目录解析，Wiki 附件在
+  来源目录、`attachments/` 与工作区根存在多个候选时返回 ambiguous；未知 Wiki 嵌入继续回退
+  到知识节点 resolver。
+- 原生预览只接受签名与扩展名一致、最多 8 MiB、单边不超过 16,384 像素且总像素不超过
+  40,000,000 的 PNG/JPEG/静态 WebP；远程/活动 scheme、隐藏元数据、符号链接、路径逃逸、
+  SVG/GIF/动画 WebP 和其他媒体不进入活动 DOM。
+- 阅读视图与 Live Preview 共享惰性附件加载和专属右键上下文；浏览器模式只展示明确占位，
+  不伪造磁盘能力。浏览器实际运行发现并修复插件 Decoration 跨换行导致的白屏回归。
 
 ## 当前质量证据
 
 - `pnpm typecheck`：通过。
 - `pnpm lint`：通过。
-- `pnpm test`：10 files / 53 tests，通过。
+- `pnpm test`：10 files / 54 tests，通过。
 - `pnpm build`：通过。
 - 交互实验独立 chunk：5.99 KB（gzip 2.46 KB）。
-- Markdown 阅读器 / AST 独立 chunk：12.21 / 92.24 KB（gzip 4.05 / 26.02 KB）。
+- Markdown 阅读器 / AST 独立 chunk：14.08 / 92.24 KB（gzip 4.81 / 26.01 KB）。
 - 文档大纲独立 chunk：1.16 KB（gzip 0.67 KB）。
 - 反向链接检查器独立 chunk：2.71 KB（gzip 1.26 KB）。
 - Wiki heading 导航独立 chunk：0.34 KB（gzip 0.26 KB）。
 - KaTeX/mathRenderer 独立 chunk：259.23 KB（gzip 77.61 KB），只在公式出现时加载。
-- 主 CSS：58.46 KB（gzip 10.78 KB）。
-- 主 JavaScript：941.06 KB（gzip 312.66 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
-- Rust workspace 56 项测试通过，其中 application 4 项、Tauri 4 项、storage 34 项、
-  Markdown 7 项、portable path 5 项；fmt 和全 workspace Clippy `-D warnings` 通过。
+- 主 CSS：60.20 KB（gzip 11.06 KB）。
+- 主 JavaScript：约 947.68 KB（gzip 314.49 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
+- Rust workspace 66 项测试通过，其中 application 4 项、Tauri 5 项、storage 42 项、
+  Markdown 7 项、domain 6 项、protocol/server 各 1 项；fmt 和全 workspace Clippy
+  `-D warnings` 通过。
 - `pnpm audit --prod --audit-level high`：无已知漏洞；`cargo audit --no-fetch --stale` 扫描 471 个 lockfile 依赖，无已知 vulnerability，17 项既有 allowed warning。
-- `pnpm tauri build` 在当前 Windows 电脑通过，生成 5,877,760 B MSI 与 4,451,887 B NSIS；
+- `pnpm tauri build` 在当前 Windows 电脑通过，生成 5,935,104 B MSI 与 4,493,937 B NSIS；
   两个 SHA-256 已写入 `TEST_PLAN.md`，构建产物保持在忽略的 `target/`。
 - Windows 原生进程：`知织 · ZhiWeave` 正常运行；固定工作区有 6 个真实 Markdown、identity v1 的 6 个唯一 ID/路径和有效 SQLite 3 数据库。
 - 共享 Markdown AST 功能提交 `27bf009` 已推送；GitHub CI run `30497652526` 的 Frontend 与
@@ -183,11 +195,10 @@
 
 ## 当前任务
 
-1. 下一纵切实现 missing 目标的显式创建确认与真实附件 resolver/安全嵌入；不得把 target 当
-   路径、URL 或活动资源直接加载，也不得在浏览器预览中伪造原生能力。
-2. 为扩展后的 Live Preview 补真实 Windows 光标/IME/多光标、点击回源码与窄屏验收。
+1. 增加附件导入/复制到工作区的明确命令、引用重写确认和可恢复事务；继续禁止任意系统路径。
+2. 为扩展后的 Live Preview 补真实 Windows IME/多光标、点击回源码与 Android 验收。
 3. 扩展 Markdown Corpus、局部输入 P95/深层/恶意输入以及 10,000/100,000 节点关系基准。
-4. 增加快捷键编辑器、预览标签和移动触控入口。
+4. 增加局部图谱、快捷键编辑器、预览标签和移动触控入口。
 5. 补 watcher 高频压力、文件锁、磁盘满、只读目录和强杀恢复夹具。
 6. 继续集合、Canvas 与跨设备加密备份/同步设计；现有本机目录备份不能冒充加密云备份。
 
@@ -199,14 +210,14 @@
 - 外部“改名同时改正文”无法仅凭 revision 自动识别为同一节点；应用内显式重命名可以稳定保持身份。
 - watcher 只保证“事件后完整核对”，不保证底层平台一定投递事件；网络文件系统不在当前固定本机工作区支持范围，高频事件压力和进程休眠恢复仍需基准。
 - create 的空占位后若进程强杀可能留下空 Markdown，自动恢复日志未完成。
-- 通用阅读器、Lezer Decoration、大纲与 Rust Wiki 双向解析已按显式 source offset 契约对齐；
-  missing 目标的显式创建、真实附件、局部图谱、导出和版本差异尚未统一完成。Rust/JavaScript 的 Unicode
+- 通用阅读器、Lezer Decoration、大纲、Rust Wiki 双向解析、missing 显式创建和受限静态附件
+  预览已按显式 source/身份契约对齐；附件导入、局部图谱、导出和版本差异尚未统一完成。Rust/JavaScript 的 Unicode
   归一化跨平台一致性及 10,000/100,000 节点关系性能仍需基准。
 - 首屏 JS gzip 超预算 111.35 KB；CodeMirror/图标/工作台和命令面板需进一步分包和测量。
 - KaTeX 虽按需加载，但构建仍携带上游 WOFF2/WOFF/TTF 多格式字体，安装包资产需要收敛。
 - 已有可校验完整工作区目录包和重启前目录切换恢复，但尚无系统文件选择器导入、跨设备恢复演练、备份加密或同步加密；本地 SQLite 与备份包目前未加密，不得宣称客户端密码保护已完成。
-- Command registry/命令面板与原生 Wiki 双向导航第一纵切已完成，但快捷键编辑器、完整树/属性、
-  missing 创建/局部图谱、FSRS 与深度学习 schema 尚未完成。
+- Command registry/命令面板、原生 Wiki 双向导航、missing 显式创建和安全静态附件预览已完成，
+  但快捷键编辑器、完整树/属性、局部图谱、附件导入、FSRS 与深度学习 schema 尚未完成。
 - 本轮正向导航已发布到 Draft PR 且 CI 通过；根目录 `AGENTS.md` 仍是用户未跟踪文件，严禁暂存。
 
 ## 当前截图

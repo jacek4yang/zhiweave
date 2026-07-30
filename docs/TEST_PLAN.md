@@ -18,7 +18,7 @@
 - `pnpm install --frozen-lockfile`：通过，142 个 lockfile 条目通过供应链策略。
 - `pnpm typecheck`：通过。
 - `pnpm lint`：通过（当前等同 TypeScript noEmit，需加入真实 ESLint）。
-- `pnpm test`：通过，10 files / 53 tests；除原有版本/分支、日记/H1、持久版本 DTO、种子、
+- `pnpm test`：通过，10 files / 54 tests；除原有版本/分支、日记/H1、持久版本 DTO、种子、
   交互实验和保存状态用例外，新增 command id/快捷键唯一性、IME 防误触、上下文矩阵、原生能力
   隔离、禁用条件、中文/别名检索、共享 Markdown AST/安全渲染，以及 Lezer frontmatter/Wiki、
   光标揭示、composition 停用、任务/Callout、数学/图片/脚注/fence、多光标、大输入和源码
@@ -27,9 +27,9 @@
 - `pnpm build`：最终差异通过，主 chunk 有 >500 KB 警告。
 - `pnpm audit --prod --audit-level high`：先使用用户指定 SOCKS5 代理，registry audit 请求重试后
   失败；不下载依赖的直接网络回退通过，无已知漏洞。代理地址不写入仓库。
-- `pnpm tauri build`：在当前 Windows 电脑通过，生成 5,877,760 B MSI 与 4,451,887 B NSIS；
-  SHA-256 分别为 `13E7C2F6559A525D5A3E7E1E409FF330C6DA132DDBBE1F72458B651C9A006424`
-  和 `ADDDA1E107ADCF902FA6B8444CA83A2D07DC8AC8135EC936BBF96EFF52002ABA`。
+- `pnpm tauri build`：在当前 Windows 电脑通过，生成 5,935,104 B MSI 与 4,493,937 B NSIS；
+  SHA-256 分别为 `E4AAE024283090544881A85AA7DD200637F206B56975641F8F8DD19DFECD8E9C`
+  和 `60D7578D028D220CE701FD7F3D9642536A4268CB25CEBCA1513943F5A0B8C78D`。
 - 浏览器：搜索、阅读/编辑、分栏、标签、刷新恢复、复制保真、上下文菜单分流、输入粘贴、编辑撤销、UUID 生成/校验/提示词通过；命令面板中文筛选、方向键、Enter、Esc、焦点恢复和 390×844/1280×800 布局通过。
 - 本轮 Wiki 正向导航浏览器自动化因应用内浏览器本地导航与 DOM 读取连续超时尚未通过，不得用
   原生截图替代；Windows 原生 IPC、WebView2 DOM 检查、DWM 截图与临时目录/Tauri 集成测试是
@@ -41,8 +41,8 @@
 
 ## Markdown 文件纵切证据
 
-- Rust 当前 workspace 56 项测试通过，其中 storage 34 项、portable path 5 项、
-  application 4 项、Markdown 7 项、protocol 1 项、server 1 项和 Tauri 4 项。
+- Rust 当前 workspace 66 项测试通过，其中 storage 42 项、domain/portable resource 6 项、
+  application 4 项、Markdown 7 项、protocol 1 项、server 1 项和 Tauri 5 项。
 - 原子保存：真实临时目录创建、修改、无变化保存、回读修订与 H1 标题通过。
 - 字节往返：UTF-8 BOM + CRLF 编辑后精确保留；Mixed 保存失败并要求明确规范化。
 - 冲突：读取后由外部进程改写，保存返回结构化 conflict，外部正文逐字节保留。
@@ -176,12 +176,20 @@
   能力矩阵；未修改 Markdown、版本或备份，原生进程与 9335 调试端口均关闭。
 - Live Preview 单元覆盖数学、图片安全占位、脚注、闭合/未闭合 fence、未知/截断指令块、
   转义美元、货币、超限公式、composition 和四处多光标同时揭示，均核对 source 未改变。
+- missing Wiki 创建集成测试覆盖安全标题/path 提案、可选 heading、确认时重验证、目的地
+  已存在不覆盖和创建后稳定身份/索引可见；Tauri 命令覆盖完整提案到真实临时目录发布。
+- 附件测试覆盖来源相对路径、Wiki 根/`attachments` 候选、歧义、missing、远程/活动 scheme、
+  根外逃逸、`.zhiweave`、符号链接、扩展名与签名不符、GIF/SVG/动画 WebP、8 MiB/尺寸/像素
+  上限及 PNG/JPEG/静态 WebP 成功读取；前端覆盖惰性 resolver、失败占位和附件右键矩阵。
+- 实际浏览器在默认桌面与 900×650 视口确认编辑/阅读附件占位、对象相关右键和无布局溢出；
+  期间捕获并修复 `Block decorations may not be specified via plugins` 与跨换行 replace
+  Decoration 白屏，新增任何插件 widget/replace 范围不得跨换行的回归断言。
 - Windows 自动性能门覆盖 2 MiB 窄视口（约 322 ms）和 10,000 行 fence 可见行上限
   （约 9 ms、最多 24 行装饰）。
 
 尚未完成的 Markdown 测试：CommonMark 官方全集快照、round-trip 属性/模糊测试、局部输入
-P95/滚动与内存基准、真实 IME + Live Preview Decoration、missing 目标的显式创建流程、
-真实附件解析、局部图谱、Mermaid 和导出。
+P95/滚动与内存基准、真实 IME + Live Preview Decoration、附件导入/引用写入事务、局部图谱、
+Mermaid 和导出。
 
 尚未完成：稳定 Windows 磁盘满/只读目录故障注入、Tauri IPC 自动 E2E、watcher 高频压力/休眠恢复、
 占位/安全移动强杀恢复、长读事务、10,000 文件性能基准、100,000 条索引查询基准和 Android

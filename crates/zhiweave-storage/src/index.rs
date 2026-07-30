@@ -12,7 +12,7 @@ use rusqlite::{
 use zhiweave_application::{
     BacklinkReference, BacklinkReferenceKind, BacklinksRequest, IndexState, IndexStatus,
     ResolveWikiTargetRequest, ResolvedWikiTargetNote, SearchNoteResult, SearchNotesRequest,
-    WikiTargetResolution, WikiTargetResolutionState, WorkspaceFailure,
+    WikiTargetCreationProposal, WikiTargetResolution, WikiTargetResolutionState, WorkspaceFailure,
 };
 use zhiweave_domain::{NoteId, NoteKind, PortablePath};
 use zhiweave_markdown::{WikiReference, WikiReferenceKind};
@@ -132,11 +132,11 @@ impl SqliteIndex {
 
         let connection = open_index(&self.path)?;
         let targets = read_wiki_targets(&connection)?;
-        if !targets.notes.contains_key(&request.source_note_id) {
-            return Err(WorkspaceFailure::InvalidWikiTarget {
+        let source = targets.notes.get(&request.source_note_id).ok_or_else(|| {
+            WorkspaceFailure::InvalidWikiTarget {
                 kind: "unknownSourceNote".to_owned(),
-            });
-        }
+            }
+        })?;
         let heading = raw_target
             .split_once('#')
             .map(|(_, value)| value.trim())
@@ -158,11 +158,15 @@ impl SqliteIndex {
         if state == WikiTargetResolutionState::Resolved && target.is_none() {
             return Err(index_corrupt("missingResolvedWikiTarget"));
         }
+        let creation = (state == WikiTargetResolutionState::Missing)
+            .then(|| wiki_creation_proposal(raw_target, source, &targets.paths, heading.clone()))
+            .flatten();
         Ok(WikiTargetResolution {
             raw_target: raw_target.to_owned(),
             state,
             target,
             heading,
+            creation,
         })
     }
 
@@ -728,6 +732,106 @@ fn file_stem(path: &str) -> &str {
     name.rsplit_once('.')
         .filter(|(_, extension)| extension.eq_ignore_ascii_case("md"))
         .map_or(name, |(stem, _)| stem)
+}
+
+fn wiki_creation_proposal(
+    raw_target: &str,
+    source: &ResolvedWikiTargetNote,
+    paths: &HashMap<String, BTreeSet<NoteId>>,
+    heading: Option<String>,
+) -> Option<WikiTargetCreationProposal> {
+    let authored = raw_target.trim();
+    let target = authored.split('#').next()?.trim();
+    if target.is_empty() {
+        return None;
+    }
+    let target = target.strip_prefix("./").unwrap_or(target);
+    let has_directory = target.contains('/') || target.contains('\\');
+    let has_markdown_extension = target
+        .rsplit_once('.')
+        .is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("md"));
+
+    if has_directory {
+        let path_target = if has_markdown_extension {
+            target.to_owned()
+        } else {
+            format!("{target}.md")
+        };
+        let path = PortablePath::new_markdown(path_target).ok()?;
+        if paths.contains_key(&wiki_key(path.as_str())) {
+            return None;
+        }
+        let title = file_stem(path.as_str()).trim().to_owned();
+        return (!title.is_empty()).then_some(WikiTargetCreationProposal {
+            title,
+            path,
+            heading,
+        });
+    }
+
+    let title = if has_markdown_extension {
+        target
+            .rsplit_once('.')
+            .map_or(target, |(stem, _)| stem)
+            .trim()
+    } else {
+        target
+    };
+    if title.is_empty() {
+        return None;
+    }
+    let filename = portable_wiki_filename(title);
+    let source_directory = source
+        .path
+        .as_str()
+        .rsplit_once('/')
+        .map(|(value, _)| value);
+    for suffix in 1..=100 {
+        let name = if suffix == 1 {
+            format!("{filename}.md")
+        } else {
+            format!("{filename}-{suffix}.md")
+        };
+        let candidate = source_directory
+            .map_or_else(|| name.clone(), |directory| format!("{directory}/{name}"));
+        let path = PortablePath::new_markdown(candidate).ok()?;
+        if !paths.contains_key(&wiki_key(path.as_str())) {
+            return Some(WikiTargetCreationProposal {
+                title: title.to_owned(),
+                path,
+                heading,
+            });
+        }
+    }
+    None
+}
+
+fn portable_wiki_filename(title: &str) -> String {
+    let mut filename = String::new();
+    let mut previous_separator = false;
+    for character in title.trim().chars() {
+        if filename.chars().count() >= 80 {
+            break;
+        }
+        let invalid = character.is_control() || r#"<>:"/\|?*"#.contains(character);
+        if character.is_whitespace() || invalid {
+            if !filename.is_empty() && !previous_separator {
+                filename.push('-');
+                previous_separator = true;
+            }
+        } else {
+            filename.push(character);
+            previous_separator = false;
+        }
+    }
+    let filename = filename.trim_matches([' ', '.', '-']);
+    if filename.is_empty() {
+        "node".to_owned()
+    } else if PortablePath::new_markdown(format!("{filename}.md")).is_ok() {
+        filename.to_owned()
+    } else {
+        format!("node-{filename}")
+    }
 }
 
 fn wiki_reference_kind_name(kind: WikiReferenceKind) -> &'static str {

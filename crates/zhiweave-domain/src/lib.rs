@@ -119,6 +119,49 @@ impl<'de> Deserialize<'de> for PortablePath {
     }
 }
 
+/// A cross-platform, workspace-relative path for one non-Markdown resource.
+///
+/// Unlike [`PortablePath`], this type accepts any portable filename extension.
+/// Storage adapters must still apply resource-specific type, size, and hidden
+/// metadata policies before reading a file.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(transparent)]
+pub struct PortableResourcePath(String);
+
+impl PortableResourcePath {
+    /// Validates and normalizes a relative workspace resource path.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DomainError::InvalidPath`] for traversal, absolute paths,
+    /// Windows device names, control characters, or non-portable components.
+    pub fn new(path: impl AsRef<str>) -> Result<Self, DomainError> {
+        normalize_relative_path(path.as_ref()).map(Self)
+    }
+
+    /// Returns the normalized `/`-separated path.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for PortableResourcePath {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
+impl<'de> Deserialize<'de> for PortableResourcePath {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let path = String::deserialize(deserializer)?;
+        Self::new(path).map_err(serde::de::Error::custom)
+    }
+}
+
 /// Markdown note content with hidden stable identity and learning role.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Note {
@@ -223,7 +266,7 @@ fn is_windows_device_name(component: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{DomainError, Note, NoteKind, PortablePath};
+    use super::{DomainError, Note, NoteKind, PortablePath, PortableResourcePath};
 
     #[test]
     fn note_has_hidden_identity_and_portable_path() {
@@ -280,6 +323,25 @@ mod tests {
 
         assert_eq!(path.as_str(), "topics/rust/ownership.MD");
         assert_eq!(path.to_string(), "topics/rust/ownership.MD");
+    }
+
+    #[test]
+    fn portable_resources_share_path_safety_without_requiring_markdown() {
+        let resource = PortableResourcePath::new(r"attachments\diagram.webp").unwrap();
+        assert_eq!(resource.as_str(), "attachments/diagram.webp");
+
+        for path in [
+            "../secret.png",
+            "/absolute.png",
+            "attachments/CON.png",
+            "attachments/bad?.png",
+            ".zhiweave//index.sqlite3",
+        ] {
+            assert_eq!(
+                PortableResourcePath::new(path).unwrap_err(),
+                DomainError::InvalidPath
+            );
+        }
     }
 
     #[test]

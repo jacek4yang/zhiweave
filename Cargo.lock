@@ -4817,7 +4817,9 @@ dependencies = [
 name = "zhiweave-client"
 version = "0.1.1"
 dependencies = [
+ "base64 0.22.1",
  "notify",
+ "serde",
  "tauri",
  "tauri-build",
  "zhiweave-application",

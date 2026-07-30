@@ -2,6 +2,7 @@ import {
   Fragment,
   lazy,
   Suspense,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -106,6 +107,7 @@ import {
   asWorkspaceFailure,
   checkoutNativeVersion,
   createNativeNote,
+  createNativeWikiTarget,
   createNativeWorkspaceBackup,
   deleteNativeVersion,
   detectNativeWorkspaceChanges,
@@ -118,6 +120,7 @@ import {
   readNativeVersion,
   rebuildNativeIndex,
   renameNativeNote,
+  resolveNativeAttachment,
   resolveNativeWikiTarget,
   saveNativeNote,
   saveNativeVersion,
@@ -125,6 +128,7 @@ import {
   setNativeVersionCheckpoint,
   type NativeIndexStatus,
   type NativeBacklinkReference,
+  type NativeAttachmentPreview,
   type NativeNoteDocument,
   type NativeVersionHistory,
   type NativeVersionRetentionPolicy,
@@ -132,6 +136,7 @@ import {
   type NativeWorkspaceBackupSummary,
   type NativeWorkspaceChangeKind,
   type NativeWorkspaceChangesResult,
+  type NativeWikiTargetCreationProposal,
   verifyNativeWorkspaceBackup,
 } from "./workspaceClient";
 
@@ -168,6 +173,7 @@ interface ContextMenuState {
   readonly scope: CommandScope;
   readonly hasSelection: boolean;
   readonly noteId?: string;
+  readonly rawAttachmentTarget?: string;
   readonly rawWikiTarget?: string;
   readonly snapshotId?: string;
 }
@@ -176,9 +182,16 @@ interface CommandTarget {
   readonly backupId?: string;
   readonly hasSelection?: boolean;
   readonly noteId?: string;
+  readonly rawAttachmentTarget?: string;
   readonly rawWikiTarget?: string;
   readonly scope?: CommandScope;
   readonly snapshotId?: string;
+}
+
+interface PendingWikiCreation {
+  readonly proposal: NativeWikiTargetCreationProposal;
+  readonly rawTarget: string;
+  readonly sourceNoteId: string;
 }
 
 const EMPTY_EDITOR_STATUS: EditorStatus = {
@@ -299,6 +312,9 @@ export function App() {
     readonly heading: string;
     readonly noteId: string;
   } | null>(null);
+  const [pendingWikiCreation, setPendingWikiCreation] =
+    useState<PendingWikiCreation | null>(null);
+  const [isCreatingWikiTarget, setIsCreatingWikiTarget] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [externalChanges, setExternalChanges] =
     useState<NativeWorkspaceChangesResult | null>(null);
@@ -310,6 +326,7 @@ export function App() {
   const contextMenuRef = useRef<HTMLElement>(null);
   const contextTargetRef = useRef<HTMLElement | null>(null);
   const newNoteDialogRef = useRef<HTMLElement>(null);
+  const wikiCreationDialogRef = useRef<HTMLElement>(null);
   const externalDialogRef = useRef<HTMLElement>(null);
   const modalPreviousFocusRef = useRef<HTMLElement | null>(null);
   const lastPersistedMarkdownRef = useRef(new Map<string, string>());
@@ -817,13 +834,21 @@ export function App() {
   }, [toast]);
 
   useEffect(() => {
-    if (!isNewNoteOpen && !isExternalChangesOpen) {
+    if (
+      !isNewNoteOpen &&
+      !isExternalChangesOpen &&
+      pendingWikiCreation === null
+    ) {
       return undefined;
     }
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         if (isNewNoteOpen) {
           runCommand("dialog.closeNewNote");
+        } else if (pendingWikiCreation !== null) {
+          if (!isCreatingWikiTarget) {
+            setPendingWikiCreation(null);
+          }
         } else {
           runCommand("dialog.closeExternalChanges");
         }
@@ -831,10 +856,19 @@ export function App() {
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [isExternalChangesOpen, isNewNoteOpen]);
+  }, [
+    isCreatingWikiTarget,
+    isExternalChangesOpen,
+    isNewNoteOpen,
+    pendingWikiCreation,
+  ]);
 
   useEffect(() => {
-    if (!isNewNoteOpen && !isExternalChangesOpen) {
+    if (
+      !isNewNoteOpen &&
+      !isExternalChangesOpen &&
+      pendingWikiCreation === null
+    ) {
       const previous = modalPreviousFocusRef.current;
       modalPreviousFocusRef.current = null;
       if (previous?.isConnected === true) {
@@ -849,14 +883,16 @@ export function App() {
     const frame = window.requestAnimationFrame(() => {
       const dialog = isNewNoteOpen
         ? newNoteDialogRef.current
-        : externalDialogRef.current;
+        : pendingWikiCreation !== null
+          ? wikiCreationDialogRef.current
+          : externalDialogRef.current;
       const initialFocus = isNewNoteOpen
         ? dialog?.querySelector<HTMLElement>("input")
         : dialog?.querySelector<HTMLElement>("button:not(:disabled)");
       initialFocus?.focus();
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [isExternalChangesOpen, isNewNoteOpen]);
+  }, [isExternalChangesOpen, isNewNoteOpen, pendingWikiCreation]);
 
   useEffect(() => {
     const compactWindow = window.matchMedia("(max-width: 960px)");
@@ -931,7 +967,21 @@ export function App() {
         rawTarget,
       );
       if (resolution.state === "missing") {
-        setToast(`未找到 Wiki 目标“${resolution.rawTarget}”；知织没有猜测或新建文件。`);
+        if (resolution.creation === null) {
+          setToast(
+            `未找到 Wiki 目标“${resolution.rawTarget}”，而且这个目标不能安全创建。`,
+          );
+          return;
+        }
+        modalPreviousFocusRef.current =
+          document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null;
+        setPendingWikiCreation({
+          proposal: resolution.creation,
+          rawTarget: resolution.rawTarget,
+          sourceNoteId,
+        });
         return;
       }
       if (resolution.state === "ambiguous") {
@@ -972,6 +1022,67 @@ export function App() {
           ? "这个 Wiki 目标格式无效，未执行跳转。"
           : "Wiki 目标解析失败；没有打开未经确认的节点。",
       );
+    }
+  }
+
+  const resolvePreviewAttachment = useCallback(
+    (
+      sourceNoteId: string,
+      rawTarget: string,
+      referenceKind: "markdownImage" | "wikiEmbed",
+    ): Promise<NativeAttachmentPreview> => {
+      if (!nativeRuntime) {
+        return Promise.reject(new Error("native attachment resolver unavailable"));
+      }
+      return resolveNativeAttachment(
+        sourceNoteId,
+        rawTarget,
+        referenceKind,
+      );
+    },
+    [nativeRuntime],
+  );
+
+  async function confirmWikiTargetCreation() {
+    if (pendingWikiCreation === null || isCreatingWikiTarget) {
+      return;
+    }
+    const pending = pendingWikiCreation;
+    setIsCreatingWikiTarget(true);
+    try {
+      const document = await createNativeWikiTarget(
+        pending.sourceNoteId,
+        pending.rawTarget,
+        pending.proposal.path,
+      );
+      if (pending.proposal.heading !== null) {
+        setPendingWikiNavigation({
+          heading: pending.proposal.heading,
+          noteId: document.id,
+        });
+      }
+      addCreatedNativeDocument(document);
+      setPendingWikiCreation(null);
+      setToast(`已创建并打开知识节点“${document.title}”。`);
+    } catch (error: unknown) {
+      const failure = asWorkspaceFailure(error);
+      setPendingWikiCreation(null);
+      if (
+        failure?.code === "invalidWikiTarget" &&
+        failure.kind === "targetNoLongerMissing"
+      ) {
+        setToast("目标状态刚刚发生变化，正在重新解析。");
+        void openWikiTarget(pending.rawTarget, pending.sourceNoteId);
+      } else if (
+        failure?.code === "alreadyExists" ||
+        failure?.kind === "staleCreationProposal"
+      ) {
+        setToast("建议路径已发生变化；没有覆盖任何文件，请重新打开链接。");
+      } else {
+        setToast("知识节点创建失败；没有覆盖或修改现有 Markdown。");
+      }
+    } finally {
+      setIsCreatingWikiTarget(false);
     }
   }
 
@@ -2272,6 +2383,12 @@ export function App() {
     ) {
       capabilities.add("wikiTarget");
     }
+    if (
+      target.rawAttachmentTarget !== undefined &&
+      target.rawAttachmentTarget.trim().length > 0
+    ) {
+      capabilities.add("attachmentTarget");
+    }
     if (snapshot !== undefined) {
       capabilities.add("snapshot");
     }
@@ -2486,6 +2603,14 @@ export function App() {
           void copyText(target.rawWikiTarget).then(
             () => setToast("Wiki 目标已复制。"),
             () => setToast("无法复制 Wiki 目标。"),
+          );
+        }
+        return;
+      case "attachment.copyTarget":
+        if (target.rawAttachmentTarget !== undefined) {
+          void copyText(target.rawAttachmentTarget).then(
+            () => setToast("附件目标已复制。"),
+            () => setToast("无法复制附件目标。"),
           );
         }
         return;
@@ -2827,6 +2952,12 @@ export function App() {
       ...(contextElement?.dataset.wikiTarget === undefined
         ? {}
         : { rawWikiTarget: contextElement.dataset.wikiTarget }),
+      ...(contextElement?.dataset.attachmentTarget === undefined
+        ? {}
+        : {
+            rawAttachmentTarget:
+              contextElement.dataset.attachmentTarget,
+          }),
       ...(contextElement?.dataset.snapshotId === undefined
         ? {}
         : { snapshotId: contextElement.dataset.snapshotId }),
@@ -2861,7 +2992,8 @@ export function App() {
       if (
         isCommandPaletteOpen ||
         isNewNoteOpen ||
-        isExternalChangesOpen
+        isExternalChangesOpen ||
+        pendingWikiCreation !== null
       ) {
         return;
       }
@@ -2964,6 +3096,12 @@ export function App() {
           ...(contextMenu.rawWikiTarget === undefined
             ? {}
             : { rawWikiTarget: contextMenu.rawWikiTarget }),
+          ...(contextMenu.rawAttachmentTarget === undefined
+            ? {}
+            : {
+                rawAttachmentTarget:
+                  contextMenu.rawAttachmentTarget,
+              }),
           ...(contextMenu.snapshotId === undefined
             ? {}
             : { snapshotId: contextMenu.snapshotId }),
@@ -3438,7 +3576,10 @@ export function App() {
                       markdown={selectedNote.markdown}
                       sourceNoteId={selectedNote.id}
                       {...(nativeRuntime
-                        ? { onOpenWikiTarget: openWikiTarget }
+                        ? {
+                            onOpenWikiTarget: openWikiTarget,
+                            onResolveAttachment: resolvePreviewAttachment,
+                          }
                         : {})}
                     />
                   </Suspense>
@@ -3450,7 +3591,10 @@ export function App() {
                       noteId={selectedNote.id}
                       onChange={updateMarkdown}
                       {...(nativeRuntime
-                        ? { onOpenWikiTarget: openWikiTarget }
+                        ? {
+                            onOpenWikiTarget: openWikiTarget,
+                            onResolveAttachment: resolvePreviewAttachment,
+                          }
                         : {})}
                       onStatusChange={setEditorStatus}
                       ref={editorRef}
@@ -3461,7 +3605,10 @@ export function App() {
                         markdown={selectedNote.markdown}
                         sourceNoteId={selectedNote.id}
                         {...(nativeRuntime
-                          ? { onOpenWikiTarget: openWikiTarget }
+                          ? {
+                              onOpenWikiTarget: openWikiTarget,
+                              onResolveAttachment: resolvePreviewAttachment,
+                            }
                           : {})}
                       />
                     </Suspense>
@@ -3473,7 +3620,10 @@ export function App() {
                     noteId={selectedNote.id}
                     onChange={updateMarkdown}
                     {...(nativeRuntime
-                      ? { onOpenWikiTarget: openWikiTarget }
+                      ? {
+                          onOpenWikiTarget: openWikiTarget,
+                          onResolveAttachment: resolvePreviewAttachment,
+                        }
                       : {})}
                     onStatusChange={setEditorStatus}
                     ref={editorRef}
@@ -3596,6 +3746,76 @@ export function App() {
           </span>
         </footer>
       </section>
+
+      {pendingWikiCreation !== null && (
+        <div className="modal-backdrop">
+          <section
+            aria-labelledby="wiki-create-title"
+            aria-modal="true"
+            className="new-note-modal wiki-create-modal"
+            onKeyDown={handleDialogKeyboard}
+            ref={wikiCreationDialogRef}
+            role="dialog"
+          >
+            <header>
+              <div>
+                <span className="eyebrow">缺失的 Wiki 目标</span>
+                <h2 id="wiki-create-title">创建新的知识节点？</h2>
+              </div>
+              <button
+                aria-label="取消创建 Wiki 目标"
+                disabled={isCreatingWikiTarget}
+                onClick={() => setPendingWikiCreation(null)}
+                type="button"
+              >
+                <X />
+              </button>
+            </header>
+            <div className="wiki-create-details">
+              <p>
+                当前链接没有匹配任何知识节点。知织只会在你确认后创建下面这个
+                Markdown 文件，不会覆盖已有内容。
+              </p>
+              <dl>
+                <div>
+                  <dt>节点名称</dt>
+                  <dd>{pendingWikiCreation.proposal.title}</dd>
+                </div>
+                <div>
+                  <dt>创建位置</dt>
+                  <dd>
+                    <code>{pendingWikiCreation.proposal.path}</code>
+                  </dd>
+                </div>
+                {pendingWikiCreation.proposal.heading === null ? null : (
+                  <div>
+                    <dt>同时创建小节</dt>
+                    <dd>{pendingWikiCreation.proposal.heading}</dd>
+                  </div>
+                )}
+              </dl>
+            </div>
+            <footer>
+              <button
+                disabled={isCreatingWikiTarget}
+                onClick={() => setPendingWikiCreation(null)}
+                type="button"
+              >
+                取消
+              </button>
+              <button
+                className="primary"
+                disabled={isCreatingWikiTarget}
+                onClick={() => void confirmWikiTargetCreation()}
+                type="button"
+              >
+                <Plus />
+                {isCreatingWikiTarget ? "正在安全创建…" : "创建并打开"}
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
 
       {isNewNoteOpen && (
         <div className="modal-backdrop">
@@ -3812,6 +4032,7 @@ export function App() {
               contextNote,
               contextSnapshot,
               contextMenu.rawWikiTarget,
+              contextMenu.rawAttachmentTarget,
             )}
           </span>
           {contextCommands.map((command, index) => {
@@ -4536,6 +4757,7 @@ function isContextScope(
 ): value is ContextMenuState["scope"] {
   switch (value) {
     case "activity":
+    case "attachment":
     case "backlinks":
     case "editor":
     case "embedded-lab":
@@ -4561,8 +4783,13 @@ function contextMenuLabel(
   note: LearningNote | undefined,
   snapshot: NoteSnapshot | undefined,
   rawWikiTarget?: string,
+  rawAttachmentTarget?: string,
 ): string {
   switch (scope) {
+    case "attachment":
+      return rawAttachmentTarget === undefined
+        ? "本地附件"
+        : `附件：${rawAttachmentTarget}`;
     case "backlinks":
       return note === undefined ? "反向链接" : `反向链接：${note.title}`;
     case "editor":
@@ -4644,6 +4871,8 @@ function contextCommandGroupLabel(
       return "所选版本节点";
     case "wiki":
       return "Wiki 链接";
+    case "attachment":
+      return "附件";
     case "window":
       return "窗口";
     default:
@@ -4672,6 +4901,8 @@ function contextCommandTitle(
       return "解析并打开目标";
     case "wiki.copyTarget":
       return "复制目标文本";
+    case "attachment.copyTarget":
+      return "复制附件目标文本";
     case "note.copyLearningPrompt":
       return "复制学习提示词";
     case "note.copyMarkdown":
@@ -4717,6 +4948,7 @@ function commandIcon(id: CommandId) {
     case "note.copyTitle":
     case "version.copyMarkdown":
     case "workspace.copyRoot":
+    case "attachment.copyTarget":
     case "wiki.copyTarget":
       return Copy;
     case "edit.cut":

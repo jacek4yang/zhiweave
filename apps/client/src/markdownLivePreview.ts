@@ -22,6 +22,15 @@ import {
   MAX_FORMULA_LENGTH,
   calloutKindFromName,
 } from "./markdownSyntaxContract";
+import type {
+  NativeAttachmentPreview,
+  NativeAttachmentReferenceKind,
+} from "./workspaceClient";
+
+export type ResolveLivePreviewAttachment = (
+  rawTarget: string,
+  referenceKind: NativeAttachmentReferenceKind,
+) => Promise<NativeAttachmentPreview>;
 
 export type LivePreviewToken =
   | {
@@ -74,6 +83,13 @@ export type LivePreviewToken =
       readonly target: string;
     }
   | {
+      readonly kind: "wiki-embed";
+      readonly from: number;
+      readonly to: number;
+      readonly display: string;
+      readonly target: string;
+    }
+  | {
       readonly kind: "math";
       readonly from: number;
       readonly to: number;
@@ -106,10 +122,11 @@ export interface WikiTargetAtPosition {
 
 export function markdownLivePreview(
   onOpenWikiTarget?: (rawTarget: string) => void,
+  resolveAttachment?: ResolveLivePreviewAttachment,
 ): Extension {
   return [
     compositionState,
-    livePreviewPlugin,
+    createLivePreviewPlugin(resolveAttachment),
     EditorView.domEventHandlers({
       compositionstart(_event, view) {
         view.dispatch({ effects: setComposition.of(true) });
@@ -369,31 +386,42 @@ export function collectLivePreviewTokens(
   return deduplicateTokens(tokens);
 }
 
-class LivePreviewPlugin {
-  decorations: DecorationSet;
+function createLivePreviewPlugin(
+  resolveAttachment?: ResolveLivePreviewAttachment,
+): Extension {
+  return ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet;
 
-  constructor(view: EditorView) {
-    this.decorations = buildDecorations(view);
-  }
+      constructor(view: EditorView) {
+        this.decorations = buildDecorations(view, resolveAttachment);
+      }
 
-  update(update: ViewUpdate) {
-    if (
-      update.docChanged ||
-      update.selectionSet ||
-      update.viewportChanged ||
-      update.startState.field(compositionState) !==
-        update.state.field(compositionState)
-    ) {
-      this.decorations = buildDecorations(update.view);
-    }
-  }
+      update(update: ViewUpdate) {
+        if (
+          update.docChanged ||
+          update.selectionSet ||
+          update.viewportChanged ||
+          update.startState.field(compositionState) !==
+            update.state.field(compositionState)
+        ) {
+          this.decorations = buildDecorations(
+            update.view,
+            resolveAttachment,
+          );
+        }
+      }
+    },
+    {
+      decorations: (plugin) => plugin.decorations,
+    },
+  );
 }
 
-const livePreviewPlugin = ViewPlugin.fromClass(LivePreviewPlugin, {
-  decorations: (plugin) => plugin.decorations,
-});
-
-function buildDecorations(view: EditorView): DecorationSet {
+function buildDecorations(
+  view: EditorView,
+  resolveAttachment?: ResolveLivePreviewAttachment,
+): DecorationSet {
   const tokens = collectLivePreviewTokens(
     view.state,
     view.visibleRanges,
@@ -454,11 +482,23 @@ function buildDecorations(view: EditorView): DecorationSet {
           token.from,
           token.alt,
           token.target,
+          "markdownImage",
+          resolveAttachment,
+        ),
+      }).range(token.from, token.to);
+    }
+    if (token.kind === "wiki-embed") {
+      return Decoration.replace({
+        widget: new ImageWidget(
+          token.from,
+          token.display,
+          token.target,
+          "wikiEmbed",
+          resolveAttachment,
         ),
       }).range(token.from, token.to);
     }
     return Decoration.replace({
-      block: token.display,
       widget: new MathWidget(
         token.from,
         token.source,
@@ -582,6 +622,8 @@ class ImageWidget extends WidgetType {
     readonly from: number,
     readonly alt: string,
     readonly target: string,
+    readonly referenceKind: NativeAttachmentReferenceKind,
+    readonly resolveAttachment?: ResolveLivePreviewAttachment,
   ) {
     super();
   }
@@ -590,7 +632,8 @@ class ImageWidget extends WidgetType {
     return (
       other.from === this.from &&
       other.alt === this.alt &&
-      other.target === this.target
+      other.target === this.target &&
+      other.referenceKind === this.referenceKind
     );
   }
 
@@ -599,13 +642,100 @@ class ImageWidget extends WidgetType {
     element.className = "cm-live-image-placeholder";
     const name = this.alt.trim() || targetName(this.target) || "未命名图片";
     element.textContent = `▧ 图像 · ${name}`;
+    element.dataset.attachmentTarget = this.target;
+    if (this.referenceKind === "markdownImage") {
+      element.dataset.context = "attachment";
+    }
     element.title =
       this.target.length > 0
-        ? `${this.target}\n点击查看图片源码`
+        ? `${this.target}\n正在验证本地附件；点击查看源码`
         : "点击查看图片源码";
     makeSourceRevealable(element, view, this.from);
+    if (this.resolveAttachment === undefined || this.target.length === 0) {
+      return element;
+    }
+    void this.resolveAttachment(this.target, this.referenceKind)
+      .then((preview) => {
+        if (!element.isConnected) {
+          return;
+        }
+        if (
+          this.referenceKind === "wikiEmbed" &&
+          !preview.recognizedAttachment
+        ) {
+          element.className = "cm-live-wiki-embed";
+          element.dataset.context = "wiki-link";
+          element.dataset.wikiTarget = this.target;
+          element.textContent = name;
+          element.title = "Ctrl+点击打开知识节点；单击查看源码";
+          view.requestMeasure();
+          return;
+        }
+        element.dataset.context = "attachment";
+        if (
+          preview.state === "resolved" &&
+          preview.dataUrl !== null &&
+          preview.mimeType !== null &&
+          safeLiveImageDataUrl(preview.dataUrl, preview.mimeType)
+        ) {
+          const image = document.createElement("img");
+          image.alt = this.alt;
+          image.decoding = "async";
+          image.loading = "lazy";
+          image.src = preview.dataUrl;
+          if (preview.width !== null) {
+            image.width = preview.width;
+          }
+          if (preview.height !== null) {
+            image.height = preview.height;
+          }
+          image.addEventListener("error", () => {
+            element.className = "cm-live-image-placeholder is-error";
+            element.textContent = `▧ ${name} · 图像解码失败`;
+            view.requestMeasure();
+          });
+          element.className = "cm-live-image-preview";
+          element.replaceChildren(image);
+          element.title = `${preview.path ?? this.target}\n点击查看图片源码`;
+        } else {
+          element.className = "cm-live-image-placeholder is-error";
+          element.textContent =
+            `▧ ${name} · ${liveAttachmentStatus(preview.state)}`;
+          element.title = `${this.target}\n点击查看图片源码`;
+        }
+        view.requestMeasure();
+      })
+      .catch(() => {
+        if (element.isConnected) {
+          element.className = "cm-live-image-placeholder is-error";
+          element.dataset.context = "attachment";
+          element.textContent = `▧ ${name} · 无法验证附件`;
+          view.requestMeasure();
+        }
+      });
     return element;
   }
+}
+
+function safeLiveImageDataUrl(dataUrl: string, mimeType: string): boolean {
+  return (
+    ["image/png", "image/jpeg", "image/webp"].includes(mimeType) &&
+    dataUrl.startsWith(`data:${mimeType};base64,`) &&
+    !/[\r\n]/u.test(dataUrl)
+  );
+}
+
+function liveAttachmentStatus(
+  state: NativeAttachmentPreview["state"],
+): string {
+  return {
+    ambiguous: "同名附件有多个",
+    missing: "附件不存在",
+    remoteBlocked: "远程资源已阻止",
+    resolved: "无法安全显示",
+    tooLarge: "附件过大",
+    unsupported: "格式不支持",
+  }[state];
 }
 
 class MathWidget extends WidgetType {
@@ -659,6 +789,22 @@ function collectLinkTokens(
   const children = directChildren(node);
   if (node.name === "WikiLink" || node.name === "WikiEmbed") {
     const alias = children.find((child) => child.name === "WikiAlias");
+    const target = children.find((child) => child.name === "WikiTarget");
+    const visible = alias ?? target;
+    if (
+      node.name === "WikiEmbed" &&
+      target !== undefined &&
+      visible !== undefined
+    ) {
+      tokens.push({
+        display: state.doc.sliceString(visible.from, visible.to).trim(),
+        from: node.from,
+        kind: "wiki-embed",
+        target: state.doc.sliceString(target.from, target.to).trim(),
+        to: node.to,
+      });
+      return;
+    }
     for (const child of children) {
       if (
         child.name === "WikiMark" ||
@@ -667,9 +813,6 @@ function collectLinkTokens(
         tokens.push(replaceToken(child));
       }
     }
-    const visible =
-      alias ?? children.find((child) => child.name === "WikiTarget");
-    const target = children.find((child) => child.name === "WikiTarget");
     if (visible !== undefined) {
       tokens.push({
         className:
@@ -749,12 +892,40 @@ function collectMathToken(
   if (source.length === 0) {
     return;
   }
+  const display =
+    node.name === "MathBlock" ||
+    state.doc.sliceString(
+      marks[0]?.from ?? node.from,
+      marks[0]?.to ?? node.from,
+    ).length === 2;
+  if (display) {
+    for (const mark of marks) {
+      tokens.push(replaceToken(mark));
+    }
+    const firstLine = state.doc.lineAt(content.from);
+    tokens.push({
+      display: true,
+      from: content.from,
+      kind: "math",
+      source,
+      to: Math.min(content.to, firstLine.to),
+    });
+    for (
+      let lineNumber = firstLine.number + 1;
+      lineNumber <= state.doc.lineAt(content.to).number;
+      lineNumber += 1
+    ) {
+      const line = state.doc.line(lineNumber);
+      const from = Math.max(content.from, line.from);
+      const to = Math.min(content.to, line.to);
+      if (from < to) {
+        tokens.push({ from, kind: "replace", to });
+      }
+    }
+    return;
+  }
   tokens.push({
-    display:
-      node.name === "MathBlock" || state.doc.sliceString(
-        marks[0]?.from ?? node.from,
-        marks[0]?.to ?? node.from,
-      ).length === 2,
+    display: false,
     from: node.from,
     kind: "math",
     source,
@@ -891,6 +1062,9 @@ function makeSourceRevealable(
   from: number,
 ): void {
   element.addEventListener("mousedown", (event) => {
+    if (event.button !== 0 || event.ctrlKey || event.metaKey) {
+      return;
+    }
     event.preventDefault();
     view.dispatch({ selection: { anchor: from } });
     view.focus();

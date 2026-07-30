@@ -247,3 +247,29 @@ target，输出是 `resolved/missing/ambiguous`、可选稳定目标元数据和
 Live Preview 用 `Ctrl/Cmd+单击` 避免破坏插入点；heading 再由共享 mdast 大纲位置定位。
 missing/ambiguous 失败关闭，不创建文件、不回退猜测。Wiki DOM 使用独立 `wiki-link` command
 scope，右键菜单不继承整个预览区的通用操作；浏览器预览只允许复制 target，不显示原生打开。
+
+## ADR-0015：缺失 Wiki 创建与附件读取都是来源身份绑定的后端提案
+
+状态：Accepted（阶段 3 本地知识资源纵切）
+
+缺失 Wiki 目标不由前端把 authored target 转成文件路径。application 层根据稳定来源身份和
+当前全量快照生成标题、portable Markdown path 与可选 heading 提案；用户确认后，后端重新
+快照、重新调用同一 Wiki resolver，并要求结果仍为 `missing` 且重新生成的路径与提案完全一致。
+随后使用 `create_new` 写入 H1 与可选 H2，任何歧义、陈旧来源、状态变化或目的文件存在都失败
+关闭。这样确认对话框是审查界面而不是路径授权令牌。
+
+附件读取同样只接受稳定来源 ID、原始 target 和受限引用类型。普通 Markdown 图片相对来源
+文件目录解析；Wiki 嵌入在来源目录、`attachments/` 和工作区根生成确定候选，多个既有候选
+返回 `ambiguous`。不带已知附件扩展名的 Wiki 嵌入返回“非附件”，继续交给 Wiki 节点 resolver。
+所有候选使用 portable resource path，并逐段拒绝 `.zhiweave` 与符号链接；最终 canonical path
+必须仍位于固定 workspace root。
+
+当前活动附件只允许 PNG、JPEG 和静态 WebP。Rust 在返回字节前复核扩展名、文件签名、动画
+标志、8 MiB 大小、16,384 单边与 40,000,000 总像素限制，并计算 SHA-256。SVG、GIF、动画
+WebP、PDF、音视频、远程/活动 scheme 和未知格式只产生结构化状态，不进入 WebView 活动资源
+管线。Tauri 把已验证字节编码为精确 MIME 的 inert data URL；React/CodeMirror 仍执行 MIME/
+scheme 防御检查并惰性加载。浏览器预览没有该 capability，只显示占位。
+
+这一设计以多一次后端往返和当前较保守的媒体支持，换取路径、身份、竞态与活动内容边界集中在
+Rust。后续附件导入、缩略图缓存、PDF/音视频阅读器必须扩展同一端口和限制，不能把任意系统路径、
+`asset:` URL 或未清洗 SVG 直接交给 WebView。

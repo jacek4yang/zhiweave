@@ -1,5 +1,6 @@
 export type CommandScope =
   | "activity"
+  | "attachment"
   | "backlinks"
   | "editor"
   | "embedded-lab"
@@ -16,6 +17,7 @@ export type CommandScope =
   | "workspace";
 
 export type CommandId =
+  | "attachment.copyTarget"
   | "backup.create"
   | "backup.restore"
   | "backup.verify"
@@ -84,6 +86,7 @@ export type CommandId =
   | "wiki.open";
 
 export type CommandCapability =
+  | "attachmentTarget"
   | "backup"
   | "backupIdle"
   | "browser"
@@ -173,6 +176,7 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
     "backup.create",
     "workbench.toggleSidebar",
   ],
+  attachment: ["attachment.copyTarget"],
   backlinks: [
     "view.toggleBacklinks",
     "view.toggleOutline",
@@ -430,6 +434,11 @@ export const COMMANDS: readonly CommandDefinition[] = [
     contexts: ["wiki-link"],
     palette: false,
     visibleRequires: ["wikiTarget"],
+  }),
+  command("attachment.copyTarget", "复制附件目标", "附件", "attachment", 115, {
+    contexts: ["attachment"],
+    palette: false,
+    visibleRequires: ["attachmentTarget"],
   }),
   command("note.openSplit", "打开并实时预览", "知识节点", "note", 120, {
     contexts: NOTE_SCOPES,

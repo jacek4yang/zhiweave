@@ -7,28 +7,81 @@ use std::{
     time::Duration,
 };
 
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
+use serde::Serialize;
 use tauri::{Emitter, Manager, State};
 use zhiweave_application::{
-    ApplyVersionRetentionRequest, ApplyVersionRetentionResult, BacklinkReference, BacklinksRequest,
-    CheckoutVersionRequest, CreateNoteRequest, CreateWorkspaceBackupRequest,
-    CreateWorkspaceBackupResult, DeleteVersionRequest, DeleteVersionResult,
-    DetectWorkspaceChangesRequest, NoteDocument, PrepareWorkspaceRestoreRequest,
-    PrepareWorkspaceRestoreResult, PreviewVersionRetentionRequest, ReadVersionRequest,
-    RebuildIndexResult, RenameNoteRequest, ResolveWikiTargetRequest, SaveNoteRequest,
-    SaveNoteResult, SaveVersionRequest, SaveVersionResult, SearchNoteResult, SearchNotesRequest,
-    SetVersionCheckpointRequest, SystemStatus, VerifyWorkspaceBackupRequest,
-    VerifyWorkspaceBackupResult, VersionContent, VersionHistory, VersionHistoryRequest,
-    VersionRetentionPreview, WikiTargetResolution, WorkspaceApplication, WorkspaceBackupSummary,
-    WorkspaceChangesResult, WorkspaceFailure, WorkspaceSnapshot,
+    ApplyVersionRetentionRequest, ApplyVersionRetentionResult, AttachmentMediaType,
+    AttachmentResolution, AttachmentResolutionState, BacklinkReference, BacklinksRequest,
+    CheckoutVersionRequest, CreateNoteRequest, CreateWikiTargetRequest,
+    CreateWorkspaceBackupRequest, CreateWorkspaceBackupResult, DeleteVersionRequest,
+    DeleteVersionResult, DetectWorkspaceChangesRequest, NoteDocument,
+    PrepareWorkspaceRestoreRequest, PrepareWorkspaceRestoreResult, PreviewVersionRetentionRequest,
+    ReadVersionRequest, RebuildIndexResult, RenameNoteRequest, ResolveAttachmentRequest,
+    ResolveWikiTargetRequest, SaveNoteRequest, SaveNoteResult, SaveVersionRequest,
+    SaveVersionResult, SearchNoteResult, SearchNotesRequest, SetVersionCheckpointRequest,
+    SystemStatus, VerifyWorkspaceBackupRequest, VerifyWorkspaceBackupResult, VersionContent,
+    VersionHistory, VersionHistoryRequest, VersionRetentionPreview, WikiTargetResolution,
+    WorkspaceApplication, WorkspaceBackupSummary, WorkspaceChangesResult, WorkspaceFailure,
+    WorkspaceSnapshot,
 };
-use zhiweave_domain::PortablePath;
+use zhiweave_domain::{PortablePath, PortableResourcePath};
 use zhiweave_storage::FileWorkspace;
 
 type NativeWorkspace = Arc<Mutex<WorkspaceApplication<FileWorkspace>>>;
 
 const WORKSPACE_CHANGED_EVENT: &str = "workspace-files-changed";
 const WATCH_DEBOUNCE: Duration = Duration::from_millis(300);
+
+#[derive(Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeAttachmentPreview {
+    raw_target: String,
+    recognized_attachment: bool,
+    state: AttachmentResolutionState,
+    path: Option<PortableResourcePath>,
+    media_type: Option<AttachmentMediaType>,
+    mime_type: Option<String>,
+    byte_length: Option<u64>,
+    content_sha256: Option<String>,
+    width: Option<u32>,
+    height: Option<u32>,
+    data_url: Option<String>,
+}
+
+impl From<AttachmentResolution> for NativeAttachmentPreview {
+    fn from(resolution: AttachmentResolution) -> Self {
+        let mut preview = Self {
+            raw_target: resolution.raw_target,
+            recognized_attachment: resolution.recognized_attachment,
+            state: resolution.state,
+            path: None,
+            media_type: None,
+            mime_type: None,
+            byte_length: None,
+            content_sha256: None,
+            width: None,
+            height: None,
+            data_url: None,
+        };
+        if let Some(content) = resolution.content {
+            let mime_type = content.media_type.mime_type();
+            preview.path = Some(content.path);
+            preview.media_type = Some(content.media_type);
+            preview.mime_type = Some(mime_type.to_owned());
+            preview.byte_length = Some(content.byte_length);
+            preview.content_sha256 = Some(content.content_sha256);
+            preview.width = Some(content.width);
+            preview.height = Some(content.height);
+            preview.data_url = Some(format!(
+                "data:{mime_type};base64,{}",
+                STANDARD.encode(content.bytes)
+            ));
+        }
+        preview
+    }
+}
 
 struct NativeWorkspaceWatcher {
     _watcher: Mutex<RecommendedWatcher>,
@@ -229,6 +282,41 @@ async fn workspace_resolve_wiki_target(
             .lock()
             .map_err(|_| WorkspaceFailure::Unavailable)?
             .resolve_wiki_target(&request)
+    })
+    .await
+    .map_err(|_| WorkspaceFailure::Unavailable)?
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri command extractors are ABI values.
+async fn workspace_create_wiki_target(
+    workspace: State<'_, NativeWorkspace>,
+    request: CreateWikiTargetRequest,
+) -> Result<NoteDocument, WorkspaceFailure> {
+    let workspace = Arc::clone(workspace.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        workspace
+            .lock()
+            .map_err(|_| WorkspaceFailure::Unavailable)?
+            .create_wiki_target(&request)
+    })
+    .await
+    .map_err(|_| WorkspaceFailure::Unavailable)?
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri command extractors are ABI values.
+async fn workspace_resolve_attachment(
+    workspace: State<'_, NativeWorkspace>,
+    request: ResolveAttachmentRequest,
+) -> Result<NativeAttachmentPreview, WorkspaceFailure> {
+    let workspace = Arc::clone(workspace.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        workspace
+            .lock()
+            .map_err(|_| WorkspaceFailure::Unavailable)?
+            .resolve_attachment(&request)
+            .map(NativeAttachmentPreview::from)
     })
     .await
     .map_err(|_| WorkspaceFailure::Unavailable)?
@@ -554,6 +642,8 @@ pub fn run() {
             workspace_search,
             workspace_backlinks,
             workspace_resolve_wiki_target,
+            workspace_create_wiki_target,
+            workspace_resolve_attachment,
             workspace_rebuild_index,
             version_history,
             version_save,
@@ -582,9 +672,11 @@ mod tests {
     };
 
     use zhiweave_application::{
-        BacklinksRequest, IndexState, ResolveWikiTargetRequest, SaveNoteRequest,
-        SearchNotesRequest, WikiTargetResolutionState, WorkspaceApplication,
+        AttachmentReferenceKind, AttachmentResolutionState, BacklinksRequest, CreateNoteRequest,
+        CreateWikiTargetRequest, IndexState, ResolveAttachmentRequest, ResolveWikiTargetRequest,
+        SaveNoteRequest, SearchNotesRequest, WikiTargetResolutionState, WorkspaceApplication,
     };
+    use zhiweave_domain::PortablePath;
     use zhiweave_storage::FileWorkspace;
 
     use notify::{
@@ -593,7 +685,8 @@ mod tests {
     };
 
     use super::{
-        is_hidden_workspace_metadata, seed_empty_workspace, watcher_event_requires_rescan,
+        NativeAttachmentPreview, is_hidden_workspace_metadata, seed_empty_workspace,
+        watcher_event_requires_rescan,
     };
 
     struct TestDirectory(PathBuf);
@@ -723,6 +816,60 @@ mod tests {
         seed_empty_workspace(&application, false).unwrap();
 
         assert!(application.snapshot().unwrap().documents.is_empty());
+    }
+
+    #[test]
+    fn native_boundary_creates_confirmed_wiki_targets_and_transports_inert_images() {
+        let directory = TestDirectory::new();
+        fs::create_dir(directory.path().join("learning")).unwrap();
+        fs::create_dir(directory.path().join("attachments")).unwrap();
+        let application = WorkspaceApplication::new(FileWorkspace::new(directory.path()).unwrap());
+        let source = application
+            .create(&CreateNoteRequest {
+                path: PortablePath::new_markdown("learning/source.md").unwrap(),
+                markdown: "# Source\n".to_owned(),
+            })
+            .unwrap();
+        let resolution = application
+            .resolve_wiki_target(&ResolveWikiTargetRequest {
+                source_note_id: source.id,
+                raw_target: "UUID 结构#版本位".to_owned(),
+            })
+            .unwrap();
+        let proposal = resolution.creation.unwrap();
+        let created = application
+            .create_wiki_target(&CreateWikiTargetRequest {
+                source_note_id: source.id,
+                raw_target: "UUID 结构#版本位".to_owned(),
+                expected_path: proposal.path.clone(),
+            })
+            .unwrap();
+        assert_eq!(created.path, proposal.path);
+        assert_eq!(created.markdown, "# UUID 结构\n\n## 版本位\n");
+
+        let mut png = vec![0; 24];
+        png[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+        png[16..20].copy_from_slice(&32_u32.to_be_bytes());
+        png[20..24].copy_from_slice(&16_u32.to_be_bytes());
+        fs::write(directory.path().join("attachments/uuid.png"), &png).unwrap();
+        let preview = NativeAttachmentPreview::from(
+            application
+                .resolve_attachment(&ResolveAttachmentRequest {
+                    source_note_id: source.id,
+                    raw_target: "../attachments/uuid.png".to_owned(),
+                    reference_kind: AttachmentReferenceKind::MarkdownImage,
+                })
+                .unwrap(),
+        );
+        assert_eq!(preview.state, AttachmentResolutionState::Resolved);
+        assert_eq!(preview.path.unwrap().as_str(), "attachments/uuid.png");
+        assert_eq!(preview.mime_type.as_deref(), Some("image/png"));
+        assert_eq!(preview.byte_length, Some(24));
+        assert_eq!((preview.width, preview.height), (Some(32), Some(16)));
+        assert_eq!(
+            preview.data_url.as_deref(),
+            Some("data:image/png;base64,iVBORw0KGgoAAAAAAAAAAAAAACAAAAAQ")
+        );
     }
 
     #[test]

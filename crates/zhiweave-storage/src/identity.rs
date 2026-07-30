@@ -171,6 +171,13 @@ impl IdentityManifest {
             .map(|entry| entry.id)
     }
 
+    pub(crate) fn path_for_id(&self, id: NoteId) -> Option<&PortablePath> {
+        self.notes
+            .iter()
+            .find(|entry| entry.id == id)
+            .map(|entry| &entry.path)
+    }
+
     pub(crate) fn move_path(
         &mut self,
         path: &PortablePath,

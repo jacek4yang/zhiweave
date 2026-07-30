@@ -70,9 +70,9 @@ describe("Markdown live preview", () => {
     expect(
       tokens.some(
         (token) =>
-          token.kind === "mark" &&
-          token.className === "cm-live-wiki-embed" &&
-          token.wikiTarget === "diagram.svg",
+          token.kind === "wiki-embed" &&
+          token.display === "diagram.svg" &&
+          token.target === "diagram.svg",
       ),
     ).toBe(true);
     expect(wikiTargetAtPosition(state, source.indexOf("标识符"))).toEqual({
@@ -221,6 +221,23 @@ describe("Markdown live preview", () => {
           token.className.includes("cm-live-code-line"),
       ),
     ).toBe(true);
+    for (const token of tokens) {
+      if (
+        [
+          "callout",
+          "code-header",
+          "footnote",
+          "image",
+          "math",
+          "replace",
+          "task",
+          "wiki-embed",
+        ].includes(token.kind) &&
+        "to" in token
+      ) {
+        expect(source.slice(token.from, token.to)).not.toContain("\n");
+      }
+    }
     expect(state.doc.toString()).toBe(source);
   });
 

@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use zhiweave_domain::{NoteId, NoteKind, PortablePath};
+use zhiweave_domain::{NoteId, NoteKind, PortablePath, PortableResourcePath};
 use zhiweave_protocol::{PROTOCOL_ID, PROTOCOL_VERSION};
 
 const MAX_CHANGE_BASELINE_NOTES: usize = 10_000;
@@ -270,6 +270,30 @@ pub struct ResolveWikiTargetRequest {
     pub raw_target: String,
 }
 
+/// Exact Markdown source proposed for one unresolved Wiki target.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WikiTargetCreationProposal {
+    /// User-visible H1 for the new knowledge node.
+    pub title: String,
+    /// Exact portable path that will be created without replacement.
+    pub path: PortablePath,
+    /// Optional authored heading that will be materialized as an H2.
+    pub heading: Option<String>,
+}
+
+/// Explicit confirmation to create one still-missing Wiki target.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateWikiTargetRequest {
+    /// Stable identity of the note containing the unresolved target.
+    pub source_note_id: NoteId,
+    /// Authored target without the surrounding `[[` and `]]` markers.
+    pub raw_target: String,
+    /// Proposal path shown to and confirmed by the user.
+    pub expected_path: PortablePath,
+}
+
 /// Result state for an authored Wiki target.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -308,6 +332,104 @@ pub struct WikiTargetResolution {
     pub target: Option<ResolvedWikiTargetNote>,
     /// Optional authored heading fragment without the leading `#`.
     pub heading: Option<String>,
+    /// Exact creation proposal only when the target is safely creatable and missing.
+    pub creation: Option<WikiTargetCreationProposal>,
+}
+
+/// Syntax family that authored one attachment reference.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AttachmentReferenceKind {
+    /// Standard Markdown image syntax such as `![alt](image.png)`.
+    MarkdownImage,
+    /// Wiki embed syntax such as `![[attachments/image.png]]`.
+    WikiEmbed,
+}
+
+/// Request to resolve one attachment relative to a stable source note.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolveAttachmentRequest {
+    /// Stable identity of the Markdown note containing the reference.
+    pub source_note_id: NoteId,
+    /// Authored resource target without Markdown delimiters.
+    pub raw_target: String,
+    /// Syntax family used to derive deterministic relative-path semantics.
+    pub reference_kind: AttachmentReferenceKind,
+}
+
+/// Stable result state for a bounded attachment preview request.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AttachmentResolutionState {
+    /// One supported local image passed every validation and was read.
+    Resolved,
+    /// No matching local resource exists.
+    Missing,
+    /// Multiple deterministic candidates exist and none was guessed.
+    Ambiguous,
+    /// The resource exists but its format is not safe for inline preview.
+    Unsupported,
+    /// The local resource exceeds the byte or decoded-pixel budget.
+    TooLarge,
+    /// The authored target uses a remote or active URL scheme.
+    RemoteBlocked,
+}
+
+/// Supported inert raster formats exposed to the `WebView` as data URLs.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AttachmentMediaType {
+    /// Portable Network Graphics.
+    Png,
+    /// JPEG/JFIF/Exif raster.
+    Jpeg,
+    /// Static WebP raster.
+    Webp,
+}
+
+impl AttachmentMediaType {
+    /// Returns the exact MIME type used by the native shell data URL.
+    #[must_use]
+    pub const fn mime_type(self) -> &'static str {
+        match self {
+            Self::Png => "image/png",
+            Self::Jpeg => "image/jpeg",
+            Self::Webp => "image/webp",
+        }
+    }
+}
+
+/// One validated local image and its bounded original bytes.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AttachmentContent {
+    /// Canonical portable resource path inside the fixed workspace.
+    pub path: PortableResourcePath,
+    /// Media type established from file signature, not only extension.
+    pub media_type: AttachmentMediaType,
+    /// Original file length before base64 transport.
+    pub byte_length: u64,
+    /// SHA-256 of the original attachment bytes.
+    pub content_sha256: String,
+    /// Intrinsic pixel width from the bounded image header.
+    pub width: u32,
+    /// Intrinsic pixel height from the bounded image header.
+    pub height: u32,
+    /// Original attachment bytes, never executable source.
+    pub bytes: Vec<u8>,
+}
+
+/// Authoritative result for one attachment preview request.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AttachmentResolution {
+    /// Trimmed authored target used for the lookup.
+    pub raw_target: String,
+    /// Whether the syntax/extension denotes an attachment rather than a note.
+    pub recognized_attachment: bool,
+    /// Bounded resolution result.
+    pub state: AttachmentResolutionState,
+    /// Validated content only when `state` is `resolved`.
+    pub content: Option<AttachmentContent>,
 }
 
 /// Outcome of an explicit derived-index rebuild.
@@ -842,6 +964,12 @@ pub enum WorkspaceFailure {
         /// Stable validation category.
         kind: String,
     },
+    /// An attachment request exceeded the public boundary or was malformed.
+    #[error("workspace attachment target is invalid: {kind}")]
+    InvalidAttachmentTarget {
+        /// Stable validation category.
+        kind: String,
+    },
     /// The caller supplied an ambiguous or excessive change baseline.
     #[error("workspace change baseline is invalid: {kind}")]
     InvalidChangeBaseline {
@@ -929,6 +1057,27 @@ pub trait WorkspacePort {
         &self,
         request: &ResolveWikiTargetRequest,
     ) -> Result<WikiTargetResolution, WorkspaceFailure>;
+
+    /// Creates one Wiki target only after the user confirms the exact proposal.
+    ///
+    /// # Errors
+    ///
+    /// Revalidates the current workspace and fails without replacement when the
+    /// target is no longer missing or the confirmed path is stale.
+    fn create_wiki_target(
+        &self,
+        request: &CreateWikiTargetRequest,
+    ) -> Result<NoteDocument, WorkspaceFailure>;
+
+    /// Resolves and reads one bounded local attachment preview.
+    ///
+    /// # Errors
+    ///
+    /// Returns a structured source-identity, path, symlink, or I/O failure.
+    fn resolve_attachment(
+        &self,
+        request: &ResolveAttachmentRequest,
+    ) -> Result<AttachmentResolution, WorkspaceFailure>;
 
     /// Rebuilds the derived index from Markdown and hidden stable identities.
     ///
@@ -1165,6 +1314,30 @@ where
         request: &ResolveWikiTargetRequest,
     ) -> Result<WikiTargetResolution, WorkspaceFailure> {
         self.port.resolve_wiki_target(request)
+    }
+
+    /// Creates a still-missing Wiki target after confirming its exact path.
+    ///
+    /// # Errors
+    ///
+    /// Propagates structured revalidation, conflict, path, and storage failures.
+    pub fn create_wiki_target(
+        &self,
+        request: &CreateWikiTargetRequest,
+    ) -> Result<NoteDocument, WorkspaceFailure> {
+        self.port.create_wiki_target(request)
+    }
+
+    /// Resolves one local attachment through the fixed workspace boundary.
+    ///
+    /// # Errors
+    ///
+    /// Propagates structured source, path, symlink, resource-budget, or I/O failures.
+    pub fn resolve_attachment(
+        &self,
+        request: &ResolveAttachmentRequest,
+    ) -> Result<AttachmentResolution, WorkspaceFailure> {
+        self.port.resolve_attachment(request)
     }
 
     /// Explicitly rebuilds derived index data from portable sources.
@@ -1440,11 +1613,12 @@ mod tests {
     use zhiweave_domain::{NoteId, NoteKind, PortablePath};
 
     use super::{
-        BacklinksRequest, CreateNoteRequest, DetectWorkspaceChangesRequest, FileRevision,
-        KnownNoteState, LineEnding, NoteDocument, RenameNoteRequest, ResolveWikiTargetRequest,
-        SaveNoteRequest, SaveNoteResult, WikiTargetResolution, WikiTargetResolutionState,
-        WorkspaceApplication, WorkspaceChangeKind, WorkspaceFailure, WorkspacePort,
-        WorkspaceSnapshot,
+        AttachmentReferenceKind, AttachmentResolution, AttachmentResolutionState, BacklinksRequest,
+        CreateNoteRequest, CreateWikiTargetRequest, DetectWorkspaceChangesRequest, FileRevision,
+        KnownNoteState, LineEnding, NoteDocument, RenameNoteRequest, ResolveAttachmentRequest,
+        ResolveWikiTargetRequest, SaveNoteRequest, SaveNoteResult, WikiTargetResolution,
+        WikiTargetResolutionState, WorkspaceApplication, WorkspaceChangeKind, WorkspaceFailure,
+        WorkspacePort, WorkspaceSnapshot,
     };
 
     struct RecordingPort {
@@ -1517,6 +1691,28 @@ mod tests {
                     kind: self.document.kind,
                 }),
                 heading: Some("规则".to_owned()),
+                creation: None,
+            })
+        }
+
+        fn create_wiki_target(
+            &self,
+            _: &CreateWikiTargetRequest,
+        ) -> Result<NoteDocument, WorkspaceFailure> {
+            self.calls.borrow_mut().push("create_wiki_target");
+            Ok(self.document.clone())
+        }
+
+        fn resolve_attachment(
+            &self,
+            request: &ResolveAttachmentRequest,
+        ) -> Result<AttachmentResolution, WorkspaceFailure> {
+            self.calls.borrow_mut().push("resolve_attachment");
+            Ok(AttachmentResolution {
+                raw_target: request.raw_target.trim().to_owned(),
+                recognized_attachment: true,
+                state: AttachmentResolutionState::Missing,
+                content: None,
             })
         }
 
@@ -1618,13 +1814,36 @@ mod tests {
             WikiTargetResolutionState::Resolved
         );
         assert_eq!(
+            application
+                .create_wiki_target(&CreateWikiTargetRequest {
+                    source_note_id: document.id,
+                    raw_target: "Ownership".to_owned(),
+                    expected_path: document.path.clone(),
+                })
+                .unwrap(),
+            document
+        );
+        assert_eq!(
+            application
+                .resolve_attachment(&ResolveAttachmentRequest {
+                    source_note_id: document.id,
+                    raw_target: "diagram.png".to_owned(),
+                    reference_kind: AttachmentReferenceKind::MarkdownImage,
+                })
+                .unwrap()
+                .state,
+            AttachmentResolutionState::Missing
+        );
+        assert_eq!(
             application.port.calls.into_inner(),
             [
                 "snapshot",
                 "create",
                 "save",
                 "backlinks",
-                "resolve_wiki_target"
+                "resolve_wiki_target",
+                "create_wiki_target",
+                "resolve_attachment"
             ]
         );
     }

@@ -39,6 +39,13 @@
 - Wiki 正向打开：IPC 只接受当前固定工作区内的稳定来源 ID 与最多 500 Unicode scalar 的
   单行 target；Rust 返回三态结果和固定根内的 portable path。unknown source、控制字符、
   超限或空 target 结构化拒绝，浏览器预览不伪造原生 resolver。
+- missing Wiki 创建：客户端只确认 Rust 给出的标题、portable path 与 heading 提案；确认后
+  后端重新快照并要求 authored target 仍为 missing 且提案路径完全相同，再用 `create_new`
+  发布。歧义、目标已出现、陈旧来源或目的文件存在都不覆盖、不猜测。
+- 本地附件预览：IPC 只接受稳定来源 ID、原始 target 和受限引用类型。Rust 拒绝远程/活动
+  scheme、`.zhiweave`、符号链接、根外路径、控制字符、超限 target 和多个候选；扩展名与
+  文件签名必须一致，只允许有界 PNG/JPEG/静态 WebP。SVG、GIF、动画 WebP、PDF、音视频和
+  未知格式保持 inert placeholder，不进入 WebView 活动资源管线。
 - 文件事件欺骗/丢失：watcher 事件仅作为无路径唤醒信号，不直接修改 UI 状态；每次由固定根
   `WorkspacePort` 重新读取、验证并比较完整快照。平台错误、空路径和 `Rescan` 都按可能漏报处理。
 
@@ -56,6 +63,11 @@
 - Wiki 点击不会把 authored target 当作系统路径、URL 或 shell 参数；resolved 结果必须先映射
   回当前稳定工作区快照。missing/ambiguous 不打开任何节点，heading 只在既有 Markdown AST
   中查找并滚动，不执行内容。
+- Wiki missing 确认不是“信任前端路径”：后端在写入前重新生成并逐字段比较提案，使用已有
+  身份/索引更新流程发布，文件已存在即失败。
+- 附件 resolver 逐段检查 `symlink_metadata`，再验证 canonical path 仍在固定 root；普通图片
+  只按来源目录解析，Wiki 嵌入候选冲突返回 ambiguous。读取上限 8 MiB，图像单边上限 16,384、
+  总像素上限 40,000,000，结果带 SHA-256；WebView 只接收验证后字节的 inert data URL。
 - 显式索引重建先完整生成/校验候选库，再保存旧数据库到 recovery；失败不会修改 Markdown。
 - 应用内移动采用目标 `create_new`、完整写入/sync/校验、源 revision 复查、最后删源；目的地
   存在时失败，不使用平台相关的覆盖式 rename。

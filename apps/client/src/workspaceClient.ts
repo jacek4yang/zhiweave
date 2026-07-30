@@ -109,11 +109,42 @@ export interface NativeResolvedWikiTargetNote {
   readonly kind: NativeNoteKind;
 }
 
+export interface NativeWikiTargetCreationProposal {
+  readonly title: string;
+  readonly path: string;
+  readonly heading: string | null;
+}
+
 export interface NativeWikiTargetResolution {
   readonly rawTarget: string;
   readonly state: NativeWikiTargetResolutionState;
   readonly target: NativeResolvedWikiTargetNote | null;
   readonly heading: string | null;
+  readonly creation: NativeWikiTargetCreationProposal | null;
+}
+
+export type NativeAttachmentReferenceKind = "markdownImage" | "wikiEmbed";
+export type NativeAttachmentResolutionState =
+  | "resolved"
+  | "missing"
+  | "ambiguous"
+  | "unsupported"
+  | "tooLarge"
+  | "remoteBlocked";
+export type NativeAttachmentMediaType = "png" | "jpeg" | "webp";
+
+export interface NativeAttachmentPreview {
+  readonly rawTarget: string;
+  readonly recognizedAttachment: boolean;
+  readonly state: NativeAttachmentResolutionState;
+  readonly path: string | null;
+  readonly mediaType: NativeAttachmentMediaType | null;
+  readonly mimeType: string | null;
+  readonly byteLength: number | null;
+  readonly contentSha256: string | null;
+  readonly width: number | null;
+  readonly height: number | null;
+  readonly dataUrl: string | null;
 }
 
 export interface NativeRebuildIndexResult {
@@ -295,6 +326,26 @@ export function resolveNativeWikiTarget(
 ): Promise<NativeWikiTargetResolution> {
   return invoke<NativeWikiTargetResolution>("workspace_resolve_wiki_target", {
     request: { sourceNoteId, rawTarget },
+  });
+}
+
+export function createNativeWikiTarget(
+  sourceNoteId: string,
+  rawTarget: string,
+  expectedPath: string,
+): Promise<NativeNoteDocument> {
+  return invoke<NativeNoteDocument>("workspace_create_wiki_target", {
+    request: { sourceNoteId, rawTarget, expectedPath },
+  });
+}
+
+export function resolveNativeAttachment(
+  sourceNoteId: string,
+  rawTarget: string,
+  referenceKind: NativeAttachmentReferenceKind,
+): Promise<NativeAttachmentPreview> {
+  return invoke<NativeAttachmentPreview>("workspace_resolve_attachment", {
+    request: { sourceNoteId, rawTarget, referenceKind },
   });
 }
 

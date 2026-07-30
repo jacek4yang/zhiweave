@@ -18,6 +18,7 @@ import {
   Fragment,
   lazy,
   Suspense,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
@@ -31,6 +32,10 @@ import {
   type CalloutNode,
   type MarkdownDocument,
 } from "./markdownAst";
+import type {
+  NativeAttachmentPreview,
+  NativeAttachmentReferenceKind,
+} from "./workspaceClient";
 
 const EmbeddedLab = lazy(async () => {
   const module = await import("./EmbeddedLab");
@@ -44,6 +49,11 @@ const MathFormula = lazy(async () => {
 
 interface MarkdownPreviewProps {
   readonly markdown: string;
+  readonly onResolveAttachment?: (
+    sourceNoteId: string,
+    rawTarget: string,
+    referenceKind: NativeAttachmentReferenceKind,
+  ) => Promise<NativeAttachmentPreview>;
   readonly onOpenWikiTarget?: (rawTarget: string) => void;
   readonly sourceNoteId?: string;
 }
@@ -51,12 +61,18 @@ interface MarkdownPreviewProps {
 interface RenderContext {
   readonly definitions: ReadonlyMap<string, Definition>;
   readonly document: MarkdownDocument;
+  readonly onResolveAttachment?: (
+    sourceNoteId: string,
+    rawTarget: string,
+    referenceKind: NativeAttachmentReferenceKind,
+  ) => Promise<NativeAttachmentPreview>;
   readonly onOpenWikiTarget?: (rawTarget: string) => void;
   readonly sourceNoteId?: string;
 }
 
 export function MarkdownPreview({
   markdown,
+  onResolveAttachment,
   onOpenWikiTarget,
   sourceNoteId,
 }: MarkdownPreviewProps) {
@@ -76,10 +92,19 @@ export function MarkdownPreview({
           root: { children: [], type: "root" },
           source: markdown,
         },
+      ...(onResolveAttachment === undefined
+        ? {}
+        : { onResolveAttachment }),
       ...(onOpenWikiTarget === undefined ? {} : { onOpenWikiTarget }),
       ...(sourceNoteId === undefined ? {} : { sourceNoteId }),
     }),
-    [document, markdown, onOpenWikiTarget, sourceNoteId],
+    [
+      document,
+      markdown,
+      onOpenWikiTarget,
+      onResolveAttachment,
+      sourceNoteId,
+    ],
   );
   const footnotes = (document?.root.children ?? []).filter(
     (node): node is FootnoteDefinition => node.type === "footnoteDefinition",
@@ -351,11 +376,13 @@ function renderPhrasing(
       }
       case "image":
         return (
-          <ImagePlaceholder
+          <AttachmentPreview
             alt={node.alt}
+            context={context}
             key={key}
+            referenceKind="markdownImage"
             title={node.title}
-            url={node.url}
+            rawTarget={node.url}
           />
         );
       case "imageReference": {
@@ -363,11 +390,13 @@ function renderPhrasing(
           normalizeIdentifier(node.identifier),
         );
         return (
-          <ImagePlaceholder
+          <AttachmentPreview
             alt={node.alt}
+            context={context}
             key={key}
+            referenceKind="markdownImage"
             title={definition?.title ?? null}
-            url={definition?.url ?? node.label ?? node.identifier}
+            rawTarget={definition?.url ?? node.label ?? node.identifier}
           />
         );
       }
@@ -409,33 +438,15 @@ function renderPhrasing(
           </button>
         );
       case "wikiEmbed":
-        return context.onOpenWikiTarget === undefined ? (
-          <span
-            className="preview-wiki-embed"
-            data-context="wiki-link"
-            data-note-id={context.sourceNoteId}
-            data-wiki-target={node.target}
+        return (
+          <AttachmentPreview
+            alt={node.display}
+            context={context}
             key={key}
+            referenceKind="wikiEmbed"
+            rawTarget={node.target}
             title={`嵌入目标：${node.target}`}
-          >
-            <FileImage aria-hidden="true" />
-            {node.display}
-          </span>
-        ) : (
-          <button
-            aria-label={`打开嵌入目标：${node.display}`}
-            className="preview-wiki-embed"
-            data-context="wiki-link"
-            data-note-id={context.sourceNoteId}
-            data-wiki-target={node.target}
-            key={key}
-            onClick={() => context.onOpenWikiTarget?.(node.target)}
-            title={`打开嵌入目标：${node.target}`}
-            type="button"
-          >
-            <FileImage aria-hidden="true" />
-            {node.display}
-          </button>
+          />
         );
       default:
         return (
@@ -621,24 +632,196 @@ function SafeLink({
   );
 }
 
-function ImagePlaceholder({
+function AttachmentPreview({
   alt,
+  context,
+  referenceKind,
+  rawTarget,
   title,
-  url,
 }: {
   readonly alt: string | null | undefined;
+  readonly context: RenderContext;
+  readonly referenceKind: NativeAttachmentReferenceKind;
+  readonly rawTarget: string;
   readonly title: string | null | undefined;
-  readonly url: string;
 }) {
+  const [resolution, setResolution] =
+    useState<NativeAttachmentPreview | null>(null);
+  const [imageFailed, setImageFailed] = useState(false);
+  const [resolutionFailed, setResolutionFailed] = useState(false);
+  useEffect(() => {
+    setResolution(null);
+    setImageFailed(false);
+    setResolutionFailed(false);
+    if (
+      context.onResolveAttachment === undefined ||
+      context.sourceNoteId === undefined
+    ) {
+      return undefined;
+    }
+    let active = true;
+    void context
+      .onResolveAttachment(
+        context.sourceNoteId,
+        rawTarget,
+        referenceKind,
+      )
+      .then((next) => {
+        if (active) {
+          setResolution(next);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setResolutionFailed(true);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    context.onResolveAttachment,
+    context.sourceNoteId,
+    rawTarget,
+    referenceKind,
+  ]);
+
+  if (
+    referenceKind === "wikiEmbed" &&
+    resolution?.recognizedAttachment === false
+  ) {
+    return (
+      <WikiEmbedLink
+        context={context}
+        display={alt?.trim() || rawTarget}
+        rawTarget={rawTarget}
+      />
+    );
+  }
+
+  const safeDataUrl =
+    resolution?.state === "resolved" &&
+    resolution.dataUrl !== null &&
+    resolution.mimeType !== null &&
+    safeImageDataUrl(resolution.dataUrl, resolution.mimeType)
+      ? resolution.dataUrl
+      : null;
+  if (safeDataUrl !== null && resolution !== null && !imageFailed) {
+    return (
+      <span
+        className="preview-image"
+        data-attachment-target={rawTarget}
+        data-context="attachment"
+        data-note-id={context.sourceNoteId}
+        title={title ?? resolution.path ?? rawTarget}
+      >
+        <img
+          alt={alt ?? ""}
+          decoding="async"
+          height={resolution.height ?? undefined}
+          loading="lazy"
+          onError={() => setImageFailed(true)}
+          src={safeDataUrl}
+          width={resolution.width ?? undefined}
+        />
+        {resolution.path === null ? null : (
+          <small>{resolution.path}</small>
+        )}
+      </span>
+    );
+  }
+
+  const status = attachmentStatusLabel(
+    resolution?.state,
+    context.onResolveAttachment !== undefined &&
+      context.sourceNoteId !== undefined,
+    imageFailed,
+    resolutionFailed,
+  );
   return (
     <span
       className="preview-image-placeholder"
-      title={title ?? `图片资源尚未加载：${url}`}
+      data-attachment-target={rawTarget}
+      data-context="attachment"
+      data-note-id={context.sourceNoteId}
+      title={title ?? `${status}：${rawTarget}`}
     >
       <FileImage aria-hidden="true" />
       <span>{alt?.trim() || "图片"}</span>
-      <small>{isRemoteUrl(url) ? "远程资源已阻止" : url}</small>
+      <small>{status}</small>
     </span>
+  );
+}
+
+function WikiEmbedLink({
+  context,
+  display,
+  rawTarget,
+}: {
+  readonly context: RenderContext;
+  readonly display: string;
+  readonly rawTarget: string;
+}) {
+  return context.onOpenWikiTarget === undefined ? (
+    <span
+      className="preview-wiki-embed"
+      data-context="wiki-link"
+      data-note-id={context.sourceNoteId}
+      data-wiki-target={rawTarget}
+      title={`嵌入目标：${rawTarget}`}
+    >
+      <FileImage aria-hidden="true" />
+      {display}
+    </span>
+  ) : (
+    <button
+      aria-label={`打开嵌入目标：${display}`}
+      className="preview-wiki-embed"
+      data-context="wiki-link"
+      data-note-id={context.sourceNoteId}
+      data-wiki-target={rawTarget}
+      onClick={() => context.onOpenWikiTarget?.(rawTarget)}
+      title={`打开嵌入目标：${rawTarget}`}
+      type="button"
+    >
+      <FileImage aria-hidden="true" />
+      {display}
+    </button>
+  );
+}
+
+function attachmentStatusLabel(
+  state: NativeAttachmentPreview["state"] | undefined,
+  canResolve: boolean,
+  imageFailed: boolean,
+  resolutionFailed: boolean,
+): string {
+  if (imageFailed) {
+    return "图像解码失败，源码保持不变";
+  }
+  if (!canResolve) {
+    return "桌面端可验证并显示本地附件";
+  }
+  if (resolutionFailed) {
+    return "附件验证失败，源码保持不变";
+  }
+  return state === undefined
+    ? "正在验证本地附件"
+    : {
+        ambiguous: "存在多个同名附件，请写完整路径",
+        missing: "本地附件不存在",
+        remoteBlocked: "远程或活动资源已阻止",
+        resolved: "图像无法安全显示",
+        tooLarge: "附件超出安全预览限制",
+        unsupported: "格式不支持或内容与扩展名不符",
+      }[state];
+}
+
+function safeImageDataUrl(dataUrl: string, mimeType: string): boolean {
+  return (
+    ["image/png", "image/jpeg", "image/webp"].includes(mimeType) &&
+    dataUrl.startsWith(`data:${mimeType};base64,`) &&
+    !/[\r\n]/u.test(dataUrl)
   );
 }
 
@@ -710,14 +893,6 @@ function safeExternalTarget(value: string): string | null {
       : null;
   } catch {
     return null;
-  }
-}
-
-function isRemoteUrl(value: string): boolean {
-  try {
-    return ["http:", "https:"].includes(new URL(value).protocol);
-  } catch {
-    return false;
   }
 }
 

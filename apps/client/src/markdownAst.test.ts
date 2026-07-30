@@ -130,8 +130,9 @@ $$
     expect(interactive).toContain('data-context="wiki-link"');
     expect(interactive).toContain('data-note-id="source-note"');
     expect(interactive).toContain('data-wiki-target="UUID#版本"');
+    expect(interactive).toContain('data-attachment-target="diagram.svg"');
     expect(interactive).toContain(
-      '<button aria-label="打开嵌入目标：diagram.svg"',
+      "<small>桌面端可验证并显示本地附件</small>",
     );
     expect(inert).toContain('<span class="preview-wiki-link"');
     expect(inert).not.toContain("<button");

@@ -1,5 +1,6 @@
 //! Recoverable local Markdown workspace adapter.
 
+mod attachment;
 mod backup;
 mod history;
 mod identity;
@@ -15,17 +16,18 @@ use std::{
 use atomic_write_file::AtomicWriteFile;
 use sha2::{Digest, Sha256};
 use zhiweave_application::{
-    ApplyVersionRetentionRequest, ApplyVersionRetentionResult, BacklinkReference, BacklinksRequest,
-    CheckoutVersionRequest, CreateNoteRequest, CreateWorkspaceBackupRequest,
-    CreateWorkspaceBackupResult, DeleteVersionRequest, DeleteVersionResult, FileRevision,
-    IndexState, IndexStatus, LineEnding, NoteDocument, PrepareWorkspaceRestoreRequest,
-    PrepareWorkspaceRestoreResult, PreviewVersionRetentionRequest, ReadVersionRequest,
-    RebuildIndexResult, RenameNoteRequest, ResolveWikiTargetRequest, SaveNoteRequest,
-    SaveNoteResult, SaveVersionRequest, SaveVersionResult, SearchNoteResult, SearchNotesRequest,
+    ApplyVersionRetentionRequest, ApplyVersionRetentionResult, AttachmentResolution,
+    BacklinkReference, BacklinksRequest, CheckoutVersionRequest, CreateNoteRequest,
+    CreateWikiTargetRequest, CreateWorkspaceBackupRequest, CreateWorkspaceBackupResult,
+    DeleteVersionRequest, DeleteVersionResult, FileRevision, IndexState, IndexStatus, LineEnding,
+    NoteDocument, PrepareWorkspaceRestoreRequest, PrepareWorkspaceRestoreResult,
+    PreviewVersionRetentionRequest, ReadVersionRequest, RebuildIndexResult, RenameNoteRequest,
+    ResolveAttachmentRequest, ResolveWikiTargetRequest, SaveNoteRequest, SaveNoteResult,
+    SaveVersionRequest, SaveVersionResult, SearchNoteResult, SearchNotesRequest,
     SetVersionCheckpointRequest, VerifyWorkspaceBackupRequest, VerifyWorkspaceBackupResult,
     VersionContent, VersionHistory, VersionHistoryPort, VersionHistoryRequest,
-    VersionRetentionPreview, WikiTargetResolution, WorkspaceBackupPort, WorkspaceBackupSummary,
-    WorkspaceFailure, WorkspacePort, WorkspaceSnapshot,
+    VersionRetentionPreview, WikiTargetResolution, WikiTargetResolutionState, WorkspaceBackupPort,
+    WorkspaceBackupSummary, WorkspaceFailure, WorkspacePort, WorkspaceSnapshot,
 };
 use zhiweave_domain::{NoteId, NoteKind, PortablePath};
 use zhiweave_markdown::{WikiReference, first_level_one_heading, wiki_references};
@@ -627,6 +629,58 @@ impl WorkspacePort for FileWorkspace {
         self.index.resolve_wiki_target(request)
     }
 
+    fn create_wiki_target(
+        &self,
+        request: &CreateWikiTargetRequest,
+    ) -> Result<NoteDocument, WorkspaceFailure> {
+        let _ = self.snapshot()?;
+        let resolution = self.index.resolve_wiki_target(&ResolveWikiTargetRequest {
+            source_note_id: request.source_note_id,
+            raw_target: request.raw_target.clone(),
+        })?;
+        if resolution.state != WikiTargetResolutionState::Missing {
+            return Err(WorkspaceFailure::InvalidWikiTarget {
+                kind: "targetNoLongerMissing".to_owned(),
+            });
+        }
+        let proposal = resolution
+            .creation
+            .ok_or_else(|| WorkspaceFailure::InvalidWikiTarget {
+                kind: "targetNotCreatable".to_owned(),
+            })?;
+        if proposal.path != request.expected_path {
+            return Err(WorkspaceFailure::InvalidWikiTarget {
+                kind: "staleCreationProposal".to_owned(),
+            });
+        }
+
+        let mut markdown = format!("# {}\n", proposal.title);
+        if let Some(heading) = proposal.heading {
+            markdown.push_str("\n## ");
+            markdown.push_str(&heading);
+            markdown.push('\n');
+        }
+        self.create(&CreateNoteRequest {
+            path: proposal.path,
+            markdown,
+        })
+    }
+
+    fn resolve_attachment(
+        &self,
+        request: &ResolveAttachmentRequest,
+    ) -> Result<AttachmentResolution, WorkspaceFailure> {
+        let identities = IdentityManifest::load(&self.identity_path, MAX_NOTE_COUNT)?;
+        let source_path = identities
+            .path_for_id(request.source_note_id)
+            .cloned()
+            .ok_or_else(|| WorkspaceFailure::InvalidAttachmentTarget {
+                kind: "unknownSourceNote".to_owned(),
+            })?;
+        let _ = self.resolve_existing(&source_path)?;
+        attachment::resolve_attachment(&self.root, &source_path, request)
+    }
+
     fn rebuild_index(&self) -> Result<RebuildIndexResult, WorkspaceFailure> {
         let raw_documents = self
             .collect_markdown_paths()?
@@ -943,9 +997,10 @@ mod tests {
     };
 
     use zhiweave_application::{
-        BacklinkReferenceKind, BacklinksRequest, CreateNoteRequest, IndexState, LineEnding,
-        RenameNoteRequest, ResolveWikiTargetRequest, SaveNoteRequest, SearchNotesRequest,
-        WikiTargetResolutionState, WorkspaceFailure, WorkspacePort,
+        AttachmentReferenceKind, AttachmentResolutionState, BacklinkReferenceKind,
+        BacklinksRequest, CreateNoteRequest, CreateWikiTargetRequest, IndexState, LineEnding,
+        RenameNoteRequest, ResolveAttachmentRequest, ResolveWikiTargetRequest, SaveNoteRequest,
+        SearchNotesRequest, WikiTargetResolutionState, WorkspaceFailure, WorkspacePort,
     };
     use zhiweave_domain::PortablePath;
 
@@ -1495,6 +1550,277 @@ mod tests {
                 WorkspaceFailure::InvalidWikiTarget { .. }
             ));
         }
+    }
+
+    #[test]
+    fn missing_wiki_targets_require_an_exact_fresh_creation_confirmation() {
+        let directory = TestDirectory::new("wiki-create-confirmation");
+        let workspace = FileWorkspace::new(directory.path()).unwrap();
+        let source = workspace
+            .create(&CreateNoteRequest {
+                path: path("learning/source.md"),
+                markdown: "# 学习入口\n\n[[新概念#证据]]\n".to_owned(),
+            })
+            .unwrap();
+
+        let proposal = workspace
+            .resolve_wiki_target(&ResolveWikiTargetRequest {
+                source_note_id: source.id,
+                raw_target: "新概念#证据".to_owned(),
+            })
+            .unwrap()
+            .creation
+            .unwrap();
+        assert_eq!(proposal.title, "新概念");
+        assert_eq!(proposal.path, path("learning/新概念.md"));
+        assert_eq!(proposal.heading.as_deref(), Some("证据"));
+
+        assert!(matches!(
+            workspace
+                .create_wiki_target(&CreateWikiTargetRequest {
+                    source_note_id: source.id,
+                    raw_target: "新概念#证据".to_owned(),
+                    expected_path: path("learning/other.md"),
+                })
+                .unwrap_err(),
+            WorkspaceFailure::InvalidWikiTarget { kind } if kind == "staleCreationProposal"
+        ));
+        let created = workspace
+            .create_wiki_target(&CreateWikiTargetRequest {
+                source_note_id: source.id,
+                raw_target: "新概念#证据".to_owned(),
+                expected_path: proposal.path,
+            })
+            .unwrap();
+        assert_eq!(created.path, path("learning/新概念.md"));
+        assert_eq!(created.markdown, "# 新概念\n\n## 证据\n");
+        assert_eq!(
+            fs::read_to_string(directory.path().join("learning/新概念.md")).unwrap(),
+            "# 新概念\n\n## 证据\n"
+        );
+        assert_eq!(
+            workspace
+                .resolve_wiki_target(&ResolveWikiTargetRequest {
+                    source_note_id: source.id,
+                    raw_target: "新概念#证据".to_owned(),
+                })
+                .unwrap()
+                .target
+                .unwrap()
+                .id,
+            created.id
+        );
+        assert!(matches!(
+            workspace
+                .create_wiki_target(&CreateWikiTargetRequest {
+                    source_note_id: source.id,
+                    raw_target: "新概念#证据".to_owned(),
+                    expected_path: created.path,
+                })
+                .unwrap_err(),
+            WorkspaceFailure::InvalidWikiTarget { kind } if kind == "targetNoLongerMissing"
+        ));
+    }
+
+    #[test]
+    fn wiki_creation_preserves_explicit_paths_and_avoids_filename_collisions() {
+        let directory = TestDirectory::new("wiki-create-paths");
+        let workspace = FileWorkspace::new(directory.path()).unwrap();
+        let source = workspace
+            .create(&CreateNoteRequest {
+                path: path("learning/source.md"),
+                markdown: "# Source\n".to_owned(),
+            })
+            .unwrap();
+        workspace
+            .create(&CreateNoteRequest {
+                path: path("learning/New-idea.md"),
+                markdown: "# Occupied\n".to_owned(),
+            })
+            .unwrap();
+
+        let collision_safe = workspace
+            .resolve_wiki_target(&ResolveWikiTargetRequest {
+                source_note_id: source.id,
+                raw_target: "New idea".to_owned(),
+            })
+            .unwrap()
+            .creation
+            .unwrap();
+        assert_eq!(collision_safe.path, path("learning/New-idea-2.md"));
+
+        let explicit = workspace
+            .resolve_wiki_target(&ResolveWikiTargetRequest {
+                source_note_id: source.id,
+                raw_target: "topics/new-node".to_owned(),
+            })
+            .unwrap()
+            .creation
+            .unwrap();
+        assert_eq!(explicit.path, path("topics/new-node.md"));
+        assert_eq!(explicit.title, "new-node");
+    }
+
+    #[test]
+    fn attachment_resolution_is_local_bounded_deterministic_and_content_sniffed() {
+        let directory = TestDirectory::new("attachment-resolution");
+        fs::create_dir_all(directory.path().join("learning")).unwrap();
+        fs::create_dir_all(directory.path().join("attachments")).unwrap();
+        let workspace = FileWorkspace::new(directory.path()).unwrap();
+        let source = workspace
+            .create(&CreateNoteRequest {
+                path: path("learning/source.md"),
+                markdown: "# Source\n\n![diagram](../attachments/diagram.png)\n".to_owned(),
+            })
+            .unwrap();
+        let mut png = vec![0; 24];
+        png[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+        png[16..20].copy_from_slice(&640_u32.to_be_bytes());
+        png[20..24].copy_from_slice(&480_u32.to_be_bytes());
+        fs::write(directory.path().join("attachments/diagram.png"), &png).unwrap();
+
+        let relative = workspace
+            .resolve_attachment(&ResolveAttachmentRequest {
+                source_note_id: source.id,
+                raw_target: "../attachments/diagram.png".to_owned(),
+                reference_kind: AttachmentReferenceKind::MarkdownImage,
+            })
+            .unwrap();
+        assert_eq!(relative.state, AttachmentResolutionState::Resolved);
+        let content = relative.content.unwrap();
+        assert_eq!(content.path.as_str(), "attachments/diagram.png");
+        assert_eq!((content.width, content.height), (640, 480));
+        assert_eq!(content.bytes, png);
+        assert_eq!(content.content_sha256.len(), 64);
+
+        assert_eq!(
+            workspace
+                .resolve_attachment(&ResolveAttachmentRequest {
+                    source_note_id: source.id,
+                    raw_target: "diagram.png".to_owned(),
+                    reference_kind: AttachmentReferenceKind::WikiEmbed,
+                })
+                .unwrap()
+                .state,
+            AttachmentResolutionState::Resolved
+        );
+        fs::write(directory.path().join("learning/diagram.png"), &png).unwrap();
+        assert_eq!(
+            workspace
+                .resolve_attachment(&ResolveAttachmentRequest {
+                    source_note_id: source.id,
+                    raw_target: "diagram.png".to_owned(),
+                    reference_kind: AttachmentReferenceKind::WikiEmbed,
+                })
+                .unwrap()
+                .state,
+            AttachmentResolutionState::Ambiguous
+        );
+    }
+
+    #[test]
+    fn attachment_resolution_blocks_active_unsupported_and_excessive_resources() {
+        let directory = TestDirectory::new("attachment-security");
+        fs::create_dir_all(directory.path().join("learning")).unwrap();
+        fs::create_dir_all(directory.path().join("attachments")).unwrap();
+        let workspace = FileWorkspace::new(directory.path()).unwrap();
+        let source = workspace
+            .create(&CreateNoteRequest {
+                path: path("learning/source.md"),
+                markdown: "# Source\n".to_owned(),
+            })
+            .unwrap();
+        for (target, expected) in [
+            (
+                "https://example.invalid/image.png",
+                AttachmentResolutionState::RemoteBlocked,
+            ),
+            (
+                "data:image/png;base64,AAAA",
+                AttachmentResolutionState::RemoteBlocked,
+            ),
+            (
+                "../attachments/missing.png",
+                AttachmentResolutionState::Missing,
+            ),
+        ] {
+            assert_eq!(
+                workspace
+                    .resolve_attachment(&ResolveAttachmentRequest {
+                        source_note_id: source.id,
+                        raw_target: target.to_owned(),
+                        reference_kind: AttachmentReferenceKind::MarkdownImage,
+                    })
+                    .unwrap()
+                    .state,
+                expected
+            );
+        }
+
+        fs::write(
+            directory.path().join("attachments/vector.svg"),
+            "<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
+        )
+        .unwrap();
+        fs::write(
+            directory.path().join("attachments/fake.png"),
+            b"not really an image",
+        )
+        .unwrap();
+        for target in ["../attachments/vector.svg", "../attachments/fake.png"] {
+            assert_eq!(
+                workspace
+                    .resolve_attachment(&ResolveAttachmentRequest {
+                        source_note_id: source.id,
+                        raw_target: target.to_owned(),
+                        reference_kind: AttachmentReferenceKind::MarkdownImage,
+                    })
+                    .unwrap()
+                    .state,
+                AttachmentResolutionState::Unsupported
+            );
+        }
+
+        let mut pixel_bomb = vec![0; 24];
+        pixel_bomb[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+        pixel_bomb[16..20].copy_from_slice(&16_384_u32.to_be_bytes());
+        pixel_bomb[20..24].copy_from_slice(&16_384_u32.to_be_bytes());
+        fs::write(
+            directory.path().join("attachments/pixel-bomb.png"),
+            pixel_bomb,
+        )
+        .unwrap();
+        assert_eq!(
+            workspace
+                .resolve_attachment(&ResolveAttachmentRequest {
+                    source_note_id: source.id,
+                    raw_target: "../attachments/pixel-bomb.png".to_owned(),
+                    reference_kind: AttachmentReferenceKind::MarkdownImage,
+                })
+                .unwrap()
+                .state,
+            AttachmentResolutionState::TooLarge
+        );
+        assert!(matches!(
+            workspace
+                .resolve_attachment(&ResolveAttachmentRequest {
+                    source_note_id: source.id,
+                    raw_target: "../.zhiweave/identity.json".to_owned(),
+                    reference_kind: AttachmentReferenceKind::MarkdownImage,
+                })
+                .unwrap_err(),
+            WorkspaceFailure::InvalidAttachmentTarget { kind } if kind == "hiddenMetadata"
+        ));
+        assert!(matches!(
+            workspace
+                .resolve_attachment(&ResolveAttachmentRequest {
+                    source_note_id: source.id,
+                    raw_target: "../../outside.png".to_owned(),
+                    reference_kind: AttachmentReferenceKind::MarkdownImage,
+                })
+                .unwrap_err(),
+            WorkspaceFailure::InvalidAttachmentTarget { kind } if kind == "pathEscapesWorkspace"
+        ));
     }
 
     #[test]

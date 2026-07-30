@@ -1,6 +1,6 @@
 # Agent 交接
 
-最近更新：2026-07-30 09:56 CST
+最近更新：2026-07-30 10:46 CST
 
 ## 不可改变的用户约束
 
@@ -15,9 +15,9 @@
 - 工作目录：`%USERPROFILE%\Desktop\Projects\zhiweave`
 - 分支：`agent/professional-workbench`
 - Draft PR：[jacek4yang/zhiweave#1](https://github.com/jacek4yang/zhiweave/pull/1)
-- 当前已验证功能/文档 HEAD：`f677260 docs: record Wiki navigation validation`；功能提交
-  `4ee24cf feat(wiki): open resolved knowledge targets`。
-- GitHub CI run `30506855740`：Frontend 与 Rust 全部通过。
+- 当前工作树在 `f677260` 之后完成 missing Wiki 显式创建与安全本地附件纵切；待本轮提交、
+  Linux 中继推送和 GitHub CI 后填写新 HEAD。
+- 上一 GitHub CI run `30506855740`：Frontend 与 Rust 全部通过。
 - GitHub CI run `30504384326`：Frontend 20 s、Rust 3 min 19 s，全部通过；只保留既有
   actions Node 20 弃用 annotation。
 - 共享 Markdown AST 功能提交 `27bf009` 对应 GitHub CI run `30497652526`：Frontend 与 Rust
@@ -53,6 +53,19 @@ SQLite/稳定身份稳定切片增加：
 - watcher 只发无路径唤醒信号；application 完整快照核对才区分 created/modified/deleted/moved；
 - 稳定 ID 识别移动，revision 识别正文变化；重复/过大的客户端基线被拒绝；
 - 状态栏外部更改计数与可滚动冲突中心，显示前后路径、移动伴随正文变化和本地脏缓冲；
+
+当前 missing Wiki / 附件纵切增加：
+
+- missing Wiki 由 Rust 生成可审查的标题、portable path 与可选 heading 提案，界面明确确认后
+  再快照、再解析；目标状态变化、路径冲突或歧义时中止，文件以非覆盖方式创建；
+- 普通 Markdown 图片相对来源文件解析；Wiki 附件嵌入按来源目录、`attachments/` 和根目录
+  生成确定候选，多候选失败为 ambiguous，非附件嵌入回退到既有 Wiki 节点解析；
+- Rust 固定根 resolver 拒绝活动/远程 scheme、`.zhiweave`、符号链接、根外逃逸和扩展名/
+  签名不一致；只返回最多 8 MiB、16,384 单边、40M 像素的 PNG/JPEG/静态 WebP；
+- WebView 只把经后端验证的字节编码为 inert `data:` URL，阅读与 Live Preview 惰性加载并
+  使用附件专属右键菜单；浏览器模式保持无磁盘能力占位；
+- 实际浏览器发现 CodeMirror 插件装饰跨越换行会触发白屏；块公式改为逐行安全装饰并增加
+  “插件装饰不能跨换行”的回归断言。900×650 与默认桌面视口无布局溢出。
 - 安全应用无冲突变化，脏缓冲不自动覆盖；明确接受磁盘版本前逐篇写 recovery，并检测恢复期间继续输入；
 - Windows 原生人工验证新建、移动、修改、删除四类；测试临时文件已删除，工作区恢复 6 篇/6 ID/索引 6 篇。
 
@@ -139,13 +152,12 @@ SQLite/稳定身份稳定切片增加：
 
 ## 最近验证
 
-- 最终差异通过 pnpm lint/typecheck、10 files / 53 tests 和 production build；反向链接检查器
-  独立 chunk 2.71 KB（gzip 1.26 KB），Wiki heading 导航 0.34 KB（gzip 0.26 KB），主 JS
-  941.06 KB（gzip 312.66 KB）仍触发体积警告。
-- Rust workspace 56 项、fmt 与全 target/all feature Clippy `-D warnings` 全部通过；
-  Markdown 7 项、storage 34 项覆盖 Wiki 解析、迁移、增量替换、歧义、重命名/删除/重建与正向解析，
-  同时保留历史、备份和恢复回归。
-- `pnpm tauri build` 在当前 Windows 电脑通过，生成 5,877,760 B MSI 与 4,451,887 B NSIS；
+- 最终差异通过 typecheck、10 files / 54 tests 和 production build；主 JS 约 947.68 KB
+  （gzip 314.49 KB），仍触发体积警告。
+- Rust workspace 66 项、fmt 与全 target/all feature Clippy `-D warnings` 全部通过；
+  Markdown 7 项、storage 42 项覆盖 Wiki 解析/创建、附件安全边界、迁移、增量替换、歧义、
+  重命名/删除/重建与正向解析，同时保留历史、备份和恢复回归。
+- `pnpm tauri build` 在当前 Windows 电脑通过，生成 5,935,104 B MSI 与 4,493,937 B NSIS；
   SHA-256 记录在 `TEST_PLAN.md`，产物位于忽略的 `target/`。
 - Windows Tauri 原生验收覆盖保存、分支、重启、删除/空间回收和恢复；测试正文与版本均已清理，固定工作区保持 6 个 Markdown。
 - GitHub CI run `30482533535`：Frontend 21 s、Rust 3 min 1 s，全部通过；Node 20 actions deprecation annotation 尚待 workflow 维护。
@@ -180,11 +192,10 @@ SQLite/稳定身份稳定切片增加：
 
 ## 下一步顺序
 
-1. 下一纵切实现 missing 目标的显式创建确认和真实附件 resolver/安全嵌入；不得把 target 直接
-   当路径、URL 或活动资源加载，也不在浏览器预览中用前端正则或 mock 冒充原生能力。
-2. 补扩展 Live Preview 的真实 Windows 光标/点击/IME/多光标/窄屏和 Android 验收。
+1. 为附件增加受控导入/复制、引用写入确认、冲突处理和崩溃恢复；当前只读预览不等于附件管理。
+2. 补扩展 Live Preview 的真实 Windows IME/多光标和 Android 验收。
 3. 增加 Wiki 关系的 10,000/100,000 节点基准、Unicode 归一化契约与 corpus/fuzz。
-4. 增加快捷键编辑器、预览标签和移动端命令入口。
+4. 增加局部图谱、快捷键编辑器、预览标签和移动端命令入口。
 5. 补 watcher 高频压力、休眠恢复、占位强杀、只读目录和卷级磁盘满夹具。
 6. 增加外部备份导入/跨设备恢复演练，再进入客户端加密和同步；持续排除根 `AGENTS.md`、
    真实工作区文件、地址、密钥和数据库。
@@ -195,20 +206,20 @@ Markdown 文件事实源、稳定 ID、可重建 SQLite/FTS、本机 watcher、�
 重启恢复已进入 alpha，但还不能称为完整长期数据保证：启动与每次外部事件仍全量扫描正文，
 备份包尚未加密且缺少外部导入/跨设备演练；底层平台漏报只能依赖 `Rescan`/后续事件或重启发现。
 create 强杀可能留下空占位，安全移动强杀可能留下重复副本，删源前仍有极窄竞态。共享 mdast
-阅读器、扩展 Live Preview、可交互大纲与 Wiki 双向导航已落地，但 missing 显式创建、真实附件、
-局部图谱、导出/版本 diff 尚未接入；关系 resolver 每次全局变化仍构造全部候选映射，缺少 10,000/
+阅读器、扩展 Live Preview、可交互大纲、Wiki 双向导航、missing 显式创建与受限静态附件预览
+已落地，但附件导入、局部图谱、导出/版本 diff 尚未接入；关系 resolver 每次全局变化仍构造全部候选映射，缺少 10,000/
 100,000 节点基准和跨 Rust/JavaScript Unicode 归一化契约。快捷键编辑器尚未完成，主 bundle
-gzip 312.66 KB 超预算，KaTeX 字体资产待收敛，同步后端仍只是协议/健康状态骨架。
+gzip 约 314.49 KB 超预算，KaTeX 字体资产待收敛，同步后端仍只是协议/健康状态骨架。
 
 ## 运行现场与恢复
 
-- 浏览器端口：`1420`，当前已停止且无监听。
+- 浏览器端口：`1420`，本轮 Vite 进程已按命令行与 PID 精确核对后停止，无监听。
 - SSH 隧道：不使用；用户已明确 Linux 只作 GitHub 上传中转，不在其上运行 Vite/Tauri。
 - tmux 会话：不使用；所有开发与验证在当前 Windows 电脑完成。
 - Windows Tauri/Vite/调试进程：已关闭。
 - 阻塞：无工程阻塞；应用内浏览器控制连接超时是已记录的 E2E 证据缺口。
-- 下一条精确命令：`git status --short --branch`，确认只有用户未跟踪的 `AGENTS.md`，随后从
-  missing 显式创建确认与附件 resolver 的安全边界测试开始。
+- 下一条精确命令：完成本轮最终全门禁，确认只有用户未跟踪的 `AGENTS.md` 未暂存，再通过
+  Linux 临时裸仓库中继推送并等待 Draft PR CI。
 - 恢复步骤：进入 `%USERPROFILE%\Desktop\Projects\zhiweave`，核对分支
-  `agent/professional-workbench`、功能提交 `4ee24cf`、验证提交 `f677260` 和 `AGENTS.md` 排除；
-  确认 GitHub CI run `30506855740` 后从 missing 显式创建与附件 resolver 开始下一纵切。
+  `agent/professional-workbench`、最新提交和 `AGENTS.md` 排除；确认新 CI 后从受控附件导入/
+  引用写入事务开始下一纵切。

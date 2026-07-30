@@ -205,6 +205,21 @@ describe("command registry", () => {
     ).toEqual(["wiki.copyTarget"]);
   });
 
+  it("gives attachments a minimal resource-specific menu", () => {
+    const attachmentCommands = commandsForContext(
+      context(["native", "note", "attachmentTarget"], "attachment"),
+    );
+
+    expect(attachmentCommands.map((command) => command.id)).toEqual([
+      "attachment.copyTarget",
+    ]);
+    expect(
+      attachmentCommands.some(
+        (command) => command.id === "note.copyMarkdown",
+      ),
+    ).toBe(false);
+  });
+
   it("searches Chinese and aliases while preserving the registry order", () => {
     const commandContext = context([
       "native",

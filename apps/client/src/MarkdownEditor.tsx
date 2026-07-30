@@ -17,7 +17,10 @@ import { tags } from "@lezer/highlight";
 import { basicSetup, EditorView } from "codemirror";
 
 import { zhiweaveMarkdownExtensions } from "./markdownLezerExtensions";
-import { markdownLivePreview } from "./markdownLivePreview";
+import {
+  markdownLivePreview,
+  type ResolveLivePreviewAttachment,
+} from "./markdownLivePreview";
 
 interface MarkdownEditorProps {
   readonly livePreview?: boolean;
@@ -25,6 +28,11 @@ interface MarkdownEditorProps {
   readonly value: string;
   readonly onChange: (value: string) => void;
   readonly onOpenWikiTarget?: (rawTarget: string) => void;
+  readonly onResolveAttachment?: (
+    sourceNoteId: string,
+    rawTarget: string,
+    referenceKind: Parameters<ResolveLivePreviewAttachment>[1],
+  ) => ReturnType<ResolveLivePreviewAttachment>;
   readonly onStatusChange?: (status: EditorStatus) => void;
 }
 
@@ -125,6 +133,7 @@ export const MarkdownEditor = forwardRef<
     value,
     onChange,
     onOpenWikiTarget,
+    onResolveAttachment,
     onStatusChange,
   }, ref) {
   const host = useRef<HTMLDivElement>(null);
@@ -136,9 +145,11 @@ export const MarkdownEditor = forwardRef<
   const livePreviewCompartment = livePreviewCompartmentRef.current;
   const onChangeRef = useRef(onChange);
   const onOpenWikiTargetRef = useRef(onOpenWikiTarget);
+  const onResolveAttachmentRef = useRef(onResolveAttachment);
   const onStatusChangeRef = useRef(onStatusChange);
   onChangeRef.current = onChange;
   onOpenWikiTargetRef.current = onOpenWikiTarget;
+  onResolveAttachmentRef.current = onResolveAttachment;
   onStatusChangeRef.current = onStatusChange;
 
   useImperativeHandle(ref, () => ({
@@ -183,8 +194,19 @@ export const MarkdownEditor = forwardRef<
         syntaxHighlighting(markdownHighlightStyle),
         livePreviewCompartment.of(
           livePreview
-            ? markdownLivePreview((rawTarget) =>
-                onOpenWikiTargetRef.current?.(rawTarget)
+            ? markdownLivePreview(
+                (rawTarget) =>
+                  onOpenWikiTargetRef.current?.(rawTarget),
+                noteId === undefined ||
+                    onResolveAttachmentRef.current === undefined
+                  ? undefined
+                  : (rawTarget, referenceKind) => {
+                      return onResolveAttachmentRef.current!(
+                        noteId,
+                        rawTarget,
+                        referenceKind,
+                      );
+                    },
               )
             : [],
         ),
@@ -215,13 +237,24 @@ export const MarkdownEditor = forwardRef<
     view.dispatch({
       effects: livePreviewCompartment.reconfigure(
         livePreview
-          ? markdownLivePreview((rawTarget) =>
-              onOpenWikiTargetRef.current?.(rawTarget)
+          ? markdownLivePreview(
+              (rawTarget) =>
+                onOpenWikiTargetRef.current?.(rawTarget),
+              noteId === undefined ||
+                  onResolveAttachmentRef.current === undefined
+                ? undefined
+                : (rawTarget, referenceKind) => {
+                    return onResolveAttachmentRef.current!(
+                      noteId,
+                      rawTarget,
+                      referenceKind,
+                    );
+                  },
             )
           : [],
       ),
     });
-  }, [livePreview, livePreviewCompartment]);
+  }, [livePreview, livePreviewCompartment, noteId]);
 
   useEffect(() => {
     const view = viewRef.current;

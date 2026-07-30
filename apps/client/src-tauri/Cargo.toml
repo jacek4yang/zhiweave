@@ -14,7 +14,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build.workspace = true
 
 [dependencies]
+base64.workspace = true
 notify.workspace = true
+serde.workspace = true
 tauri.workspace = true
 zhiweave-application = { path = "../../../crates/zhiweave-application" }
 zhiweave-domain = { path = "../../../crates/zhiweave-domain" }
