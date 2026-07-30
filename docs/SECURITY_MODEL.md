@@ -66,6 +66,9 @@
 - 稳定 ID 位于 `.zhiweave/identity.json`，不写普通笔记；SQLite 只保存可删除的本机派生副本。
 - Wiki occurrence 只保存派生 link/embed、原始 target、有界上下文和来源范围；YAML、代码、
   HTML comment、转义/畸形语法不进入关系表，删除 SQLite 后可从 Markdown 重建。
+- 局部图谱只读取同一派生 `wiki_edge`：请求仅含稳定根节点 ID 和有界节点数，零上限/未知根
+  失败关闭，后端最多返回 80 个节点并显式标记截断。SQL 值全部参数绑定，前端不接收系统路径、
+  任意 SQL、Markdown 正文或无界全局关系集合；浏览器预览不伪造该原生能力。
 - Wiki 点击不会把 authored target 当作系统路径、URL 或 shell 参数；resolved 结果必须先映射
   回当前稳定工作区快照。missing/ambiguous 不打开任何节点，heading 只在既有 Markdown AST
   中查找并滚动，不执行内容。

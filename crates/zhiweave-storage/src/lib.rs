@@ -21,15 +21,16 @@ use zhiweave_application::{
     AttachmentResolution, BacklinkReference, BacklinksRequest, CheckoutVersionRequest,
     CreateNoteRequest, CreateWikiTargetRequest, CreateWorkspaceBackupRequest,
     CreateWorkspaceBackupResult, DeleteVersionRequest, DeleteVersionResult, FileRevision,
-    ImportAttachmentRequest, IndexState, IndexStatus, LineEnding, NoteDocument,
-    PrepareWorkspaceRestoreRequest, PrepareWorkspaceRestoreResult, PreviewVersionRetentionRequest,
-    ProposeAttachmentImportRequest, ReadVersionRequest, RebuildIndexResult, RenameNoteRequest,
-    ResolveAttachmentRequest, ResolveWikiTargetRequest, SaveNoteRequest, SaveNoteResult,
-    SaveVersionRequest, SaveVersionResult, SearchNoteResult, SearchNotesRequest,
-    SetVersionCheckpointRequest, VerifyWorkspaceBackupRequest, VerifyWorkspaceBackupResult,
-    VersionContent, VersionHistory, VersionHistoryPort, VersionHistoryRequest,
-    VersionRetentionPreview, WikiTargetResolution, WikiTargetResolutionState, WorkspaceBackupPort,
-    WorkspaceBackupSummary, WorkspaceFailure, WorkspacePort, WorkspaceSnapshot,
+    ImportAttachmentRequest, IndexState, IndexStatus, LineEnding, LocalGraph, LocalGraphRequest,
+    NoteDocument, PrepareWorkspaceRestoreRequest, PrepareWorkspaceRestoreResult,
+    PreviewVersionRetentionRequest, ProposeAttachmentImportRequest, ReadVersionRequest,
+    RebuildIndexResult, RenameNoteRequest, ResolveAttachmentRequest, ResolveWikiTargetRequest,
+    SaveNoteRequest, SaveNoteResult, SaveVersionRequest, SaveVersionResult, SearchNoteResult,
+    SearchNotesRequest, SetVersionCheckpointRequest, VerifyWorkspaceBackupRequest,
+    VerifyWorkspaceBackupResult, VersionContent, VersionHistory, VersionHistoryPort,
+    VersionHistoryRequest, VersionRetentionPreview, WikiTargetResolution,
+    WikiTargetResolutionState, WorkspaceBackupPort, WorkspaceBackupSummary, WorkspaceFailure,
+    WorkspacePort, WorkspaceSnapshot,
 };
 use zhiweave_domain::{NoteId, NoteKind, PortablePath};
 use zhiweave_markdown::{WikiReference, first_level_one_heading, wiki_references};
@@ -624,6 +625,10 @@ impl WorkspacePort for FileWorkspace {
         self.index.backlinks(request)
     }
 
+    fn local_graph(&self, request: &LocalGraphRequest) -> Result<LocalGraph, WorkspaceFailure> {
+        self.index.local_graph(request)
+    }
+
     fn resolve_wiki_target(
         &self,
         request: &ResolveWikiTargetRequest,
@@ -1031,9 +1036,10 @@ mod tests {
     use zhiweave_application::{
         AttachmentImportPresentation, AttachmentReferenceKind, AttachmentResolutionState,
         BacklinkReferenceKind, BacklinksRequest, CreateNoteRequest, CreateWikiTargetRequest,
-        ImportAttachmentRequest, IndexState, LineEnding, ProposeAttachmentImportRequest,
-        RenameNoteRequest, ResolveAttachmentRequest, ResolveWikiTargetRequest, SaveNoteRequest,
-        SearchNotesRequest, WikiTargetResolutionState, WorkspaceFailure, WorkspacePort,
+        ImportAttachmentRequest, IndexState, LineEnding, LocalGraphRequest,
+        ProposeAttachmentImportRequest, RenameNoteRequest, ResolveAttachmentRequest,
+        ResolveWikiTargetRequest, SaveNoteRequest, SearchNotesRequest, WikiTargetResolutionState,
+        WorkspaceFailure, WorkspacePort,
     };
     use zhiweave_domain::PortablePath;
 
@@ -1497,6 +1503,79 @@ mod tests {
         assert_eq!(updated.len(), 1);
         assert_eq!(updated[0].reference_kind, BacklinkReferenceKind::Link);
         assert_eq!(updated[0].raw_target, "UUID");
+    }
+
+    #[test]
+    fn local_graph_ranks_direct_neighbors_aggregates_edges_and_reports_truncation() {
+        let directory = TestDirectory::new("bounded-local-graph");
+        let workspace = FileWorkspace::new(directory.path()).unwrap();
+        let root = workspace
+            .create(&CreateNoteRequest {
+                path: path("topics/root.md"),
+                markdown: "# Root\n\n[[Alpha]] [[Alpha]] ![[Beta]] [[Gamma]]\n".to_owned(),
+            })
+            .unwrap();
+        let alpha = workspace
+            .create(&CreateNoteRequest {
+                path: path("topics/alpha.md"),
+                markdown: "# Alpha\n\n[[Root]]\n".to_owned(),
+            })
+            .unwrap();
+        let beta = workspace
+            .create(&CreateNoteRequest {
+                path: path("topics/beta.md"),
+                markdown: "# Beta\n\n[[Root]] [[Root]] [[Root]]\n".to_owned(),
+            })
+            .unwrap();
+        let gamma = workspace
+            .create(&CreateNoteRequest {
+                path: path("topics/gamma.md"),
+                markdown: "# Gamma\n".to_owned(),
+            })
+            .unwrap();
+
+        let graph = workspace
+            .local_graph(&LocalGraphRequest {
+                note_id: root.id,
+                node_limit: 3,
+            })
+            .unwrap();
+        assert_eq!(graph.root_note_id, root.id);
+        assert_eq!(
+            graph.nodes.iter().map(|node| node.id).collect::<Vec<_>>(),
+            vec![root.id, beta.id, alpha.id]
+        );
+        assert!(graph.truncated);
+        assert_eq!(graph.edges.len(), 4);
+        assert!(graph.edges.iter().any(|edge| {
+            edge.source_note_id == beta.id
+                && edge.target_note_id == root.id
+                && edge.reference_kind == BacklinkReferenceKind::Link
+                && edge.occurrence_count == 3
+        }));
+        assert!(graph.edges.iter().any(|edge| {
+            edge.source_note_id == root.id
+                && edge.target_note_id == beta.id
+                && edge.reference_kind == BacklinkReferenceKind::Embed
+                && edge.occurrence_count == 1
+        }));
+        assert!(graph.nodes.iter().all(|node| node.id != gamma.id));
+        assert!(matches!(
+            workspace.local_graph(&LocalGraphRequest {
+                note_id: root.id,
+                node_limit: 0,
+            }),
+            Err(WorkspaceFailure::InvalidGraphRequest { kind })
+                if kind == "zeroNodeLimit"
+        ));
+        assert!(matches!(
+            workspace.local_graph(&LocalGraphRequest {
+                note_id: zhiweave_domain::NoteId::from_bytes([9; 16]),
+                node_limit: 3,
+            }),
+            Err(WorkspaceFailure::InvalidGraphRequest { kind })
+                if kind == "unknownRootNote"
+        ));
     }
 
     #[test]

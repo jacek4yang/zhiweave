@@ -260,6 +260,58 @@ pub struct BacklinkReference {
     pub context: String,
 }
 
+/// Request for a bounded one-hop graph around one stable knowledge node.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalGraphRequest {
+    /// Stable identity used as the center of the graph.
+    pub note_id: NoteId,
+    /// Maximum number of returned nodes, including the center.
+    pub node_limit: usize,
+}
+
+/// One stable node in a bounded local knowledge graph.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalGraphNode {
+    /// Stable hidden note identity.
+    pub id: NoteId,
+    /// Current level-one heading or filename fallback.
+    pub title: String,
+    /// Current portable path.
+    pub path: PortablePath,
+    /// Learning role used by navigation and visual grouping.
+    pub kind: NoteKind,
+}
+
+/// One directed, occurrence-aggregated Wiki relationship.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalGraphEdge {
+    /// Stable source note identity.
+    pub source_note_id: NoteId,
+    /// Stable target note identity.
+    pub target_note_id: NoteId,
+    /// Link or embed syntax.
+    pub reference_kind: BacklinkReferenceKind,
+    /// Number of matching authored occurrences.
+    pub occurrence_count: usize,
+}
+
+/// Bounded one-hop graph derived from the rebuildable Wiki relation index.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalGraph {
+    /// Stable center node identity.
+    pub root_note_id: NoteId,
+    /// Center-first nodes followed by deterministically ranked neighbors.
+    pub nodes: Vec<LocalGraphNode>,
+    /// Directed relationships whose endpoints are both present in `nodes`.
+    pub edges: Vec<LocalGraphEdge>,
+    /// True when additional direct neighbors were omitted by `node_limit`.
+    pub truncated: bool,
+}
+
 /// Request to resolve one authored Wiki target from a stable source note.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1027,6 +1079,12 @@ pub enum WorkspaceFailure {
         /// Stable validation category.
         kind: String,
     },
+    /// A local graph request exceeded its public bounds or named an unknown root.
+    #[error("workspace local graph request is invalid: {kind}")]
+    InvalidGraphRequest {
+        /// Stable validation category.
+        kind: String,
+    },
     /// A Wiki target lookup exceeded the public boundary or was malformed.
     #[error("workspace Wiki target is invalid: {kind}")]
     InvalidWikiTarget {
@@ -1122,6 +1180,13 @@ pub trait WorkspacePort {
         &self,
         request: &BacklinksRequest,
     ) -> Result<Vec<BacklinkReference>, WorkspaceFailure>;
+
+    /// Returns a bounded one-hop graph from the rebuildable Wiki relation index.
+    ///
+    /// # Errors
+    ///
+    /// Returns a structured index, identity, or graph-boundary failure.
+    fn local_graph(&self, request: &LocalGraphRequest) -> Result<LocalGraph, WorkspaceFailure>;
 
     /// Resolves one authored Wiki target through the rebuildable index.
     ///
@@ -1399,6 +1464,15 @@ where
         request: &BacklinksRequest,
     ) -> Result<Vec<BacklinkReference>, WorkspaceFailure> {
         self.port.backlinks(request)
+    }
+
+    /// Returns a bounded one-hop graph for one stable knowledge node.
+    ///
+    /// # Errors
+    ///
+    /// Propagates the adapter's structured index, identity, or boundary failure.
+    pub fn local_graph(&self, request: &LocalGraphRequest) -> Result<LocalGraph, WorkspaceFailure> {
+        self.port.local_graph(request)
     }
 
     /// Resolves one authored Wiki target without guessing between duplicates.
@@ -1737,7 +1811,7 @@ mod tests {
         AttachmentImportPresentation, AttachmentImportProposal, AttachmentReferenceKind,
         AttachmentResolution, AttachmentResolutionState, BacklinksRequest, CreateNoteRequest,
         CreateWikiTargetRequest, DetectWorkspaceChangesRequest, FileRevision,
-        ImportAttachmentRequest, KnownNoteState, LineEnding, NoteDocument,
+        ImportAttachmentRequest, KnownNoteState, LineEnding, LocalGraphRequest, NoteDocument,
         ProposeAttachmentImportRequest, RenameNoteRequest, ResolveAttachmentRequest,
         ResolveWikiTargetRequest, SaveNoteRequest, SaveNoteResult, WikiTargetResolution,
         WikiTargetResolutionState, WorkspaceApplication, WorkspaceChangeKind, WorkspaceFailure,
@@ -1797,6 +1871,24 @@ mod tests {
         ) -> Result<Vec<super::BacklinkReference>, WorkspaceFailure> {
             self.calls.borrow_mut().push("backlinks");
             Ok(Vec::new())
+        }
+
+        fn local_graph(
+            &self,
+            request: &LocalGraphRequest,
+        ) -> Result<super::LocalGraph, WorkspaceFailure> {
+            self.calls.borrow_mut().push("local_graph");
+            Ok(super::LocalGraph {
+                root_note_id: request.note_id,
+                nodes: vec![super::LocalGraphNode {
+                    id: self.document.id,
+                    title: self.document.title.clone(),
+                    path: self.document.path.clone(),
+                    kind: self.document.kind,
+                }],
+                edges: Vec::new(),
+                truncated: false,
+            })
         }
 
         fn resolve_wiki_target(
@@ -1917,6 +2009,24 @@ mod tests {
         }
     }
 
+    fn assert_workspace_calls(application: WorkspaceApplication<RecordingPort>) {
+        assert_eq!(
+            application.port.calls.into_inner(),
+            [
+                "snapshot",
+                "create",
+                "save",
+                "backlinks",
+                "local_graph",
+                "resolve_wiki_target",
+                "create_wiki_target",
+                "resolve_attachment",
+                "propose_attachment_import",
+                "import_attachment"
+            ]
+        );
+    }
+
     #[test]
     fn standalone_product_has_no_obsidian_dependency() {
         let status = super::system_status();
@@ -1957,6 +2067,16 @@ mod tests {
                 })
                 .unwrap()
                 .is_empty()
+        );
+        assert_eq!(
+            application
+                .local_graph(&LocalGraphRequest {
+                    note_id: document.id,
+                    node_limit: 20,
+                })
+                .unwrap()
+                .root_note_id,
+            document.id
         );
         assert_eq!(
             application
@@ -2012,20 +2132,7 @@ mod tests {
                 .byte_length,
             3
         );
-        assert_eq!(
-            application.port.calls.into_inner(),
-            [
-                "snapshot",
-                "create",
-                "save",
-                "backlinks",
-                "resolve_wiki_target",
-                "create_wiki_target",
-                "resolve_attachment",
-                "propose_attachment_import",
-                "import_attachment"
-            ]
-        );
+        assert_workspace_calls(application);
     }
 
     #[test]

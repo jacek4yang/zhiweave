@@ -1,6 +1,6 @@
 # 开发进度
 
-最后更新：2026-07-30 10:46 CST
+最后更新：2026-07-30 13:11 CST
 
 ## 执行拓扑
 
@@ -100,6 +100,14 @@
   转换成 CodeMirror UTF-16 position 再定位。
 - 关系检查器与大纲互斥、可关闭并持久化界面偏好；面板空白与具体来源 occurrence 使用不同
   右键上下文，来源项的命令始终作用于来源知识节点。
+- application/storage/Tauri/TypeScript 新增有界 `LocalGraphRequest`：中心节点加一跳直接
+  邻居，默认 40、后端硬上限 80；邻居按引用次数确定排序，link/embed 按方向与类型聚合次数，
+  超限显式标记 `truncated`。数据完全来自可重建 `wiki_edge`，前端不重解析 Markdown。
+- 局部图谱按需加载为独立 SVG 检查器，与大纲/反向链接互斥；中心与关联节点支持鼠标、
+  Enter/Space 打开。`graph` 背景和带稳定 ID 的 `note-item` SVG 节点使用不同右键上下文，
+  修复 SVG 命中错误回退成统一工作区菜单的问题。
+- 图谱画布采用柔和 link/embed 线型、重复次数线宽、稳定中心/环布局和自适应剩余高度；
+  ≤1100 px 覆盖编辑区且不挤压 Activity Bar。浏览器预览隐藏原生图谱能力。
 - application、storage、Tauri 与 TypeScript 新增统一 Wiki 正向 resolver：只接受稳定来源 ID
   和有界 authored target，返回 `resolved/missing/ambiguous`、稳定目标元数据与可选 heading；
   精确路径优先，带路径引用不回退标题，同名歧义和缺失目标绝不猜测或隐式创建。
@@ -139,21 +147,22 @@
 
 - `pnpm typecheck`：通过。
 - `pnpm lint`：通过。
-- `pnpm test`：11 files / 59 tests，通过。
+- `pnpm test`：12 files / 62 tests，通过。
 - `pnpm build`：通过。
 - 交互实验独立 chunk：5.99 KB（gzip 2.46 KB）。
 - Markdown 阅读器 / AST 独立 chunk：14.08 / 92.24 KB（gzip 4.81 / 26.01 KB）。
 - 文档大纲独立 chunk：1.16 KB（gzip 0.67 KB）。
 - 反向链接检查器独立 chunk：2.71 KB（gzip 1.26 KB）。
+- 局部图谱独立 chunk：5.13 KB（gzip 2.42 KB）。
 - Wiki heading 导航独立 chunk：0.34 KB（gzip 0.26 KB）。
 - KaTeX/mathRenderer 独立 chunk：259.23 KB（gzip 77.61 KB），只在公式出现时加载。
-- 主 CSS：61.10 KB（gzip 11.20 KB）。
-- 主 JavaScript：约 956.28 KB（gzip 316.77 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
-- Rust workspace 74 项测试通过，其中 application 4 项、Tauri 6 项、storage 49 项、
+- 主 CSS：64.98 KB（gzip 11.81 KB）。
+- 主 JavaScript：约 958.44 KB（gzip 317.20 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
+- Rust workspace 75 项测试通过，其中 application 4 项、Tauri 6 项、storage 50 项、
   Markdown 7 项、domain 6 项、protocol/server 各 1 项；fmt 和全 workspace Clippy
   `-D warnings` 通过。
 - `pnpm audit --prod --audit-level high`：无已知漏洞；`cargo audit --no-fetch --stale` 扫描 475 个 lockfile 依赖，无已知 vulnerability，17 项既有 allowed warning。
-- `pnpm tauri build` 在当前 Windows 电脑通过，生成 6,119,424 B MSI 与 4,617,467 B NSIS；
+- `pnpm tauri build` 在当前 Windows 电脑通过，生成 6,144,000 B MSI 与 4,635,321 B NSIS；
   两个 SHA-256 已写入 `TEST_PLAN.md`，构建产物保持在忽略的 `target/`。
 - Windows 原生进程：`知织 · ZhiWeave` 正常运行；固定工作区有 6 个真实 Markdown、identity v1 的 6 个唯一 ID/路径和有效 SQLite 3 数据库。
 - 共享 Markdown AST 功能提交 `27bf009` 已推送；GitHub CI run `30497652526` 的 Frontend 与
@@ -222,19 +231,26 @@
   英文输入布局；该项仍未通过，不能用 CDP composition 生命周期证据替代。
 - 输入可靠性提交 `1c3bf82` 已在当前 Windows 电脑完成全部门禁，仅经 Linux 一次性裸仓库中继
   上传；GitHub CI run `30514256379` 的 Frontend 与 Rust 全部通过。
+- 局部图谱 Windows 原生只读验收：既有 welcome/ownership 返回 2 节点/1 条关系；鼠标与 Enter
+  均能切换稳定根节点。图谱背景菜单显示图谱/文档操作，关联 SVG 节点菜单只显示该节点操作。
+  1280×800 与 390×844 无水平溢出，窄屏画布填充可用高度且图例贴底。
+- 图谱验收前后 6 篇 Markdown 保持 1004 字节且组合 SHA-256 不变，identity 1171 字节且摘要
+  不变；未保存、注入或创建正文。应用内浏览器确认原生图谱入口/面板计数均为 0，所有本轮
+  Tauri/Vite/WebView2 进程、端口、临时日志和截图已清理。
 - 本轮应用内浏览器在本地导航和 DOM 读取阶段连续超时，未把反向链接浏览器点击/E2E 标记为
   通过；浏览器预览按能力边界也不会伪造 SQLite 关系。
 - Live Preview 性能回归：2 MiB 窄视口约 322 ms；10,000 行 fence 可见 24 行用例约 9 ms。
 - `pnpm audit --prod --audit-level high` 无已知漏洞；SOCKS 代理 audit 请求重试后失败，按既有
   回退策略直连完成，代理地址没有写入仓库。
-  `cargo audit --no-fetch` 扫描 471 个依赖，无 vulnerability，保留 17 项既有 allowed warning。
+  `cargo audit --no-fetch --stale` 扫描 475 个依赖，无 vulnerability，保留 17 项既有 allowed warning。
 
 ## 当前任务
 
 1. 补物理 Windows 中文候选窗、点击回源码与 Android 软键盘验收；WebView2 composition
    生命周期、延迟恢复和多光标输入/撤销已覆盖。
-2. 扩展 Markdown Corpus、局部输入 P95/深层/恶意输入以及 10,000/100,000 节点关系基准。
-3. 增加局部图谱、快捷键编辑器、预览标签和移动触控入口。
+2. 扩展 Markdown Corpus、局部输入 P95/深层/恶意输入，以及 10,000/100,000 节点关系与
+   全局分片图谱基准。
+3. 增加快捷键编辑器、预览标签和移动触控入口。
 4. 补 watcher 高频压力、文件锁、磁盘满、只读目录和强杀恢复夹具。
 5. 继续集合、Canvas 与跨设备加密备份/同步设计；现有本机目录备份不能冒充加密云备份。
 
@@ -247,14 +263,16 @@
 - watcher 只保证“事件后完整核对”，不保证底层平台一定投递事件；网络文件系统不在当前固定本机工作区支持范围，高频事件压力和进程休眠恢复仍需基准。
 - create 的空占位后若进程强杀可能留下空 Markdown，自动恢复日志未完成。
 - 通用阅读器、Lezer Decoration、大纲、Rust Wiki 双向解析、missing 显式创建、受限静态附件
-  预览和导入已按显式 source/身份契约对齐；局部图谱、导出和版本差异尚未统一完成。Rust/JavaScript 的 Unicode
+  预览、导入和有界一跳局部图谱已按显式 source/身份契约对齐；全局图谱、导出和版本差异尚未
+  统一完成。Rust/JavaScript 的 Unicode
   归一化跨平台一致性及 10,000/100,000 节点关系性能仍需基准。
-- 首屏 JS gzip 超预算 116.77 KB；CodeMirror/图标/工作台和命令面板需进一步分包和测量。
+- 首屏 JS gzip 超预算 117.20 KB；CodeMirror/图标/工作台和命令面板需进一步分包和测量。
 - KaTeX 虽按需加载，但构建仍携带上游 WOFF2/WOFF/TTF 多格式字体，安装包资产需要收敛。
 - 已有可校验完整工作区目录包和重启前目录切换恢复，但尚无外部备份包选择/导入、跨设备恢复
   演练、备份加密或同步加密；本地 SQLite 与备份包目前未加密，不得宣称客户端密码保护已完成。
 - Command registry/命令面板、原生 Wiki 双向导航、missing 显式创建、安全静态附件预览和受控
-  附件导入已完成，但快捷键编辑器、完整树/属性、局部图谱、FSRS 与深度学习 schema 尚未完成。
+  附件导入及一跳局部图谱已完成，但快捷键编辑器、完整树/属性、全局图谱、FSRS 与深度学习
+  schema 尚未完成。
 - 本轮正向导航已发布到 Draft PR 且 CI 通过；根目录 `AGENTS.md` 仍是用户未跟踪文件，严禁暂存。
 
 ## 当前截图

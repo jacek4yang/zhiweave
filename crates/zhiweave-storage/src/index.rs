@@ -7,12 +7,13 @@ use std::{
 
 use rusqlite::{
     Connection, Error as SqliteError, ErrorCode, OpenFlags, OptionalExtension, Transaction,
-    TransactionBehavior, params,
+    TransactionBehavior, params, params_from_iter,
 };
 use zhiweave_application::{
     BacklinkReference, BacklinkReferenceKind, BacklinksRequest, IndexState, IndexStatus,
-    ResolveWikiTargetRequest, ResolvedWikiTargetNote, SearchNoteResult, SearchNotesRequest,
-    WikiTargetCreationProposal, WikiTargetResolution, WikiTargetResolutionState, WorkspaceFailure,
+    LocalGraph, LocalGraphEdge, LocalGraphNode, LocalGraphRequest, ResolveWikiTargetRequest,
+    ResolvedWikiTargetNote, SearchNoteResult, SearchNotesRequest, WikiTargetCreationProposal,
+    WikiTargetResolution, WikiTargetResolutionState, WorkspaceFailure,
 };
 use zhiweave_domain::{NoteId, NoteKind, PortablePath};
 use zhiweave_markdown::{WikiReference, WikiReferenceKind};
@@ -24,6 +25,7 @@ const INDEX_APPLICATION_ID: i32 = 0x5a48_5756;
 const MAX_SEARCH_CHARS: usize = 256;
 const MAX_SEARCH_RESULTS: usize = 100;
 const MAX_BACKLINK_RESULTS: usize = 200;
+const MAX_LOCAL_GRAPH_NODES: usize = 80;
 const MAX_WIKI_TARGET_CHARS: usize = 500;
 const INDEX_FILE_NAME: &str = "index.sqlite3";
 const REBUILD_FILE_NAME: &str = "index.rebuild.sqlite3";
@@ -103,6 +105,23 @@ impl SqliteIndex {
             &connection,
             request.note_id,
             request.limit.min(MAX_BACKLINK_RESULTS),
+        )
+    }
+
+    pub(crate) fn local_graph(
+        &self,
+        request: &LocalGraphRequest,
+    ) -> Result<LocalGraph, WorkspaceFailure> {
+        if request.node_limit == 0 {
+            return Err(WorkspaceFailure::InvalidGraphRequest {
+                kind: "zeroNodeLimit".to_owned(),
+            });
+        }
+        let connection = open_index(&self.path)?;
+        read_local_graph(
+            &connection,
+            request.note_id,
+            request.node_limit.min(MAX_LOCAL_GRAPH_NODES),
         )
     }
 
@@ -908,6 +927,188 @@ fn read_backlinks(
         });
     }
     Ok(results)
+}
+
+fn read_local_graph(
+    connection: &Connection,
+    root_note_id: NoteId,
+    node_limit: usize,
+) -> Result<LocalGraph, WorkspaceFailure> {
+    let root = read_local_graph_root(connection, root_note_id)?;
+    let (nodes, selected, truncated) =
+        read_local_graph_nodes(connection, root_note_id, node_limit, root)?;
+    let edges = read_local_graph_edges(connection, root_note_id, &selected)?;
+    Ok(LocalGraph {
+        root_note_id,
+        nodes,
+        edges,
+        truncated,
+    })
+}
+
+fn read_local_graph_root(
+    connection: &Connection,
+    root_note_id: NoteId,
+) -> Result<LocalGraphNode, WorkspaceFailure> {
+    let root = connection
+        .query_row(
+            "SELECT title, path, kind FROM note_index WHERE note_id = ?1",
+            [root_note_id.to_string()],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|error| sqlite_failure("queryLocalGraphRoot", &error))?
+        .ok_or_else(|| WorkspaceFailure::InvalidGraphRequest {
+            kind: "unknownRootNote".to_owned(),
+        })?;
+    decode_local_graph_node(root_note_id, root.0, root.1, &root.2)
+}
+
+fn read_local_graph_nodes(
+    connection: &Connection,
+    root_note_id: NoteId,
+    node_limit: usize,
+    root: LocalGraphNode,
+) -> Result<(Vec<LocalGraphNode>, BTreeSet<NoteId>, bool), WorkspaceFailure> {
+    let neighbor_query_limit = node_limit;
+    let mut neighbor_statement = connection
+        .prepare(
+            "SELECT neighbor.note_id, neighbor.title, neighbor.path, neighbor.kind,
+                    COUNT(*) AS occurrence_count
+             FROM wiki_edge AS edge
+             JOIN note_index AS neighbor
+               ON neighbor.note_id =
+                  CASE WHEN edge.source_note_id = ?1
+                       THEN edge.target_note_id ELSE edge.source_note_id END
+             WHERE edge.resolution = 'resolved'
+               AND (edge.source_note_id = ?1 OR edge.target_note_id = ?1)
+               AND neighbor.note_id <> ?1
+             GROUP BY neighbor.note_id, neighbor.title, neighbor.path, neighbor.kind
+             ORDER BY occurrence_count DESC,
+                      neighbor.title COLLATE NOCASE, neighbor.note_id
+             LIMIT ?2",
+        )
+        .map_err(|error| sqlite_failure("prepareLocalGraphNeighbors", &error))?;
+    let mut neighbor_rows = neighbor_statement
+        .query(params![
+            root_note_id.to_string(),
+            sqlite_usize(neighbor_query_limit)
+        ])
+        .map_err(|error| sqlite_failure("queryLocalGraphNeighbors", &error))?;
+    let mut nodes = vec![root];
+    let mut selected = BTreeSet::from([root_note_id]);
+    let mut truncated = false;
+    while let Some(row) = neighbor_rows
+        .next()
+        .map_err(|error| sqlite_failure("readLocalGraphNeighbor", &error))?
+    {
+        let raw_neighbor_id: String = row
+            .get(0)
+            .map_err(|error| sqlite_failure("decodeLocalGraphNeighborId", &error))?;
+        let neighbor_id = raw_neighbor_id
+            .parse::<NoteId>()
+            .map_err(|_| index_corrupt("invalidLocalGraphNeighborId"))?;
+        if nodes.len() >= node_limit {
+            truncated = true;
+            break;
+        }
+        nodes.push(decode_local_graph_node(
+            neighbor_id,
+            row.get(1)
+                .map_err(|error| sqlite_failure("decodeLocalGraphNeighborTitle", &error))?,
+            row.get(2)
+                .map_err(|error| sqlite_failure("decodeLocalGraphNeighborPath", &error))?,
+            &row.get::<_, String>(3)
+                .map_err(|error| sqlite_failure("decodeLocalGraphNeighborKind", &error))?,
+        )?);
+        selected.insert(neighbor_id);
+    }
+    Ok((nodes, selected, truncated))
+}
+
+fn read_local_graph_edges(
+    connection: &Connection,
+    root_note_id: NoteId,
+    selected: &BTreeSet<NoteId>,
+) -> Result<Vec<LocalGraphEdge>, WorkspaceFailure> {
+    let placeholders = (2..=selected.len() + 1)
+        .map(|index| format!("?{index}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let edge_query = format!(
+        "SELECT edge.source_note_id, edge.target_note_id, edge.reference_kind,
+                COUNT(*) AS occurrence_count
+         FROM wiki_edge AS edge
+         WHERE edge.resolution = 'resolved'
+           AND (edge.source_note_id = ?1 OR edge.target_note_id = ?1)
+           AND CASE WHEN edge.source_note_id = ?1
+                    THEN edge.target_note_id ELSE edge.source_note_id END
+               IN ({placeholders})
+         GROUP BY edge.source_note_id, edge.target_note_id, edge.reference_kind
+         ORDER BY edge.source_note_id, edge.target_note_id, edge.reference_kind"
+    );
+    let mut edge_statement = connection
+        .prepare(&edge_query)
+        .map_err(|error| sqlite_failure("prepareLocalGraphEdges", &error))?;
+    let mut edge_parameters = Vec::with_capacity(selected.len() + 1);
+    edge_parameters.push(root_note_id.to_string());
+    edge_parameters.extend(selected.iter().map(ToString::to_string));
+    let mut edge_rows = edge_statement
+        .query(params_from_iter(edge_parameters.iter()))
+        .map_err(|error| sqlite_failure("queryLocalGraphEdges", &error))?;
+    let mut edges = Vec::new();
+    while let Some(row) = edge_rows
+        .next()
+        .map_err(|error| sqlite_failure("readLocalGraphEdge", &error))?
+    {
+        let raw_source_id: String = row
+            .get(0)
+            .map_err(|error| sqlite_failure("decodeLocalGraphSourceId", &error))?;
+        let raw_target_id: String = row
+            .get(1)
+            .map_err(|error| sqlite_failure("decodeLocalGraphTargetId", &error))?;
+        let source_note_id = raw_source_id
+            .parse::<NoteId>()
+            .map_err(|_| index_corrupt("invalidLocalGraphSourceId"))?;
+        let target_note_id = raw_target_id
+            .parse::<NoteId>()
+            .map_err(|_| index_corrupt("invalidLocalGraphTargetId"))?;
+        let reference_kind: String = row
+            .get(2)
+            .map_err(|error| sqlite_failure("decodeLocalGraphKind", &error))?;
+        edges.push(LocalGraphEdge {
+            source_note_id,
+            target_note_id,
+            reference_kind: match reference_kind.as_str() {
+                "link" => BacklinkReferenceKind::Link,
+                "embed" => BacklinkReferenceKind::Embed,
+                _ => return Err(index_corrupt("invalidLocalGraphKind")),
+            },
+            occurrence_count: read_usize(row, 3, "invalidLocalGraphOccurrenceCount")?,
+        });
+    }
+    Ok(edges)
+}
+
+fn decode_local_graph_node(
+    id: NoteId,
+    title: String,
+    raw_path: String,
+    raw_kind: &str,
+) -> Result<LocalGraphNode, WorkspaceFailure> {
+    Ok(LocalGraphNode {
+        id,
+        title,
+        path: PortablePath::new_markdown(raw_path)
+            .map_err(|_| index_corrupt("invalidLocalGraphPath"))?,
+        kind: parse_kind(raw_kind).ok_or_else(|| index_corrupt("invalidLocalGraphNoteKind"))?,
+    })
 }
 
 fn read_usize(

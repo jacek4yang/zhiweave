@@ -97,6 +97,27 @@ export interface NativeBacklinkReference {
   readonly context: string;
 }
 
+export interface NativeLocalGraphNode {
+  readonly id: string;
+  readonly title: string;
+  readonly path: string;
+  readonly kind: NativeNoteKind;
+}
+
+export interface NativeLocalGraphEdge {
+  readonly sourceNoteId: string;
+  readonly targetNoteId: string;
+  readonly referenceKind: NativeBacklinkReferenceKind;
+  readonly occurrenceCount: number;
+}
+
+export interface NativeLocalGraph {
+  readonly rootNoteId: string;
+  readonly nodes: readonly NativeLocalGraphNode[];
+  readonly edges: readonly NativeLocalGraphEdge[];
+  readonly truncated: boolean;
+}
+
 export type NativeWikiTargetResolutionState =
   | "resolved"
   | "missing"
@@ -336,6 +357,15 @@ export function loadNativeBacklinks(
 ): Promise<readonly NativeBacklinkReference[]> {
   return invoke<readonly NativeBacklinkReference[]>("workspace_backlinks", {
     request: { noteId, limit },
+  });
+}
+
+export function loadNativeLocalGraph(
+  noteId: string,
+  nodeLimit = 80,
+): Promise<NativeLocalGraph> {
+  return invoke<NativeLocalGraph>("workspace_local_graph", {
+    request: { noteId, nodeLimit },
   });
 }
 

@@ -22,12 +22,12 @@ use zhiweave_application::{
     BacklinkReference, BacklinksRequest, CheckoutVersionRequest, CreateNoteRequest,
     CreateWikiTargetRequest, CreateWorkspaceBackupRequest, CreateWorkspaceBackupResult,
     DeleteVersionRequest, DeleteVersionResult, DetectWorkspaceChangesRequest,
-    ImportAttachmentRequest, MAX_ATTACHMENT_IMPORT_BYTES, NoteDocument,
-    PrepareWorkspaceRestoreRequest, PrepareWorkspaceRestoreResult, PreviewVersionRetentionRequest,
-    ProposeAttachmentImportRequest, ReadVersionRequest, RebuildIndexResult, RenameNoteRequest,
-    ResolveAttachmentRequest, ResolveWikiTargetRequest, SaveNoteRequest, SaveNoteResult,
-    SaveVersionRequest, SaveVersionResult, SearchNoteResult, SearchNotesRequest,
-    SetVersionCheckpointRequest, SystemStatus, VerifyWorkspaceBackupRequest,
+    ImportAttachmentRequest, LocalGraph, LocalGraphRequest, MAX_ATTACHMENT_IMPORT_BYTES,
+    NoteDocument, PrepareWorkspaceRestoreRequest, PrepareWorkspaceRestoreResult,
+    PreviewVersionRetentionRequest, ProposeAttachmentImportRequest, ReadVersionRequest,
+    RebuildIndexResult, RenameNoteRequest, ResolveAttachmentRequest, ResolveWikiTargetRequest,
+    SaveNoteRequest, SaveNoteResult, SaveVersionRequest, SaveVersionResult, SearchNoteResult,
+    SearchNotesRequest, SetVersionCheckpointRequest, SystemStatus, VerifyWorkspaceBackupRequest,
     VerifyWorkspaceBackupResult, VersionContent, VersionHistory, VersionHistoryRequest,
     VersionRetentionPreview, WikiTargetResolution, WorkspaceApplication, WorkspaceBackupSummary,
     WorkspaceChangesResult, WorkspaceFailure, WorkspaceSnapshot,
@@ -326,6 +326,23 @@ async fn workspace_backlinks(
             .lock()
             .map_err(|_| WorkspaceFailure::Unavailable)?
             .backlinks(&request)
+    })
+    .await
+    .map_err(|_| WorkspaceFailure::Unavailable)?
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri command extractors are ABI values.
+async fn workspace_local_graph(
+    workspace: State<'_, NativeWorkspace>,
+    request: LocalGraphRequest,
+) -> Result<LocalGraph, WorkspaceFailure> {
+    let workspace = Arc::clone(workspace.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        workspace
+            .lock()
+            .map_err(|_| WorkspaceFailure::Unavailable)?
+            .local_graph(&request)
     })
     .await
     .map_err(|_| WorkspaceFailure::Unavailable)?
@@ -959,6 +976,7 @@ pub fn run() {
             note_rename,
             workspace_search,
             workspace_backlinks,
+            workspace_local_graph,
             workspace_resolve_wiki_target,
             workspace_create_wiki_target,
             workspace_resolve_attachment,
@@ -995,8 +1013,9 @@ mod tests {
 
     use zhiweave_application::{
         AttachmentReferenceKind, AttachmentResolutionState, BacklinksRequest, CreateNoteRequest,
-        CreateWikiTargetRequest, IndexState, ResolveAttachmentRequest, ResolveWikiTargetRequest,
-        SaveNoteRequest, SearchNotesRequest, WikiTargetResolutionState, WorkspaceApplication,
+        CreateWikiTargetRequest, IndexState, LocalGraphRequest, ResolveAttachmentRequest,
+        ResolveWikiTargetRequest, SaveNoteRequest, SearchNotesRequest, WikiTargetResolutionState,
+        WorkspaceApplication,
     };
     use zhiweave_domain::PortablePath;
     use zhiweave_storage::FileWorkspace;
@@ -1075,6 +1094,19 @@ mod tests {
             .unwrap();
         assert_eq!(backlinks.len(), 1);
         assert_eq!(backlinks[0].source_note_id, welcome_id);
+        let graph = application
+            .local_graph(&LocalGraphRequest {
+                note_id: ownership_id,
+                node_limit: 20,
+            })
+            .unwrap();
+        assert_eq!(graph.root_note_id, ownership_id);
+        assert_eq!(graph.nodes.len(), 2);
+        assert_eq!(graph.edges.len(), 1);
+        assert_eq!(graph.edges[0].source_note_id, welcome_id);
+        assert_eq!(graph.edges[0].target_note_id, ownership_id);
+        assert_eq!(graph.edges[0].occurrence_count, 1);
+        assert!(!graph.truncated);
         let forward = application
             .resolve_wiki_target(&ResolveWikiTargetRequest {
                 source_note_id: welcome_id,

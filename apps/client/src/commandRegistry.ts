@@ -5,6 +5,7 @@ export type CommandScope =
   | "editor"
   | "embedded-lab"
   | "explorer"
+  | "graph"
   | "input"
   | "note-item"
   | "outline"
@@ -61,6 +62,7 @@ export type CommandId =
   | "view.sources"
   | "view.split"
   | "view.toggleBacklinks"
+  | "view.toggleGraph"
   | "view.toggleLivePreview"
   | "view.toggleOutline"
   | "view.today"
@@ -170,6 +172,7 @@ const NOTE_SCOPES: readonly CommandScope[] = ["note-item", "tab"];
 const DOCUMENT_SCOPES: readonly CommandScope[] = [
   "backlinks",
   "editor",
+  "graph",
   "preview",
   "embedded-lab",
   "outline",
@@ -185,6 +188,7 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
   attachment: ["attachment.copyTarget"],
   backlinks: [
     "view.toggleBacklinks",
+    "view.toggleGraph",
     "view.toggleOutline",
     "view.toggleLivePreview",
     "note.copyMarkdown",
@@ -210,6 +214,7 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
     "view.preview",
     "view.toggleLivePreview",
     "view.toggleBacklinks",
+    "view.toggleGraph",
     "view.toggleOutline",
     "note.showVersions",
   ],
@@ -224,6 +229,7 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
     "view.preview",
     "view.toggleLivePreview",
     "view.toggleBacklinks",
+    "view.toggleGraph",
     "view.toggleOutline",
     "note.showVersions",
   ],
@@ -234,6 +240,20 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
     "backup.create",
     "workbench.quickOpen",
     "workbench.toggleSidebar",
+  ],
+  graph: [
+    "view.toggleGraph",
+    "view.toggleBacklinks",
+    "view.toggleOutline",
+    "view.toggleLivePreview",
+    "note.copyMarkdown",
+    "note.copyPlainText",
+    "note.copyLearningPrompt",
+    "version.save",
+    "view.edit",
+    "view.split",
+    "view.preview",
+    "note.showVersions",
   ],
   input: ["edit.copy", "edit.cut", "edit.paste", "edit.selectAll"],
   "note-item": [
@@ -250,6 +270,7 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
   outline: [
     "view.toggleOutline",
     "view.toggleBacklinks",
+    "view.toggleGraph",
     "view.toggleLivePreview",
     "note.copyMarkdown",
     "note.copyPlainText",
@@ -271,6 +292,7 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
     "view.preview",
     "view.toggleLivePreview",
     "view.toggleBacklinks",
+    "view.toggleGraph",
     "view.toggleOutline",
     "note.showVersions",
   ],
@@ -541,6 +563,11 @@ export const COMMANDS: readonly CommandDefinition[] = [
       visibleRequires: ["native", "note"],
     },
   ),
+  command("view.toggleGraph", "显示或隐藏局部图谱", "视图", "view", 178, {
+    contexts: DOCUMENT_SCOPES,
+    keywords: ["graph", "network", "wiki", "关系", "局部图谱", "知识网络"],
+    visibleRequires: ["native", "note"],
+  }),
   command("tab.close", "关闭当前标签", "标签", "tabs", 180, {
     contexts: ["tab"],
     keywords: ["close", "关闭标签"],

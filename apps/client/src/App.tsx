@@ -116,6 +116,7 @@ import {
   detectNativeWorkspaceChanges,
   loadNativeWorkspace,
   loadNativeBacklinks,
+  loadNativeLocalGraph,
   loadNativeVersionHistory,
   listNativeWorkspaceBackups,
   pickNativeAttachmentImport,
@@ -132,6 +133,8 @@ import {
   setNativeVersionCheckpoint,
   type NativeIndexStatus,
   type NativeBacklinkReference,
+  type NativeLocalGraph,
+  type NativeLocalGraphNode,
   type NativeAttachmentPreview,
   type NativeAttachmentImportProposal,
   type NativeNoteDocument,
@@ -156,6 +159,10 @@ const DocumentOutline = lazy(async () => {
 const BacklinksPanel = lazy(async () => {
   const module = await import("./BacklinksPanel");
   return { default: module.BacklinksPanel };
+});
+const LocalGraphPanel = lazy(async () => {
+  const module = await import("./LocalGraphPanel");
+  return { default: module.LocalGraphPanel };
 });
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -262,6 +269,9 @@ export function App() {
   const [backlinksOpen, setBacklinksOpen] = useState(
     () => nativeRuntime && readWorkbenchPreferences().backlinksOpen,
   );
+  const [localGraphOpen, setLocalGraphOpen] = useState(
+    () => nativeRuntime && readWorkbenchPreferences().localGraphOpen,
+  );
   const [editorStatus, setEditorStatus] =
     useState<EditorStatus>(EMPTY_EDITOR_STATUS);
   const [isSidebarOpen, setIsSidebarOpen] = useState(
@@ -282,6 +292,11 @@ export function App() {
     readonly NativeBacklinkReference[]
   >([]);
   const [nativeBacklinksState, setNativeBacklinksState] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >("idle");
+  const [nativeLocalGraph, setNativeLocalGraph] =
+    useState<NativeLocalGraph | null>(null);
+  const [nativeLocalGraphState, setNativeLocalGraphState] = useState<
     "idle" | "loading" | "ready" | "error"
   >("idle");
   const [nativeRelationEpoch, setNativeRelationEpoch] = useState(0);
@@ -335,7 +350,7 @@ export function App() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const editorRef = useRef<MarkdownEditorHandle>(null);
   const contextMenuRef = useRef<HTMLElement>(null);
-  const contextTargetRef = useRef<HTMLElement | null>(null);
+  const contextTargetRef = useRef<HTMLElement | SVGElement | null>(null);
   const newNoteDialogRef = useRef<HTMLElement>(null);
   const wikiCreationDialogRef = useRef<HTMLElement>(null);
   const attachmentImportDialogRef = useRef<HTMLElement>(null);
@@ -524,6 +539,49 @@ export function App() {
     };
   }, [
     backlinksOpen,
+    nativeIndex?.state,
+    nativeRelationEpoch,
+    nativeRuntime,
+    selectedNote?.id,
+  ]);
+
+  useEffect(() => {
+    if (!localGraphOpen) {
+      setNativeLocalGraph(null);
+      setNativeLocalGraphState("idle");
+      return undefined;
+    }
+    if (
+      !nativeRuntime ||
+      selectedNote === undefined ||
+      nativeIndex?.state !== "ready"
+    ) {
+      setNativeLocalGraph(null);
+      setNativeLocalGraphState(nativeIndex === null ? "idle" : "error");
+      return undefined;
+    }
+
+    let active = true;
+    setNativeLocalGraph(null);
+    setNativeLocalGraphState("loading");
+    void loadNativeLocalGraph(selectedNote.id, 40)
+      .then((graph) => {
+        if (active) {
+          setNativeLocalGraph(graph);
+          setNativeLocalGraphState("ready");
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setNativeLocalGraph(null);
+          setNativeLocalGraphState("error");
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    localGraphOpen,
     nativeIndex?.state,
     nativeRelationEpoch,
     nativeRuntime,
@@ -720,12 +778,17 @@ export function App() {
     try {
       localStorage.setItem(
         WORKBENCH_PREFERENCES_KEY,
-        JSON.stringify({ backlinksOpen, livePreviewEnabled, outlineOpen }),
+        JSON.stringify({
+          backlinksOpen,
+          livePreviewEnabled,
+          localGraphOpen,
+          outlineOpen,
+        }),
       );
     } catch {
       // UI preferences are optional; Markdown persistence is independent.
     }
-  }, [backlinksOpen, livePreviewEnabled, outlineOpen]);
+  }, [backlinksOpen, livePreviewEnabled, localGraphOpen, outlineOpen]);
 
   useEffect(() => {
     if (
@@ -982,6 +1045,17 @@ export function App() {
         ),
       );
     }, 0);
+  }
+
+  function openGraphNode(node: NativeLocalGraphNode) {
+    const note = workspace.notes.find((candidate) => candidate.id === node.id);
+    if (note === undefined) {
+      setToast(
+        "图谱节点已在磁盘上变化；请先处理外部更改，再重新打开局部图谱。",
+      );
+      return;
+    }
+    activateNote(note);
   }
 
   async function openWikiTarget(
@@ -2876,6 +2950,7 @@ export function App() {
           const next = !open;
           if (next) {
             setBacklinksOpen(false);
+            setLocalGraphOpen(false);
           }
           return next;
         });
@@ -2885,6 +2960,17 @@ export function App() {
           const next = !open;
           if (next) {
             setOutlineOpen(false);
+            setLocalGraphOpen(false);
+          }
+          return next;
+        });
+        return;
+      case "view.toggleGraph":
+        setLocalGraphOpen((open) => {
+          const next = !open;
+          if (next) {
+            setOutlineOpen(false);
+            setBacklinksOpen(false);
           }
           return next;
         });
@@ -3095,12 +3181,14 @@ export function App() {
 
   function openContextMenu(event: ReactMouseEvent<HTMLElement>) {
     event.preventDefault();
-    const target = event.target instanceof HTMLElement
+    const target = event.target instanceof Element
       ? event.target
       : event.currentTarget;
-    const contextElement = target.closest<HTMLElement>("[data-context]");
+    const contextElement = target.closest<HTMLElement | SVGElement>(
+      "[data-context]",
+    );
     const nativeInput = target.closest("input, textarea");
-    const focusableTarget = target.closest<HTMLElement>(
+    const focusableTarget = target.closest<HTMLElement | SVGElement>(
       'button, a[href], input, textarea, select, [tabindex]:not([tabindex="-1"]), [contenteditable="true"]',
     );
     contextTargetRef.current =
@@ -3134,7 +3222,7 @@ export function App() {
     const contextualNoteId =
       contextElement?.dataset.noteId ??
       contextElement
-        ?.closest<HTMLElement>("[data-note-id]")
+        ?.closest<HTMLElement | SVGElement>("[data-note-id]")
         ?.dataset.noteId;
     setContextMenu({
       x: Math.max(4, Math.min(event.clientX, window.innerWidth - width - 4)),
@@ -3623,6 +3711,16 @@ export function App() {
                       <span>反向链接</span>
                     </button>
                     <button
+                      aria-pressed={localGraphOpen}
+                      className={localGraphOpen ? "is-active" : undefined}
+                      onClick={() => runCommand("view.toggleGraph")}
+                      title={localGraphOpen ? "关闭局部图谱" : "打开局部图谱"}
+                      type="button"
+                    >
+                      <Network />
+                      <span>局部图谱</span>
+                    </button>
+                    <button
                       aria-busy={attachmentImportState === "selecting"}
                       disabled={
                         selectedNote === undefined ||
@@ -3780,8 +3878,10 @@ export function App() {
           ) : (
             <div
               className={
-                `editor-workspace${
-                  outlineOpen || backlinksOpen ? " has-inspector" : ""
+                `editor-workspace${localGraphOpen ? " has-graph" : ""}${
+                  outlineOpen || backlinksOpen || localGraphOpen
+                    ? " has-inspector"
+                    : ""
                 }`
               }
             >
@@ -3879,6 +3979,17 @@ export function App() {
                     onOpen={openBacklink}
                     references={nativeBacklinks}
                     state={nativeBacklinksState}
+                  />
+                </Suspense>
+              ) : null}
+              {localGraphOpen ? (
+                <Suspense fallback={null}>
+                  <LocalGraphPanel
+                    graph={nativeLocalGraph}
+                    noteId={selectedNote.id}
+                    onClose={() => runCommand("view.toggleGraph")}
+                    onOpen={openGraphNode}
+                    state={nativeLocalGraphState}
                   />
                 </Suspense>
               ) : null}
@@ -5075,6 +5186,7 @@ function isContextScope(
     case "editor":
     case "embedded-lab":
     case "explorer":
+    case "graph":
     case "input":
     case "note-item":
     case "outline":
@@ -5105,6 +5217,8 @@ function contextMenuLabel(
         : `附件：${rawAttachmentTarget}`;
     case "backlinks":
       return note === undefined ? "反向链接" : `反向链接：${note.title}`;
+    case "graph":
+      return note === undefined ? "局部图谱" : `局部图谱：${note.title}`;
     case "editor":
       return note === undefined ? "编辑器" : `编辑：${note.title}`;
     case "preview":
@@ -5298,6 +5412,8 @@ function commandIcon(id: CommandId) {
       return Eye;
     case "view.toggleBacklinks":
       return Link2;
+    case "view.toggleGraph":
+      return Network;
     case "view.toggleOutline":
       return ListTree;
     case "note.rename":
@@ -5357,11 +5473,13 @@ function commandIcon(id: CommandId) {
 function readWorkbenchPreferences(): {
   readonly backlinksOpen: boolean;
   readonly livePreviewEnabled: boolean;
+  readonly localGraphOpen: boolean;
   readonly outlineOpen: boolean;
 } {
   const defaults = {
     backlinksOpen: false,
     livePreviewEnabled: true,
+    localGraphOpen: false,
     outlineOpen: false,
   };
   try {
@@ -5383,6 +5501,11 @@ function readWorkbenchPreferences(): {
       typeof parsed.backlinksOpen === "boolean"
         ? parsed.backlinksOpen
         : defaults.backlinksOpen;
+    const localGraphOpen =
+      "localGraphOpen" in parsed &&
+      typeof parsed.localGraphOpen === "boolean"
+        ? parsed.localGraphOpen
+        : defaults.localGraphOpen;
     return {
       backlinksOpen: backlinksOpen && !outlineOpen,
       livePreviewEnabled:
@@ -5390,6 +5513,7 @@ function readWorkbenchPreferences(): {
         typeof parsed.livePreviewEnabled === "boolean"
           ? parsed.livePreviewEnabled
           : defaults.livePreviewEnabled,
+      localGraphOpen: localGraphOpen && !outlineOpen && !backlinksOpen,
       outlineOpen,
     };
   } catch {

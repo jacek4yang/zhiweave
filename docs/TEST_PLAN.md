@@ -18,18 +18,19 @@
 - `pnpm install --frozen-lockfile`：通过，142 个 lockfile 条目通过供应链策略。
 - `pnpm typecheck`：通过。
 - `pnpm lint`：通过（当前等同 TypeScript noEmit，需加入真实 ESLint）。
-- `pnpm test`：通过，11 files / 59 tests；除原有版本/分支、日记/H1、持久版本 DTO、种子、
+- `pnpm test`：通过，12 files / 62 tests；除原有版本/分支、日记/H1、持久版本 DTO、种子、
   交互实验和保存状态用例外，新增 command id/快捷键唯一性、IME 防误触、上下文矩阵、原生能力
   隔离、禁用条件、中文/别名检索、共享 Markdown AST/安全渲染，以及 Lezer frontmatter/Wiki、
   光标揭示、composition 停用、任务/Callout、数学/图片/脚注/fence、多光标、大输入和源码
   不变回归测试；另覆盖反向链接面板/来源节点上下文隔离、Wiki 正向解析/阅读按钮/编辑器
-  `Ctrl/Cmd+单击`、heading offset 和 UTF-8 字节位置到 UTF-16 CodeMirror offset 的 Unicode 转换。
+  `Ctrl/Cmd+单击`、heading offset、UTF-8 字节位置到 UTF-16 CodeMirror offset 的 Unicode
+  转换，以及图谱背景/具体 SVG 节点的上下文隔离与 79 邻居（80 总节点）确定布局。
 - `pnpm build`：最终差异通过，主 chunk 有 >500 KB 警告。
 - `pnpm audit --prod --audit-level high`：先使用用户指定 SOCKS5 代理，registry audit 请求重试后
   失败；不下载依赖的直接网络回退通过，无已知漏洞。代理地址不写入仓库。
-- `pnpm tauri build`：在当前 Windows 电脑通过，生成 6,119,424 B MSI 与 4,617,467 B NSIS；
-  SHA-256 分别为 `B1B00657F606EB054309CE92D448B626AE3FB27AD8C2704DAF710F406A944BC2`
-  和 `7EA887E0E853B793A00566F0E8F73B9210BFB7EE788B22C4EE475D5D3E2861B5`。
+- `pnpm tauri build`：在当前 Windows 电脑通过，生成 6,144,000 B MSI 与 4,635,321 B NSIS；
+  SHA-256 分别为 `F5B117DA42072EACF629C11195A1006F898DD7B58D463E9BC029AA6FC26DBE7E`
+  和 `A18CAD461544E398D4CF6581AFA255816A4743AF734EBF4F0FFC0C102C0AB53B`。
 - 浏览器：搜索、阅读/编辑、分栏、标签、刷新恢复、复制保真、上下文菜单分流、输入粘贴、编辑撤销、UUID 生成/校验/提示词通过；命令面板中文筛选、方向键、Enter、Esc、焦点恢复和 390×844/1280×800 布局通过。
 - 本轮 Wiki 正向导航浏览器自动化因应用内浏览器本地导航与 DOM 读取连续超时尚未通过，不得用
   原生截图替代；Windows 原生 IPC、WebView2 DOM 检查、DWM 截图与临时目录/Tauri 集成测试是
@@ -49,7 +50,7 @@
 
 ## Markdown 文件纵切证据
 
-- Rust 当前 workspace 74 项测试通过，其中 storage 49 项、domain/portable resource 6 项、
+- Rust 当前 workspace 75 项测试通过，其中 storage 50 项、domain/portable resource 6 项、
   application 4 项、Markdown 7 项、protocol 1 项、server 1 项和 Tauri 6 项。
 - 原子保存：真实临时目录创建、修改、无变化保存、回读修订与 H1 标题通过。
 - 字节往返：UTF-8 BOM + CRLF 编辑后精确保留；Mixed 保存失败并要求明确规范化。
@@ -114,6 +115,25 @@
   只有一篇既有 welcome 笔记，因此截图不伪造跨节点 authored Wiki 链接。
 - 应用内浏览器在本地导航和 DOM 读取阶段连续超时，未把本轮浏览器点击/E2E 标记为通过；
   浏览器预览按设计也不会伪造 SQLite 关系。
+
+## 局部知识图谱证据
+
+- storage 临时目录覆盖中心节点、出边/入边、link/embed 聚合次数、邻居按总引用次数排序、
+  节点上限截断和零上限结构化拒绝；图谱复用 `wiki_edge`，没有第二套正文解析器。
+- application port、Tauri `workspace_local_graph` 与 camelCase TypeScript DTO 已贯通；Tauri
+  种子集成测试返回 welcome/ownership 两节点、一条有向 link 边和准确 occurrence count。
+- 前端布局测试以完整 79 个邻居核对坐标唯一且位于 640×420 viewBox 内，所有边路径不含 NaN，
+  Unicode 标题按 code point 截断。command matrix 明确区分 `graph` 背景和 `note-item` 图节点。
+- Windows 原生只读验证显示当前用户既有 welcome/ownership 两节点、一条关系；鼠标单击与
+  Enter 均能切换稳定根节点。图谱空白右键标题为当前局部图谱并显示图谱/文档操作；关联 SVG
+  节点右键标题为精确节点名，只显示该节点的打开、分栏、复制、重命名和版本操作。
+- 1280×800 与 390×844 均无页面级水平溢出；窄屏面板位于 Activity Bar 右侧、关闭按钮完整，
+  自适应画布填满剩余高度且图例贴底。浏览器预览的图谱按钮和面板计数均为 0，页面宽度等于
+  视口，不冒充原生索引能力。
+- 验收前后用户工作区保持 6 个 Markdown、1004 字节，组合 SHA-256 为
+  `C69884AD14DA1F3CFAFB520E642C5120320057BEE11FEC51CDCC49F3E4A68517`；identity 文件 1171
+  字节，SHA-256 为 `E9CF4C6438DE888803B85E6123BF27680F830C31338A62679C6CB7EFA00D07E2`。
+  未保存或注入正文，Tauri/Vite/9335 进程与端口均已关闭。
 
 ## Windows watcher 与外部更改中心证据
 
@@ -216,7 +236,7 @@
 
 尚未完成的 Markdown 测试：CommonMark 官方全集快照、round-trip 属性/模糊测试、局部输入
 P95/滚动与内存基准、物理 Windows 中文候选窗与 Android 软键盘、隔离应用数据下附件 picker →
-确认 → 编辑器 undo 的完整 UI E2E、局部图谱、Mermaid 和导出。
+确认 → 编辑器 undo 的完整 UI E2E、全局分片图谱、Mermaid 和导出。
 
 尚未完成：稳定 Windows 磁盘满/只读目录故障注入、Tauri IPC 自动 E2E、watcher 高频压力/休眠恢复、
 占位/安全移动强杀恢复、长读事务、10,000 文件性能基准、100,000 条索引查询基准和 Android

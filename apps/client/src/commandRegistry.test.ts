@@ -165,6 +165,7 @@ describe("command registry", () => {
     );
     expect(panelCommands.map((command) => command.id)).toEqual([
       "view.toggleBacklinks",
+      "view.toggleGraph",
       "view.toggleOutline",
       "view.toggleLivePreview",
       "note.copyMarkdown",
@@ -184,6 +185,33 @@ describe("command registry", () => {
       sourceCommands.some((command) => command.id === "view.toggleBacklinks"),
     ).toBe(false);
     expect(sourceCommands[0]?.id).toBe("note.open");
+  });
+
+  it("separates graph background commands from graph knowledge nodes", () => {
+    const graphCommands = commandsForContext(
+      context(["native", "note"], "graph"),
+    );
+    expect(graphCommands.map((command) => command.id)).toEqual([
+      "view.toggleGraph",
+      "view.toggleBacklinks",
+      "view.toggleOutline",
+      "view.toggleLivePreview",
+      "note.copyMarkdown",
+      "note.copyPlainText",
+      "note.copyLearningPrompt",
+      "version.save",
+      "view.edit",
+      "view.split",
+      "view.preview",
+      "note.showVersions",
+    ]);
+    const nodeCommands = commandsForContext(
+      context(["native", "note", "noteRename"], "note-item"),
+    );
+    expect(nodeCommands[0]?.id).toBe("note.open");
+    expect(
+      nodeCommands.some((command) => command.id === "view.toggleGraph"),
+    ).toBe(false);
   });
 
   it("gives Wiki targets a link-specific menu instead of the preview menu", () => {

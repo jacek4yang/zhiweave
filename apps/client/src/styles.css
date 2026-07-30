@@ -987,6 +987,242 @@ button:disabled {
   font: 10px/1.5 "Cascadia Code", Consolas, monospace;
 }
 
+.editor-workspace.has-inspector.has-graph {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+}
+
+.local-graph-panel {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--ink-soft);
+  border-left: 1px solid var(--line);
+  background: #191b29;
+}
+
+.local-graph-panel > header {
+  display: flex;
+  height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px 0 13px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+
+.local-graph-panel > header > span,
+.local-graph-panel > header button {
+  display: inline-flex;
+  align-items: center;
+}
+
+.local-graph-panel > header > span {
+  min-width: 0;
+  gap: 7px;
+}
+
+.local-graph-panel > header strong {
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+}
+
+.local-graph-panel > header small {
+  min-width: 18px;
+  padding: 1px 5px;
+  color: var(--syntax-purple);
+  border-radius: 9px;
+  background: rgb(187 154 247 / 10%);
+  font: 10px/1.5 "Cascadia Code", Consolas, monospace;
+  text-align: center;
+}
+
+.local-graph-panel > header svg {
+  width: 14px;
+  height: 14px;
+}
+
+.local-graph-panel > header button {
+  width: 27px;
+  height: 27px;
+  flex: 0 0 auto;
+  justify-content: center;
+  color: var(--muted);
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.local-graph-panel > header button:hover,
+.local-graph-panel > header button:focus-visible {
+  color: var(--ink);
+  background: var(--panel-hover);
+}
+
+.local-graph-panel-body {
+  display: flex;
+  height: calc(100% - 38px);
+  flex-direction: column;
+  overflow-y: auto;
+  scrollbar-color: #444a73 transparent;
+}
+
+.local-graph-canvas {
+  display: block;
+  width: 100%;
+  flex: 1 1 320px;
+  min-height: 250px;
+  border-bottom: 1px solid var(--line);
+  background:
+    radial-gradient(circle at 50% 50%, rgb(122 162 247 / 9%), transparent 43%),
+    linear-gradient(rgb(255 255 255 / 1%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 1%) 1px, transparent 1px);
+  background-size:
+    auto,
+    24px 24px,
+    24px 24px;
+}
+
+.local-graph-edge {
+  fill: none;
+  stroke: rgb(91 207 189 / 62%);
+  vector-effect: non-scaling-stroke;
+}
+
+.local-graph-edge.is-embed {
+  stroke: rgb(244 162 97 / 72%);
+  stroke-dasharray: 5 4;
+}
+
+.local-graph-canvas marker path {
+  fill: var(--syntax-teal);
+}
+
+.local-graph-node {
+  cursor: pointer;
+  outline: none;
+}
+
+.local-graph-node rect {
+  fill: #24283b;
+  stroke: #444a73;
+  stroke-width: 1.2;
+  transition:
+    fill 120ms ease,
+    stroke 120ms ease;
+  vector-effect: non-scaling-stroke;
+}
+
+.local-graph-node circle {
+  fill: var(--syntax-cyan);
+}
+
+.local-graph-node text {
+  fill: var(--ink-soft);
+  font: 600 12px/1 "Segoe UI", "Microsoft YaHei UI", sans-serif;
+  pointer-events: none;
+}
+
+.local-graph-node.is-root rect {
+  fill: #303653;
+  stroke: var(--accent-strong);
+  stroke-width: 1.8;
+}
+
+.local-graph-node.is-root circle {
+  fill: var(--syntax-purple);
+}
+
+.local-graph-node.is-source circle,
+.local-graph-node.is-paper circle {
+  fill: var(--syntax-orange);
+}
+
+.local-graph-node.is-daily circle,
+.local-graph-node.is-review-card circle {
+  fill: var(--syntax-pink);
+}
+
+.local-graph-node:hover rect,
+.local-graph-node:focus-visible rect {
+  fill: #343a59;
+  stroke: var(--syntax-cyan);
+}
+
+.local-graph-node:focus-visible rect {
+  stroke-width: 2.2;
+}
+
+.local-graph-legend {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  font-size: 10px;
+}
+
+.local-graph-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.local-graph-legend i {
+  width: 16px;
+  height: 2px;
+  background: var(--syntax-teal);
+}
+
+.local-graph-legend i.is-embed {
+  height: 0;
+  border-top: 2px dashed var(--syntax-orange);
+  background: transparent;
+}
+
+.local-graph-legend small {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--muted-2);
+  font: 9px/1.4 "Cascadia Code", Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.local-graph-message,
+.local-graph-limit {
+  margin: 16px 14px;
+  color: var(--muted-2);
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.local-graph-message.is-error {
+  color: var(--danger);
+}
+
+.local-graph-message code {
+  margin: 0 2px;
+  padding: 1px 4px;
+  color: var(--syntax-teal);
+  border-radius: 3px;
+  background: var(--panel-hover);
+  font: 10px/1.5 "Cascadia Code", Consolas, monospace;
+}
+
+.local-graph-limit {
+  padding: 8px 10px;
+  color: var(--syntax-orange);
+  border: 1px solid rgb(244 162 97 / 18%);
+  border-radius: 5px;
+  background: rgb(244 162 97 / 6%);
+}
+
 .editor-split {
   display: grid;
   width: 100%;
@@ -3991,7 +4227,8 @@ button.preview-wiki-embed:focus-visible {
   }
 
   .editor-workspace.has-inspector .document-outline,
-  .editor-workspace.has-inspector .backlinks-panel {
+  .editor-workspace.has-inspector .backlinks-panel,
+  .editor-workspace.has-inspector .local-graph-panel {
     position: absolute;
     z-index: 12;
     top: 0;
@@ -3999,6 +4236,10 @@ button.preview-wiki-embed:focus-visible {
     bottom: 0;
     width: min(270px, calc(100% - 32px));
     box-shadow: -14px 0 32px rgb(0 0 0 / 28%);
+  }
+
+  .editor-workspace.has-inspector.has-graph .local-graph-panel {
+    width: min(360px, calc(100% - 24px));
   }
 
   .editor-split {

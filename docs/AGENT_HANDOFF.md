@@ -1,6 +1,6 @@
 # Agent 交接
 
-最近更新：2026-07-30 12:04 CST
+最近更新：2026-07-30 13:11 CST
 
 ## 不可改变的用户约束
 
@@ -182,14 +182,30 @@ SQLite/稳定身份稳定切片增加：
 - 物理微软拼音候选窗因用户正在操作其他前台窗口，在发送任何按键前中止，输入布局恢复英文；
   此项仍待独立人工验收，不能以 CDP composition 生命周期替代。
 
+当前局部知识图谱切片增加：
+
+- application/storage/Tauri/TypeScript 贯通 `LocalGraphRequest`；中心稳定节点加一跳邻居，
+  默认 40、后端硬上限 80，按总引用次数确定截断顺序并显式返回 `truncated`；
+- 图谱只读取可重建 `wiki_edge`；相同来源、目标和 link/embed 类型聚合为带 occurrence count
+  的有向边，不建立前端 Markdown 关系解析器；
+- `LocalGraphPanel` 按需加载，使用确定的中心/环 SVG 布局、柔和 link/embed 线型、次数线宽和
+  键盘可打开节点；大纲、反向链接、图谱互斥，窄屏画布自适应剩余高度；
+- `graph` 背景和 `note-item` SVG 节点进入不同 command scope；上下文目标支持
+  HTMLElement/SVGElement，右键落在 `<g>/<rect>/<text>` 时仍作用于精确节点；
+- Windows 原生现有 welcome/ownership 数据验证为 2 节点/1 关系，鼠标/Enter 切换根节点通过；
+  背景菜单与节点菜单内容不同。1280×800、390×844 无水平溢出，浏览器预览不显示原生入口；
+- 验收前后 6 篇 Markdown/1004 B 组合摘要和 1171 B identity 摘要完全一致；未保存或注入正文，
+  所有 Tauri/Vite/WebView2 进程、端口和临时文件已清理。
+
 ## 最近验证
 
-- 当前输入可靠性差异通过 typecheck、11 files / 59 tests 和 production build；主 JS 约
-  956.28 KB（gzip 316.77 KB），仍触发体积警告。
-- Rust workspace 74 项、fmt 与全 target/all feature Clippy `-D warnings` 全部通过；
-  Markdown 7 项、storage 49 项覆盖 Wiki 解析/创建、附件安全边界/导入、迁移、增量替换、歧义、
+- 当前局部图谱差异通过 typecheck、12 files / 62 tests 和 production build；图谱独立
+  5.13 KB（gzip 2.42 KB），主 JS 约 958.44 KB（gzip 317.20 KB），仍触发体积警告。
+- Rust workspace 75 项、fmt 与全 target/all feature Clippy `-D warnings` 全部通过；
+  Markdown 7 项、storage 50 项覆盖 Wiki 解析/创建、附件安全边界/导入、局部图谱聚合/截断、
+  迁移、增量替换、歧义、
   重命名/删除/重建与正向解析，同时保留历史、备份和恢复回归。
-- `pnpm tauri build` 在当前 Windows 电脑通过，生成 6,119,424 B MSI 与 4,617,467 B NSIS；
+- `pnpm tauri build` 在当前 Windows 电脑通过，生成 6,144,000 B MSI 与 4,635,321 B NSIS；
   SHA-256 记录在 `TEST_PLAN.md`，产物位于忽略的 `target/`。
 - Windows Tauri 原生验收覆盖保存、分支、重启、删除/空间回收和恢复；测试正文与版本均已清理，固定工作区保持 6 个 Markdown。
 - GitHub CI run `30482533535`：Frontend 21 s、Rust 3 min 1 s，全部通过；Node 20 actions deprecation annotation 尚待 workflow 维护。
@@ -218,6 +234,8 @@ SQLite/稳定身份稳定切片增加：
   裁切。随后已关闭进程和 1420 监听。
 - 本轮应用内浏览器在本地导航和 DOM 读取阶段连续超时，所以不能把反向链接浏览器点击/E2E
   标记为通过；原生 DWM 截图与临时目录集成测试是区分记录的替代证据。
+- 本轮局部图谱的应用内浏览器 DOM 检查已恢复可用，确认普通预览中的图谱按钮/面板计数均为 0
+  且页面无横向溢出；这只验证 capability 隔离，不替代原生图谱 IPC/交互证据。
 - pnpm 生产依赖审计先按用户指定 SOCKS5 代理重试，失败后以不下载依赖的直接 audit 回退完成，
   无已知漏洞；`cargo audit --no-fetch --stale` 扫描 475 个依赖，无 vulnerability，保留
   17 项既有维护/unsound warning。
@@ -226,8 +244,9 @@ SQLite/稳定身份稳定切片增加：
 
 1. 补物理 Windows 中文候选窗、点击回源码和 Android 软键盘验收；WebView2 composition
    生命周期、延迟恢复与多光标输入/撤销已有证据。
-2. 增加 Wiki 关系的 10,000/100,000 节点基准、Unicode 归一化契约与 corpus/fuzz。
-3. 增加局部图谱、快捷键编辑器、预览标签和移动端命令入口。
+2. 增加 Wiki 关系/局部查询的 10,000/100,000 节点基准、全局分片图谱、Unicode 归一化契约
+   与 corpus/fuzz。
+3. 增加快捷键编辑器、预览标签和移动端命令入口。
 4. 补 watcher 高频压力、休眠恢复、占位强杀、只读目录和卷级磁盘满夹具。
 5. 增加外部备份导入/跨设备恢复演练，再进入客户端加密和同步；持续排除根 `AGENTS.md`、
    真实工作区文件、地址、密钥和数据库。
@@ -239,9 +258,10 @@ Markdown 文件事实源、稳定 ID、可重建 SQLite/FTS、本机 watcher、�
 备份包尚未加密且缺少外部导入/跨设备演练；底层平台漏报只能依赖 `Rescan`/后续事件或重启发现。
 create 强杀可能留下空占位，安全移动强杀可能留下重复副本，删源前仍有极窄竞态。共享 mdast
 阅读器、扩展 Live Preview、可交互大纲、Wiki 双向导航、missing 显式创建与受限静态附件预览
-及受控导入已落地，但局部图谱、导出/版本 diff 尚未接入；关系 resolver 每次全局变化仍构造全部候选映射，缺少 10,000/
+及受控导入、有界一跳局部图谱已落地，但全局分片图谱、导出/版本 diff 尚未接入；关系
+resolver 每次全局变化仍构造全部候选映射，缺少 10,000/
 100,000 节点基准和跨 Rust/JavaScript Unicode 归一化契约。快捷键编辑器尚未完成，主 bundle
-gzip 约 316.77 KB 超预算，KaTeX 字体资产待收敛，同步后端仍只是协议/健康状态骨架。
+gzip 约 317.20 KB 超预算，KaTeX 字体资产待收敛，同步后端仍只是协议/健康状态骨架。
 
 ## 运行现场与恢复
 
