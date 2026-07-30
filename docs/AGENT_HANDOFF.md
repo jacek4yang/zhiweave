@@ -1,6 +1,6 @@
 # Agent 交接
 
-最近更新：2026-07-30 13:11 CST
+最近更新：2026-07-30 13:20 CST
 
 ## 不可改变的用户约束
 
@@ -15,8 +15,9 @@
 - 工作目录：`%USERPROFILE%\Desktop\Projects\zhiweave`
 - 分支：`agent/professional-workbench`
 - Draft PR：[jacek4yang/zhiweave#1](https://github.com/jacek4yang/zhiweave/pull/1)
-- 最新已发布功能提交：`1c3bf82 fix(editor): settle IME composition safely`；已通过 Linux
+- 最新已发布功能提交：`9faa7bc Add bounded local knowledge graph`；已通过 Linux
   一次性裸仓库中继上传。
+- GitHub CI run `30516132915`：Frontend 与 Rust 全部通过。
 - GitHub CI run `30514256379`：Frontend 与 Rust 全部通过。
 - GitHub CI run `30512970355`：Frontend 与 Rust 全部通过。
 - GitHub CI run `30512755304`：Frontend 与 Rust 全部通过。
@@ -207,6 +208,8 @@ SQLite/稳定身份稳定切片增加：
   重命名/删除/重建与正向解析，同时保留历史、备份和恢复回归。
 - `pnpm tauri build` 在当前 Windows 电脑通过，生成 6,144,000 B MSI 与 4,635,321 B NSIS；
   SHA-256 记录在 `TEST_PLAN.md`，产物位于忽略的 `target/`。
+- 局部图谱提交 `9faa7bc` 仅经 Linux 一次性裸仓库中继上传；GitHub CI run `30516132915`
+  的 Frontend 与 Rust 全部通过。
 - Windows Tauri 原生验收覆盖保存、分支、重启、删除/空间回收和恢复；测试正文与版本均已清理，固定工作区保持 6 个 Markdown。
 - GitHub CI run `30482533535`：Frontend 21 s、Rust 3 min 1 s，全部通过；Node 20 actions deprecation annotation 尚待 workflow 维护。
 - Windows Tauri 客户区顶部非客户区仅 1 px，证明系统标题栏已移除。
@@ -273,5 +276,5 @@ gzip 约 317.20 KB 超预算，KaTeX 字体资产待收敛，同步后端仍只�
 - 下一条精确任务：在隔离输入焦点下完成物理微软拼音候选窗与点击回源码验收，再进入 Android
   软键盘；持续排除用户未跟踪的 `AGENTS.md`。
 - 恢复步骤：进入 `%USERPROFILE%\Desktop\Projects\zhiweave`，核对分支
-  `agent/professional-workbench`、最新提交和 `AGENTS.md` 排除；CI run `30514256379` 已通过，
-  从物理候选窗/点击回源码验收开始。
+  `agent/professional-workbench`、最新提交和 `AGENTS.md` 排除；CI run `30516132915` 已通过，
+  从物理候选窗/点击回源码验收或关系大数据基准开始。
