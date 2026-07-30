@@ -1,6 +1,6 @@
 # Agent 交接
 
-最近更新：2026-07-30 09:46 CST
+最近更新：2026-07-30 09:56 CST
 
 ## 不可改变的用户约束
 
@@ -15,8 +15,9 @@
 - 工作目录：`%USERPROFILE%\Desktop\Projects\zhiweave`
 - 分支：`agent/professional-workbench`
 - Draft PR：[jacek4yang/zhiweave#1](https://github.com/jacek4yang/zhiweave/pull/1)
-- 当前已推送 HEAD：`6b998b3 docs: record Wiki backlink CI`；本地待推送功能提交
+- 当前已验证功能/文档 HEAD：`f677260 docs: record Wiki navigation validation`；功能提交
   `4ee24cf feat(wiki): open resolved knowledge targets`。
+- GitHub CI run `30506855740`：Frontend 与 Rust 全部通过。
 - GitHub CI run `30504384326`：Frontend 20 s、Rust 3 min 19 s，全部通过；只保留既有
   actions Node 20 弃用 annotation。
 - 共享 Markdown AST 功能提交 `27bf009` 对应 GitHub CI run `30497652526`：Frontend 与 Rust
@@ -167,8 +168,8 @@ SQLite/稳定身份稳定切片增加：
 - 最后已推送验证提交 `2949aad` 的 GitHub CI run `30501606610`：Frontend 与 Rust 全部通过。
 - Wiki 反向链接功能/验证提交 `cb70abe`/`d9e2fa3` 已经 Linux 中继推送；GitHub CI run
   `30504384326` 的 Frontend（20 s）与 Rust（3 min 19 s）全部通过。
-- Wiki 正向导航功能提交 `4ee24cf` 已完成 Windows 全门禁；Linux 中继推送和 GitHub CI 尚待
-  本轮规范/截图提交一起完成。
+- Wiki 正向导航功能/验证提交 `4ee24cf`/`f677260` 已通过 Linux 临时裸仓库中继推送；GitHub
+  CI run `30506855740` 的 Frontend 与 Rust 全部通过。
 - Windows Tauri dev profile 7.15 s 编译并启动，原生进程可响应；DWM 1924×1204 截图无窗口
   裁切。随后已关闭进程和 1420 监听。
 - 本轮应用内浏览器在本地导航和 DOM 读取阶段连续超时，所以不能把反向链接浏览器点击/E2E
@@ -179,14 +180,13 @@ SQLite/稳定身份稳定切片增加：
 
 ## 下一步顺序
 
-1. 提交本轮规范、Windows 证据与截图，并仅用 Linux homeserver 中转推送；核对 Draft PR CI。
-2. 下一纵切实现 missing 目标的显式创建确认和真实附件 resolver/安全嵌入；不得把 target 直接
+1. 下一纵切实现 missing 目标的显式创建确认和真实附件 resolver/安全嵌入；不得把 target 直接
    当路径、URL 或活动资源加载，也不在浏览器预览中用前端正则或 mock 冒充原生能力。
-3. 补扩展 Live Preview 的真实 Windows 光标/点击/IME/多光标/窄屏和 Android 验收。
-4. 增加 Wiki 关系的 10,000/100,000 节点基准、Unicode 归一化契约与 corpus/fuzz。
-5. 增加快捷键编辑器、预览标签和移动端命令入口。
-6. 补 watcher 高频压力、休眠恢复、占位强杀、只读目录和卷级磁盘满夹具。
-7. 增加外部备份导入/跨设备恢复演练，再进入客户端加密和同步；持续排除根 `AGENTS.md`、
+2. 补扩展 Live Preview 的真实 Windows 光标/点击/IME/多光标/窄屏和 Android 验收。
+3. 增加 Wiki 关系的 10,000/100,000 节点基准、Unicode 归一化契约与 corpus/fuzz。
+4. 增加快捷键编辑器、预览标签和移动端命令入口。
+5. 补 watcher 高频压力、休眠恢复、占位强杀、只读目录和卷级磁盘满夹具。
+6. 增加外部备份导入/跨设备恢复演练，再进入客户端加密和同步；持续排除根 `AGENTS.md`、
    真实工作区文件、地址、密钥和数据库。
 
 ## 关键风险
@@ -207,8 +207,8 @@ gzip 312.66 KB 超预算，KaTeX 字体资产待收敛，同步后端仍只是�
 - tmux 会话：不使用；所有开发与验证在当前 Windows 电脑完成。
 - Windows Tauri/Vite/调试进程：已关闭。
 - 阻塞：无工程阻塞；应用内浏览器控制连接超时是已记录的 E2E 证据缺口。
-- 下一条精确命令：`git status --short --branch`，确认只含本轮 docs/截图和用户未跟踪的
-  `AGENTS.md`；提交 docs/截图后制作完整 Git bundle，经 Linux 临时目录推送。
+- 下一条精确命令：`git status --short --branch`，确认只有用户未跟踪的 `AGENTS.md`，随后从
+  missing 显式创建确认与附件 resolver 的安全边界测试开始。
 - 恢复步骤：进入 `%USERPROFILE%\Desktop\Projects\zhiweave`，核对分支
-  `agent/professional-workbench`、功能提交 `4ee24cf`、本轮文档/截图提交和 `AGENTS.md` 排除；
-  确认 Draft PR #1 checks 后从 missing 显式创建与附件 resolver 开始下一纵切。
+  `agent/professional-workbench`、功能提交 `4ee24cf`、验证提交 `f677260` 和 `AGENTS.md` 排除；
+  确认 GitHub CI run `30506855740` 后从 missing 显式创建与附件 resolver 开始下一纵切。
