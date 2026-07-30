@@ -201,6 +201,32 @@ export function formatLocalDate(value: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+export function utf16OffsetFromUtf8ByteOffset(
+  text: string,
+  byteOffset: number,
+): number {
+  const target = Math.max(0, Math.floor(byteOffset));
+  let consumedBytes = 0;
+  let utf16Offset = 0;
+  for (const character of text) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    const byteLength =
+      codePoint <= 0x7f
+        ? 1
+        : codePoint <= 0x7ff
+          ? 2
+          : codePoint <= 0xffff
+            ? 3
+            : 4;
+    if (consumedBytes + byteLength > target) {
+      break;
+    }
+    consumedBytes += byteLength;
+    utf16Offset += character.length;
+  }
+  return utf16Offset;
+}
+
 function viewForNativeDocument(
   document: NativeNoteDocument,
 ): Exclude<ViewKey, "versions"> {

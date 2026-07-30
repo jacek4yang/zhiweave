@@ -28,6 +28,7 @@ import {
   GitBranch,
   GraduationCap,
   Library,
+  Link2,
   ListTree,
   Maximize2,
   Menu,
@@ -93,6 +94,7 @@ import {
   nativeHistoryToSnapshots,
   nativeSnapshotToWorkspace,
   portableSlug,
+  utf16OffsetFromUtf8ByteOffset,
 } from "./nativeWorkspaceModel";
 import {
   isNativeRuntime,
@@ -108,6 +110,7 @@ import {
   deleteNativeVersion,
   detectNativeWorkspaceChanges,
   loadNativeWorkspace,
+  loadNativeBacklinks,
   loadNativeVersionHistory,
   listNativeWorkspaceBackups,
   prepareNativeWorkspaceRestore,
@@ -120,6 +123,7 @@ import {
   searchNativeNotes,
   setNativeVersionCheckpoint,
   type NativeIndexStatus,
+  type NativeBacklinkReference,
   type NativeNoteDocument,
   type NativeVersionHistory,
   type NativeVersionRetentionPolicy,
@@ -137,6 +141,10 @@ const MarkdownPreview = lazy(async () => {
 const DocumentOutline = lazy(async () => {
   const module = await import("./DocumentOutline");
   return { default: module.DocumentOutline };
+});
+const BacklinksPanel = lazy(async () => {
+  const module = await import("./BacklinksPanel");
+  return { default: module.BacklinksPanel };
 });
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -229,6 +237,9 @@ export function App() {
   const [outlineOpen, setOutlineOpen] = useState(
     () => readWorkbenchPreferences().outlineOpen,
   );
+  const [backlinksOpen, setBacklinksOpen] = useState(
+    () => nativeRuntime && readWorkbenchPreferences().backlinksOpen,
+  );
   const [editorStatus, setEditorStatus] =
     useState<EditorStatus>(EMPTY_EDITOR_STATUS);
   const [isSidebarOpen, setIsSidebarOpen] = useState(
@@ -245,6 +256,13 @@ export function App() {
   const [nativeIndex, setNativeIndex] = useState<NativeIndexStatus | null>(
     null,
   );
+  const [nativeBacklinks, setNativeBacklinks] = useState<
+    readonly NativeBacklinkReference[]
+  >([]);
+  const [nativeBacklinksState, setNativeBacklinksState] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >("idle");
+  const [nativeRelationEpoch, setNativeRelationEpoch] = useState(0);
   const [nativeVersionHistory, setNativeVersionHistory] =
     useState<NativeVersionHistory | null>(null);
   const [retentionPolicy, setRetentionPolicy] =
@@ -432,6 +450,51 @@ export function App() {
   }, [nativeRuntime, selectedNote?.id]);
 
   useEffect(() => {
+    if (!backlinksOpen) {
+      setNativeBacklinks([]);
+      setNativeBacklinksState("idle");
+      return undefined;
+    }
+    if (
+      !nativeRuntime ||
+      selectedNote === undefined ||
+      nativeIndex?.state !== "ready"
+    ) {
+      setNativeBacklinks([]);
+      setNativeBacklinksState(
+        nativeIndex === null ? "idle" : "error",
+      );
+      return undefined;
+    }
+
+    let active = true;
+    setNativeBacklinks([]);
+    setNativeBacklinksState("loading");
+    void loadNativeBacklinks(selectedNote.id)
+      .then((references) => {
+        if (active) {
+          setNativeBacklinks(references);
+          setNativeBacklinksState("ready");
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setNativeBacklinks([]);
+          setNativeBacklinksState("error");
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    backlinksOpen,
+    nativeIndex?.state,
+    nativeRelationEpoch,
+    nativeRuntime,
+    selectedNote?.id,
+  ]);
+
+  useEffect(() => {
     if (!nativeRuntime) {
       return undefined;
     }
@@ -578,12 +641,12 @@ export function App() {
     try {
       localStorage.setItem(
         WORKBENCH_PREFERENCES_KEY,
-        JSON.stringify({ livePreviewEnabled, outlineOpen }),
+        JSON.stringify({ backlinksOpen, livePreviewEnabled, outlineOpen }),
       );
     } catch {
       // UI preferences are optional; Markdown persistence is independent.
     }
-  }, [livePreviewEnabled, outlineOpen]);
+  }, [backlinksOpen, livePreviewEnabled, outlineOpen]);
 
   useEffect(() => {
     if (
@@ -645,7 +708,9 @@ export function App() {
               latest === captured.markdown ? "saved" : "dirty",
             );
           }
-          if (!indexUpdated) {
+          if (indexUpdated) {
+            setNativeRelationEpoch((epoch) => epoch + 1);
+          } else {
             setNativeIndex((current) => ({
               state: "unavailable",
               schemaVersion: current?.schemaVersion ?? 0,
@@ -778,6 +843,28 @@ export function App() {
       selectedNoteId: note.id,
     }));
     setActiveView(note.view);
+  }
+
+  function openBacklink(reference: NativeBacklinkReference) {
+    const source = workspace.notes.find(
+      (note) => note.id === reference.sourceNoteId,
+    );
+    if (source === undefined) {
+      setToast(
+        "引用来源已在磁盘上变化；请先处理外部更改，再重新打开反向链接。",
+      );
+      return;
+    }
+    activateNote(source);
+    setEditorMode("edit");
+    window.setTimeout(() => {
+      editorRef.current?.revealOffset(
+        utf16OffsetFromUtf8ByteOffset(
+          source.markdown,
+          reference.sourceByteStart,
+        ),
+      );
+    }, 0);
   }
 
   function updateMarkdown(markdown: string) {
@@ -941,6 +1028,7 @@ export function App() {
     setActiveView(note.view);
     setQuery("");
     setSaveState("saved");
+    setNativeRelationEpoch((epoch) => epoch + 1);
     setNativeIndex((current) =>
       current?.state === "ready"
         ? { ...current, noteCount: current.noteCount + 1 }
@@ -1021,6 +1109,7 @@ export function App() {
       latestMarkdownRef.current.set(recoveryNote.id, recoveryNote.markdown);
       setNativeRoot(snapshot.rootDisplay);
       setNativeIndex(snapshot.index);
+      setNativeRelationEpoch((epoch) => epoch + 1);
       setWorkspace((current) => ({
         ...current,
         notes: [
@@ -1077,6 +1166,7 @@ export function App() {
       setWorkspace(merged.workspace);
       setNativeRoot(verified.snapshot.rootDisplay);
       setNativeIndex(verified.snapshot.index);
+      setNativeRelationEpoch((epoch) => epoch + 1);
       const currentActiveId = activeNoteIdRef.current;
       const nextActiveId =
         currentActiveId !== null &&
@@ -1212,6 +1302,7 @@ export function App() {
       setWorkspace(nextWorkspace);
       setNativeRoot(snapshot.rootDisplay);
       setNativeIndex(snapshot.index);
+      setNativeRelationEpoch((epoch) => epoch + 1);
       setActiveNoteId(selectedNoteId || null);
       setOpenNoteIds((current) => {
         const retained = current.filter((id) => diskIds.has(id));
@@ -1265,6 +1356,7 @@ export function App() {
       const rebuilt = await rebuildNativeIndex();
       const snapshot = await loadNativeWorkspace();
       setNativeIndex(snapshot.index);
+      setNativeRelationEpoch((epoch) => epoch + 1);
       setNativeSearchIds([]);
       setNativeSearchState("idle");
       setToast(
@@ -1366,6 +1458,7 @@ export function App() {
           candidate.id === note.id ? renamed : candidate,
         ),
       }));
+      setNativeRelationEpoch((epoch) => epoch + 1);
       setToast(`已移动到 ${document.path}；知识节点身份保持不变。`);
     } catch (error: unknown) {
       const failure = asWorkspaceFailure(error);
@@ -2332,7 +2425,22 @@ export function App() {
         });
         return;
       case "view.toggleOutline":
-        setOutlineOpen((open) => !open);
+        setOutlineOpen((open) => {
+          const next = !open;
+          if (next) {
+            setBacklinksOpen(false);
+          }
+          return next;
+        });
+        return;
+      case "view.toggleBacklinks":
+        setBacklinksOpen((open) => {
+          const next = !open;
+          if (next) {
+            setOutlineOpen(false);
+          }
+          return next;
+        });
         return;
       case "tab.close":
         if (target.noteId === undefined) {
@@ -3029,6 +3137,20 @@ export function App() {
                   <ListTree />
                   <span>大纲</span>
                 </button>
+                {nativeRuntime ? (
+                  <button
+                    aria-pressed={backlinksOpen}
+                    className={backlinksOpen ? "is-active" : undefined}
+                    onClick={() => runCommand("view.toggleBacklinks")}
+                    title={
+                      backlinksOpen ? "关闭反向链接" : "打开反向链接"
+                    }
+                    type="button"
+                  >
+                    <Link2 />
+                    <span>反向链接</span>
+                  </button>
+                ) : null}
                 <button
                   onClick={() => runCommand("workspace.createUuidLab")}
                   title="新建 UUID 交互实验"
@@ -3165,7 +3287,11 @@ export function App() {
             />
           ) : (
             <div
-              className={`editor-workspace${outlineOpen ? " has-outline" : ""}`}
+              className={
+                `editor-workspace${
+                  outlineOpen || backlinksOpen ? " has-inspector" : ""
+                }`
+              }
             >
               <div className="editor-surface">
                 {editorMode === "preview" ? (
@@ -3218,6 +3344,17 @@ export function App() {
                         editorRef.current?.revealOffset(item.offset);
                       }
                     }}
+                  />
+                </Suspense>
+              ) : null}
+              {backlinksOpen ? (
+                <Suspense fallback={null}>
+                  <BacklinksPanel
+                    noteId={selectedNote.id}
+                    onClose={() => runCommand("view.toggleBacklinks")}
+                    onOpen={openBacklink}
+                    references={nativeBacklinks}
+                    state={nativeBacklinksState}
                   />
                 </Suspense>
               ) : null}
@@ -4236,6 +4373,7 @@ function isContextScope(
 ): value is ContextMenuState["scope"] {
   switch (value) {
     case "activity":
+    case "backlinks":
     case "editor":
     case "embedded-lab":
     case "explorer":
@@ -4260,6 +4398,8 @@ function contextMenuLabel(
   snapshot: NoteSnapshot | undefined,
 ): string {
   switch (scope) {
+    case "backlinks":
+      return note === undefined ? "反向链接" : `反向链接：${note.title}`;
     case "editor":
       return note === undefined ? "编辑器" : `编辑：${note.title}`;
     case "preview":
@@ -4429,6 +4569,8 @@ function commandIcon(id: CommandId) {
       return Columns2;
     case "view.toggleLivePreview":
       return Eye;
+    case "view.toggleBacklinks":
+      return Link2;
     case "view.toggleOutline":
       return ListTree;
     case "note.rename":
@@ -4486,10 +4628,12 @@ function commandIcon(id: CommandId) {
 }
 
 function readWorkbenchPreferences(): {
+  readonly backlinksOpen: boolean;
   readonly livePreviewEnabled: boolean;
   readonly outlineOpen: boolean;
 } {
   const defaults = {
+    backlinksOpen: false,
     livePreviewEnabled: true,
     outlineOpen: false,
   };
@@ -4502,17 +4646,24 @@ function readWorkbenchPreferences(): {
     if (typeof parsed !== "object" || parsed === null) {
       return defaults;
     }
+    const outlineOpen =
+      "outlineOpen" in parsed &&
+      typeof parsed.outlineOpen === "boolean"
+        ? parsed.outlineOpen
+        : defaults.outlineOpen;
+    const backlinksOpen =
+      "backlinksOpen" in parsed &&
+      typeof parsed.backlinksOpen === "boolean"
+        ? parsed.backlinksOpen
+        : defaults.backlinksOpen;
     return {
+      backlinksOpen: backlinksOpen && !outlineOpen,
       livePreviewEnabled:
         "livePreviewEnabled" in parsed &&
         typeof parsed.livePreviewEnabled === "boolean"
           ? parsed.livePreviewEnabled
           : defaults.livePreviewEnabled,
-      outlineOpen:
-        "outlineOpen" in parsed &&
-        typeof parsed.outlineOpen === "boolean"
-          ? parsed.outlineOpen
-          : defaults.outlineOpen,
+      outlineOpen,
     };
   } catch {
     return defaults;

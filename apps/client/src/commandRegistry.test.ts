@@ -159,6 +159,33 @@ describe("command registry", () => {
     ).toBe(false);
   });
 
+  it("keeps backlink-panel and source-node context menus distinct", () => {
+    const panelCommands = commandsForContext(
+      context(["native", "note"], "backlinks"),
+    );
+    expect(panelCommands.map((command) => command.id)).toEqual([
+      "view.toggleBacklinks",
+      "view.toggleOutline",
+      "view.toggleLivePreview",
+      "note.copyMarkdown",
+      "note.copyPlainText",
+      "note.copyLearningPrompt",
+      "version.save",
+      "view.edit",
+      "view.split",
+      "view.preview",
+      "note.showVersions",
+    ]);
+
+    const sourceCommands = commandsForContext(
+      context(["native", "note", "noteRename"], "note-item"),
+    );
+    expect(
+      sourceCommands.some((command) => command.id === "view.toggleBacklinks"),
+    ).toBe(false);
+    expect(sourceCommands[0]?.id).toBe("note.open");
+  });
+
   it("searches Chinese and aliases while preserving the registry order", () => {
     const commandContext = context([
       "native",

@@ -40,14 +40,15 @@ Windows 原生和浏览器预览使用同一清单，但通过能力过滤避免
 
 ## ADR-0006：SQLite 使用 bundled + WAL
 
-状态：Accepted（schema v1/FTS 纵切）；大规模启动优化仍待验证
+状态：Accepted（schema v2：FTS + Wiki 派生边）；大规模启动优化仍待验证
 
 使用 `rusqlite 0.40.1` + bundled SQLite 降低平台差异，数据库固定为工作区
 `.zhiweave/index.sqlite3`，不得接受前端任意路径。启用 application ID、schema `user_version`、
 foreign keys、WAL、`synchronous=FULL`、5 秒 busy timeout、1000 页自动 checkpoint 和操作后
 显式 passive checkpoint。数据库不得放在网络文件系统。
 
-schema v1 使用严格 `note_index` 元数据表和 FTS5 trigram 虚表。trigram 服务中英文子串，
+schema v1 先建立严格 `note_index` 元数据表和 FTS5 trigram 虚表；schema v2 在不改变
+Markdown 事实源的前提下增加可重建 `wiki_edge`。trigram 服务中英文子串，
 1–2 字查询走有界 `instr` 扫描；查询输入最多 256 字，Rust 上限 100 项，当前 UI 请求 50 项。
 FTS 存储的正文副本只作为本机派生数据，Markdown 始终是唯一正文事实来源。
 
@@ -209,3 +210,34 @@ Callout 扩展和后续导出使用 `mdast-util-from-markdown` 产生的标准 A
 和 KaTeX 的按需包体。首批 Live Preview 与大纲不能代表整条管线完成；搜索、反向链接、版本
 差异和真实附件仍需接入同一契约并通过 Corpus。数学、图片安全占位、脚注与闭合 fence 已完成
 当前输入期范围适配，但真实 IME/Android、附件解析和语义导出未通过前不能标记整条管线完成。
+
+## ADR-0014：Wiki 关系是 Markdown 派生边，歧义解析失败关闭
+
+状态：Accepted（SQLite index schema v2）
+
+`[[target]]`、`[[target|alias]]` 和 `![[target]]` 仍只存在于可移植 Markdown。共享 Rust
+扫描器从正文安全范围提取 occurrence；SQLite `wiki_edge` 保存来源稳定 ID、link/embed、
+原始 target、UTF-8 字节范围、Unicode 行列和有界上下文。它与 FTS 一样可删除、可重建，
+不得成为正文、alias 或关系的唯一事实来源。
+
+解析优先级固定为：
+
+1. 精确 portable path，允许省略 `.md`；
+2. 唯一 H1；
+3. 唯一文件名 stem；
+4. `[[#heading]]` 的当前节点身份。
+
+带 `/` 或 `\` 的路径引用不回退成标题。大小写折叠后任一级有多个候选就保留
+`ambiguous`，缺失保持 `missing`；不能依据最近访问、目录距离或排列顺序猜测。创建、H1/path
+变化、删除和全快照重新解析受影响关系；普通正文保存只重新解析当前来源的边，避免每次自动
+保存遍历全部 occurrence。后续 10,000/100,000 节点基准可能要求为目标候选增加持久归一化键，
+但不得改变歧义失败关闭语义。
+
+schema v1→v2 在事务中新增 nullable `wiki_revision` 和严格 `wiki_edge` 表。旧行以 NULL
+强制从 Markdown 回填；未来 schema 继续拒绝降级。目标删除使用外键把派生 target 置空，
+随后解析为 missing；来源删除级联移除边。显式重建先在临时库生成、完整性检查并保留旧库，
+沿用 ADR-0006 的恢复边界。
+
+IPC 对外标明 `sourceByteStart/sourceByteEnd`，防止把 Rust UTF-8 byte offset 误当成 JavaScript
+UTF-16 position。客户端在打开来源时执行受测转换再交给 CodeMirror。右侧关系检查器仅在
+Tauri + ready index 能力下出现；浏览器 UI 预览不得用前端正则或演示数据冒充生产关系。

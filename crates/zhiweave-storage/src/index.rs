@@ -1,4 +1,5 @@
 use std::{
+    collections::{BTreeSet, HashMap},
     fs,
     path::{Path, PathBuf},
     time::Duration,
@@ -9,16 +10,19 @@ use rusqlite::{
     TransactionBehavior, params,
 };
 use zhiweave_application::{
-    IndexState, IndexStatus, SearchNoteResult, SearchNotesRequest, WorkspaceFailure,
+    BacklinkReference, BacklinkReferenceKind, BacklinksRequest, IndexState, IndexStatus,
+    SearchNoteResult, SearchNotesRequest, WorkspaceFailure,
 };
 use zhiweave_domain::{NoteId, NoteKind, PortablePath};
+use zhiweave_markdown::{WikiReference, WikiReferenceKind};
 
 use crate::IndexedDocument;
 
-pub(crate) const INDEX_SCHEMA_VERSION: u32 = 1;
+pub(crate) const INDEX_SCHEMA_VERSION: u32 = 2;
 const INDEX_APPLICATION_ID: i32 = 0x5a48_5756;
 const MAX_SEARCH_CHARS: usize = 256;
 const MAX_SEARCH_RESULTS: usize = 100;
+const MAX_BACKLINK_RESULTS: usize = 200;
 const INDEX_FILE_NAME: &str = "index.sqlite3";
 const REBUILD_FILE_NAME: &str = "index.rebuild.sqlite3";
 
@@ -55,7 +59,15 @@ impl SqliteIndex {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|error| sqlite_failure("beginIncrementalIndex", &error))?;
-        upsert_document(&transaction, document)?;
+        match upsert_document(&transaction, document)? {
+            IndexUpdate::Unchanged => {}
+            IndexUpdate::SourceOnly => {
+                resolve_wiki_edges(&transaction, Some(document.id))?;
+            }
+            IndexUpdate::TargetMetadataChanged => {
+                resolve_wiki_edges(&transaction, None)?;
+            }
+        }
         transaction
             .commit()
             .map_err(|error| sqlite_failure("commitIncrementalIndex", &error))?;
@@ -73,6 +85,23 @@ impl SqliteIndex {
         } else {
             search_trigram(&connection, query, request.limit)
         }
+    }
+
+    pub(crate) fn backlinks(
+        &self,
+        request: &BacklinksRequest,
+    ) -> Result<Vec<BacklinkReference>, WorkspaceFailure> {
+        if request.limit == 0 {
+            return Err(WorkspaceFailure::InvalidSearch {
+                kind: "zeroBacklinkLimit".to_owned(),
+            });
+        }
+        let connection = open_index(&self.path)?;
+        read_backlinks(
+            &connection,
+            request.note_id,
+            request.limit.min(MAX_BACKLINK_RESULTS),
+        )
     }
 
     pub(crate) fn rebuild(&self, documents: &[IndexedDocument]) -> Result<bool, WorkspaceFailure> {
@@ -199,17 +228,47 @@ fn migrate(connection: &Connection) -> Result<(), WorkspaceFailure> {
                 );",
             )
             .map_err(|error| sqlite_failure("migrateSchemaV1", &error))?;
-        transaction
-            .pragma_update(None, "user_version", INDEX_SCHEMA_VERSION)
-            .map_err(|error| sqlite_failure("recordSchemaVersion", &error))?;
     }
+    if version <= 1 {
+        transaction
+            .execute_batch(
+                "ALTER TABLE note_index ADD COLUMN wiki_revision TEXT;
+                CREATE TABLE wiki_edge (
+                    source_note_id TEXT NOT NULL
+                        REFERENCES note_index(note_id) ON DELETE CASCADE,
+                    ordinal INTEGER NOT NULL CHECK(ordinal >= 0),
+                    reference_kind TEXT NOT NULL
+                        CHECK(reference_kind IN ('link', 'embed')),
+                    raw_target TEXT NOT NULL
+                        CHECK(length(raw_target) BETWEEN 1 AND 500),
+                    target_note_id TEXT
+                        REFERENCES note_index(note_id) ON DELETE SET NULL,
+                    resolution TEXT NOT NULL
+                        CHECK(resolution IN ('missing', 'ambiguous', 'resolved')),
+                    source_start INTEGER NOT NULL CHECK(source_start >= 0),
+                    source_end INTEGER NOT NULL CHECK(source_end > source_start),
+                    line INTEGER NOT NULL CHECK(line >= 1),
+                    column_number INTEGER NOT NULL CHECK(column_number >= 1),
+                    context TEXT NOT NULL,
+                    PRIMARY KEY(source_note_id, ordinal)
+                ) STRICT;
+                CREATE INDEX wiki_edge_target
+                    ON wiki_edge(target_note_id, source_note_id);
+                CREATE INDEX wiki_edge_unresolved
+                    ON wiki_edge(resolution, raw_target);",
+            )
+            .map_err(|error| sqlite_failure("migrateSchemaV2", &error))?;
+    }
+    transaction
+        .pragma_update(None, "user_version", INDEX_SCHEMA_VERSION)
+        .map_err(|error| sqlite_failure("recordSchemaVersion", &error))?;
     transaction
         .commit()
         .map_err(|error| sqlite_failure("commitMigration", &error))
 }
 
 fn verify_schema(connection: &Connection) -> Result<(), WorkspaceFailure> {
-    for table in ["note_index", "note_fts"] {
+    for table in ["note_index", "note_fts", "wiki_edge"] {
         let exists = connection
             .query_row(
                 "SELECT 1 FROM sqlite_schema WHERE name = ?1 LIMIT 1",
@@ -258,7 +317,7 @@ fn synchronize_transaction(
                 [document.id.to_string()],
             )
             .map_err(|error| sqlite_failure("trackIndexedNote", &error))?;
-        upsert_document(&transaction, document)?;
+        let _ = upsert_document(&transaction, document)?;
     }
     transaction
         .execute(
@@ -274,6 +333,7 @@ fn synchronize_transaction(
             [],
         )
         .map_err(|error| sqlite_failure("pruneMetadataIndex", &error))?;
+    resolve_wiki_edges(&transaction, None)?;
     transaction
         .commit()
         .map_err(|error| sqlite_failure("commitIndexSync", &error))
@@ -282,11 +342,11 @@ fn synchronize_transaction(
 fn upsert_document(
     transaction: &Transaction<'_>,
     document: &IndexedDocument,
-) -> Result<(), WorkspaceFailure> {
+) -> Result<IndexUpdate, WorkspaceFailure> {
     let note_id = document.id.to_string();
     let current = transaction
         .query_row(
-            "SELECT path, revision, title, kind, modified_at_millis
+            "SELECT path, revision, title, kind, modified_at_millis, wiki_revision
              FROM note_index WHERE note_id = ?1",
             [&note_id],
             |row| {
@@ -296,22 +356,29 @@ fn upsert_document(
                     row.get::<_, String>(2)?,
                     row.get::<_, String>(3)?,
                     row.get::<_, i64>(4)?,
+                    row.get::<_, Option<String>>(5)?,
                 ))
             },
         )
         .optional()
         .map_err(|error| sqlite_failure("readIndexedRevision", &error))?;
     let kind = kind_name(document.kind);
-    let unchanged = current.is_some_and(|(path, revision, title, current_kind, modified)| {
-        path == document.path.as_str()
-            && revision == document.revision.as_str()
-            && title == document.title
-            && current_kind == kind
-            && modified == sqlite_millis(document.modified_at_millis)
-    });
+    let unchanged = current.as_ref().is_some_and(
+        |(path, revision, title, current_kind, modified, wiki_revision)| {
+            path == document.path.as_str()
+                && revision == document.revision.as_str()
+                && title == &document.title
+                && current_kind == kind
+                && *modified == sqlite_millis(document.modified_at_millis)
+                && wiki_revision.as_deref() == Some(document.revision.as_str())
+        },
+    );
     if unchanged {
-        return Ok(());
+        return Ok(IndexUpdate::Unchanged);
     }
+    let target_metadata_changed = current.as_ref().is_none_or(|(path, _, title, _, _, _)| {
+        path != document.path.as_str() || title != &document.title
+    });
 
     transaction
         .execute(
@@ -331,14 +398,15 @@ fn upsert_document(
     transaction
         .execute(
             "INSERT INTO note_index(
-                note_id, path, title, kind, revision, modified_at_millis
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                note_id, path, title, kind, revision, modified_at_millis, wiki_revision
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?5)
              ON CONFLICT(note_id) DO UPDATE SET
                 path = excluded.path,
                 title = excluded.title,
                 kind = excluded.kind,
                 revision = excluded.revision,
-                modified_at_millis = excluded.modified_at_millis",
+                modified_at_millis = excluded.modified_at_millis,
+                wiki_revision = excluded.wiki_revision",
             params![
                 note_id,
                 document.path.as_str(),
@@ -349,6 +417,7 @@ fn upsert_document(
             ],
         )
         .map_err(|error| sqlite_failure("upsertMetadataIndex", &error))?;
+    replace_wiki_edges(transaction, &note_id, &document.wiki_references)?;
     transaction
         .execute(
             "INSERT INTO note_fts(note_id, path, title, markdown)
@@ -361,7 +430,293 @@ fn upsert_document(
             ],
         )
         .map_err(|error| sqlite_failure("upsertFullTextIndex", &error))?;
+    Ok(if target_metadata_changed {
+        IndexUpdate::TargetMetadataChanged
+    } else {
+        IndexUpdate::SourceOnly
+    })
+}
+
+enum IndexUpdate {
+    Unchanged,
+    SourceOnly,
+    TargetMetadataChanged,
+}
+
+fn replace_wiki_edges(
+    transaction: &Transaction<'_>,
+    note_id: &str,
+    references: &[WikiReference],
+) -> Result<(), WorkspaceFailure> {
+    transaction
+        .execute("DELETE FROM wiki_edge WHERE source_note_id = ?1", [note_id])
+        .map_err(|error| sqlite_failure("replaceWikiEdges", &error))?;
+    for (ordinal, reference) in references.iter().enumerate() {
+        transaction
+            .execute(
+                "INSERT INTO wiki_edge(
+                    source_note_id, ordinal, reference_kind, raw_target,
+                    target_note_id, resolution, source_start, source_end,
+                    line, column_number, context
+                 ) VALUES (?1, ?2, ?3, ?4, NULL, 'missing', ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    note_id,
+                    sqlite_usize(ordinal),
+                    wiki_reference_kind_name(reference.kind),
+                    reference.target,
+                    sqlite_usize(reference.byte_start),
+                    sqlite_usize(reference.byte_end),
+                    sqlite_usize(reference.line),
+                    sqlite_usize(reference.column),
+                    reference.context,
+                ],
+            )
+            .map_err(|error| sqlite_failure("insertWikiEdge", &error))?;
+    }
     Ok(())
+}
+
+fn resolve_wiki_edges(
+    transaction: &Transaction<'_>,
+    source_filter: Option<NoteId>,
+) -> Result<(), WorkspaceFailure> {
+    let notes = {
+        let mut statement = transaction
+            .prepare("SELECT note_id, path, title FROM note_index ORDER BY note_id")
+            .map_err(|error| sqlite_failure("prepareWikiTargets", &error))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|error| sqlite_failure("queryWikiTargets", &error))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| sqlite_failure("readWikiTargets", &error))?
+    };
+    let mut paths: HashMap<String, BTreeSet<NoteId>> = HashMap::new();
+    let mut names: HashMap<String, BTreeSet<NoteId>> = HashMap::new();
+    for (raw_id, path, title) in notes {
+        let id = raw_id
+            .parse::<NoteId>()
+            .map_err(|_| index_corrupt("invalidWikiTargetId"))?;
+        paths.entry(wiki_key(&path)).or_default().insert(id);
+        names.entry(wiki_key(&title)).or_default().insert(id);
+        names
+            .entry(wiki_key(file_stem(&path)))
+            .or_default()
+            .insert(id);
+    }
+
+    let edges = if let Some(source_id) = source_filter {
+        let mut statement = transaction
+            .prepare(
+                "SELECT source_note_id, ordinal, raw_target
+                 FROM wiki_edge
+                 WHERE source_note_id = ?1
+                 ORDER BY ordinal",
+            )
+            .map_err(|error| sqlite_failure("prepareWikiEdges", &error))?;
+        let rows = statement
+            .query_map([source_id.to_string()], decode_wiki_edge)
+            .map_err(|error| sqlite_failure("queryWikiEdges", &error))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| sqlite_failure("readWikiEdges", &error))?
+    } else {
+        let mut statement = transaction
+            .prepare(
+                "SELECT source_note_id, ordinal, raw_target
+                 FROM wiki_edge ORDER BY source_note_id, ordinal",
+            )
+            .map_err(|error| sqlite_failure("prepareWikiEdges", &error))?;
+        let rows = statement
+            .query_map([], decode_wiki_edge)
+            .map_err(|error| sqlite_failure("queryWikiEdges", &error))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|error| sqlite_failure("readWikiEdges", &error))?
+    };
+    for (raw_source_id, ordinal, raw_target) in edges {
+        let source_id = raw_source_id
+            .parse::<NoteId>()
+            .map_err(|_| index_corrupt("invalidWikiSourceId"))?;
+        let resolution = resolve_wiki_target(source_id, &raw_target, &paths, &names);
+        let (target_id, state) = match resolution {
+            WikiResolution::Resolved(id) => (Some(id.to_string()), "resolved"),
+            WikiResolution::Missing => (None, "missing"),
+            WikiResolution::Ambiguous => (None, "ambiguous"),
+        };
+        transaction
+            .execute(
+                "UPDATE wiki_edge
+                 SET target_note_id = ?1, resolution = ?2
+                 WHERE source_note_id = ?3 AND ordinal = ?4",
+                params![target_id, state, raw_source_id, ordinal],
+            )
+            .map_err(|error| sqlite_failure("resolveWikiEdge", &error))?;
+    }
+    Ok(())
+}
+
+fn decode_wiki_edge(row: &rusqlite::Row<'_>) -> rusqlite::Result<(String, i64, String)> {
+    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+}
+
+enum WikiResolution {
+    Resolved(NoteId),
+    Missing,
+    Ambiguous,
+}
+
+fn resolve_wiki_target(
+    source_id: NoteId,
+    raw_target: &str,
+    paths: &HashMap<String, BTreeSet<NoteId>>,
+    names: &HashMap<String, BTreeSet<NoteId>>,
+) -> WikiResolution {
+    let authored = raw_target.trim();
+    let target = authored.split('#').next().unwrap_or_default().trim();
+    if target.is_empty() {
+        return if authored.starts_with('#') {
+            WikiResolution::Resolved(source_id)
+        } else {
+            WikiResolution::Missing
+        };
+    }
+    let target = target.strip_prefix("./").unwrap_or(target);
+    let path_target = if target
+        .rsplit_once('.')
+        .is_some_and(|(_, extension)| extension.eq_ignore_ascii_case("md"))
+    {
+        target.to_owned()
+    } else {
+        format!("{target}.md")
+    };
+    if let Some(candidates) = paths.get(&wiki_key(&path_target)) {
+        return match candidates.len() {
+            0 => WikiResolution::Missing,
+            1 => candidates
+                .first()
+                .copied()
+                .map_or(WikiResolution::Missing, WikiResolution::Resolved),
+            _ => WikiResolution::Ambiguous,
+        };
+    }
+    if target.contains('/') || target.contains('\\') {
+        return WikiResolution::Missing;
+    }
+
+    let name_target = target
+        .rsplit_once('.')
+        .filter(|(_, extension)| extension.eq_ignore_ascii_case("md"))
+        .map_or(target, |(stem, _)| stem);
+    match names.get(&wiki_key(name_target)) {
+        Some(candidates) if candidates.len() == 1 => candidates
+            .first()
+            .copied()
+            .map_or(WikiResolution::Missing, WikiResolution::Resolved),
+        Some(candidates) if !candidates.is_empty() => WikiResolution::Ambiguous,
+        _ => WikiResolution::Missing,
+    }
+}
+
+fn wiki_key(value: &str) -> String {
+    value.trim().to_lowercase()
+}
+
+fn file_stem(path: &str) -> &str {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    name.rsplit_once('.')
+        .filter(|(_, extension)| extension.eq_ignore_ascii_case("md"))
+        .map_or(name, |(stem, _)| stem)
+}
+
+fn wiki_reference_kind_name(kind: WikiReferenceKind) -> &'static str {
+    match kind {
+        WikiReferenceKind::Link => "link",
+        WikiReferenceKind::Embed => "embed",
+    }
+}
+
+fn read_backlinks(
+    connection: &Connection,
+    note_id: NoteId,
+    limit: usize,
+) -> Result<Vec<BacklinkReference>, WorkspaceFailure> {
+    let mut statement = connection
+        .prepare(
+            "SELECT source.note_id, source.title, source.path, source.kind,
+                    edge.reference_kind, edge.raw_target, edge.source_start,
+                    edge.source_end, edge.line, edge.column_number, edge.context
+             FROM wiki_edge AS edge
+             JOIN note_index AS source ON source.note_id = edge.source_note_id
+             WHERE edge.target_note_id = ?1 AND edge.resolution = 'resolved'
+             ORDER BY source.modified_at_millis DESC, source.title ASC,
+                      edge.line ASC, edge.column_number ASC
+             LIMIT ?2",
+        )
+        .map_err(|error| sqlite_failure("prepareBacklinks", &error))?;
+    let mut rows = statement
+        .query(params![note_id.to_string(), sqlite_usize(limit)])
+        .map_err(|error| sqlite_failure("queryBacklinks", &error))?;
+    let mut results = Vec::new();
+    while let Some(row) = rows
+        .next()
+        .map_err(|error| sqlite_failure("readBacklink", &error))?
+    {
+        let raw_source_id: String = row
+            .get(0)
+            .map_err(|error| sqlite_failure("decodeBacklinkSourceId", &error))?;
+        let raw_path: String = row
+            .get(2)
+            .map_err(|error| sqlite_failure("decodeBacklinkPath", &error))?;
+        let raw_kind: String = row
+            .get(3)
+            .map_err(|error| sqlite_failure("decodeBacklinkNoteKind", &error))?;
+        let reference_kind: String = row
+            .get(4)
+            .map_err(|error| sqlite_failure("decodeBacklinkKind", &error))?;
+        results.push(BacklinkReference {
+            source_note_id: raw_source_id
+                .parse::<NoteId>()
+                .map_err(|_| index_corrupt("invalidBacklinkSourceId"))?,
+            source_title: row
+                .get(1)
+                .map_err(|error| sqlite_failure("decodeBacklinkTitle", &error))?,
+            source_path: PortablePath::new_markdown(raw_path)
+                .map_err(|_| index_corrupt("invalidBacklinkPath"))?,
+            source_kind: parse_kind(&raw_kind)
+                .ok_or_else(|| index_corrupt("invalidBacklinkNoteKind"))?,
+            reference_kind: match reference_kind.as_str() {
+                "link" => BacklinkReferenceKind::Link,
+                "embed" => BacklinkReferenceKind::Embed,
+                _ => return Err(index_corrupt("invalidBacklinkKind")),
+            },
+            raw_target: row
+                .get(5)
+                .map_err(|error| sqlite_failure("decodeBacklinkTarget", &error))?,
+            source_byte_start: read_usize(row, 6, "invalidBacklinkStart")?,
+            source_byte_end: read_usize(row, 7, "invalidBacklinkEnd")?,
+            line: read_usize(row, 8, "invalidBacklinkLine")?,
+            column: read_usize(row, 9, "invalidBacklinkColumn")?,
+            context: row
+                .get(10)
+                .map_err(|error| sqlite_failure("decodeBacklinkContext", &error))?,
+        });
+    }
+    Ok(results)
+}
+
+fn read_usize(
+    row: &rusqlite::Row<'_>,
+    column: usize,
+    corruption_kind: &str,
+) -> Result<usize, WorkspaceFailure> {
+    let value: i64 = row
+        .get(column)
+        .map_err(|error| sqlite_failure("decodeBacklinkOffset", &error))?;
+    usize::try_from(value).map_err(|_| index_corrupt(corruption_kind))
 }
 
 fn search_trigram(
@@ -481,6 +836,10 @@ fn bounded_limit(requested: usize) -> i64 {
 }
 
 fn sqlite_millis(value: u64) -> i64 {
+    i64::try_from(value).unwrap_or(i64::MAX)
+}
+
+fn sqlite_usize(value: usize) -> i64 {
     i64::try_from(value).unwrap_or(i64::MAX)
 }
 

@@ -212,6 +212,54 @@ pub struct SearchNoteResult {
     pub rank: f64,
 }
 
+/// Request for resolved incoming Wiki references to one knowledge node.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BacklinksRequest {
+    /// Stable target note identity.
+    pub note_id: NoteId,
+    /// Requested maximum number of reference occurrences.
+    pub limit: usize,
+}
+
+/// Semantic source syntax for one incoming Wiki relationship.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BacklinkReferenceKind {
+    /// A normal `[[target]]` relationship.
+    Link,
+    /// An embedded `![[target]]` relationship.
+    Embed,
+}
+
+/// One resolved incoming Wiki reference from the rebuildable index.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BacklinkReference {
+    /// Stable source note identity.
+    pub source_note_id: NoteId,
+    /// Current source title.
+    pub source_title: String,
+    /// Current source path.
+    pub source_path: PortablePath,
+    /// Learning role of the source note.
+    pub source_kind: NoteKind,
+    /// Link or embed syntax.
+    pub reference_kind: BacklinkReferenceKind,
+    /// Authored target without display alias.
+    pub raw_target: String,
+    /// Byte offset of the opening marker in the source Markdown.
+    pub source_byte_start: usize,
+    /// Byte offset immediately after the closing marker.
+    pub source_byte_end: usize,
+    /// One-based source line.
+    pub line: usize,
+    /// One-based Unicode scalar column.
+    pub column: usize,
+    /// Bounded single-line source context.
+    pub context: String,
+}
+
 /// Outcome of an explicit derived-index rebuild.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -806,6 +854,16 @@ pub trait WorkspacePort {
         request: &SearchNotesRequest,
     ) -> Result<Vec<SearchNoteResult>, WorkspaceFailure>;
 
+    /// Returns resolved incoming Wiki references from the rebuildable index.
+    ///
+    /// # Errors
+    ///
+    /// Returns a structured index, identity, or limit failure.
+    fn backlinks(
+        &self,
+        request: &BacklinksRequest,
+    ) -> Result<Vec<BacklinkReference>, WorkspaceFailure>;
+
     /// Rebuilds the derived index from Markdown and hidden stable identities.
     ///
     /// # Errors
@@ -1017,6 +1075,18 @@ where
         request: &SearchNotesRequest,
     ) -> Result<Vec<SearchNoteResult>, WorkspaceFailure> {
         self.port.search(request)
+    }
+
+    /// Returns resolved incoming Wiki references for one stable note.
+    ///
+    /// # Errors
+    ///
+    /// Propagates the adapter's structured index, identity, or limit failure.
+    pub fn backlinks(
+        &self,
+        request: &BacklinksRequest,
+    ) -> Result<Vec<BacklinkReference>, WorkspaceFailure> {
+        self.port.backlinks(request)
     }
 
     /// Explicitly rebuilds derived index data from portable sources.
@@ -1292,9 +1362,10 @@ mod tests {
     use zhiweave_domain::{NoteId, NoteKind, PortablePath};
 
     use super::{
-        CreateNoteRequest, DetectWorkspaceChangesRequest, FileRevision, KnownNoteState, LineEnding,
-        NoteDocument, RenameNoteRequest, SaveNoteRequest, SaveNoteResult, WorkspaceApplication,
-        WorkspaceChangeKind, WorkspaceFailure, WorkspacePort, WorkspaceSnapshot,
+        BacklinksRequest, CreateNoteRequest, DetectWorkspaceChangesRequest, FileRevision,
+        KnownNoteState, LineEnding, NoteDocument, RenameNoteRequest, SaveNoteRequest,
+        SaveNoteResult, WorkspaceApplication, WorkspaceChangeKind, WorkspaceFailure, WorkspacePort,
+        WorkspaceSnapshot,
     };
 
     struct RecordingPort {
@@ -1341,6 +1412,14 @@ mod tests {
             _: &super::SearchNotesRequest,
         ) -> Result<Vec<super::SearchNoteResult>, WorkspaceFailure> {
             self.calls.borrow_mut().push("search");
+            Ok(Vec::new())
+        }
+
+        fn backlinks(
+            &self,
+            _: &BacklinksRequest,
+        ) -> Result<Vec<super::BacklinkReference>, WorkspaceFailure> {
+            self.calls.borrow_mut().push("backlinks");
             Ok(Vec::new())
         }
 
@@ -1422,9 +1501,18 @@ mod tests {
         );
         assert_eq!(application.create(&create).unwrap(), document);
         assert!(application.save(&save).unwrap().changed);
+        assert!(
+            application
+                .backlinks(&BacklinksRequest {
+                    note_id: document.id,
+                    limit: 20,
+                })
+                .unwrap()
+                .is_empty()
+        );
         assert_eq!(
             application.port.calls.into_inner(),
-            ["snapshot", "create", "save"]
+            ["snapshot", "create", "save", "backlinks"]
         );
     }
 

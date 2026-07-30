@@ -81,6 +81,22 @@ export interface NativeSearchNoteResult {
   readonly rank: number;
 }
 
+export type NativeBacklinkReferenceKind = "link" | "embed";
+
+export interface NativeBacklinkReference {
+  readonly sourceNoteId: string;
+  readonly sourceTitle: string;
+  readonly sourcePath: string;
+  readonly sourceKind: NativeNoteKind;
+  readonly referenceKind: NativeBacklinkReferenceKind;
+  readonly rawTarget: string;
+  readonly sourceByteStart: number;
+  readonly sourceByteEnd: number;
+  readonly line: number;
+  readonly column: number;
+  readonly context: string;
+}
+
 export interface NativeRebuildIndexResult {
   readonly indexedNotes: number;
   readonly schemaVersion: number;
@@ -242,6 +258,15 @@ export function searchNativeNotes(
 ): Promise<readonly NativeSearchNoteResult[]> {
   return invoke<readonly NativeSearchNoteResult[]>("workspace_search", {
     request: { query, limit },
+  });
+}
+
+export function loadNativeBacklinks(
+  noteId: string,
+  limit = 200,
+): Promise<readonly NativeBacklinkReference[]> {
+  return invoke<readonly NativeBacklinkReference[]>("workspace_backlinks", {
+    request: { noteId, limit },
   });
 }
 

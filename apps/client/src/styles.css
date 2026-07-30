@@ -675,7 +675,7 @@ button:disabled {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.editor-workspace.has-outline {
+.editor-workspace.has-inspector {
   grid-template-columns: minmax(0, 1fr) minmax(210px, 270px);
 }
 
@@ -795,6 +795,190 @@ button:disabled {
   color: var(--muted-2);
   font-size: 11px;
   line-height: 1.7;
+}
+
+.backlinks-panel {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  color: var(--ink-soft);
+  border-left: 1px solid var(--line);
+  background: #191b29;
+}
+
+.backlinks-panel > header {
+  display: flex;
+  height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px 0 13px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+}
+
+.backlinks-panel > header > span,
+.backlinks-panel > header button {
+  display: inline-flex;
+  align-items: center;
+}
+
+.backlinks-panel > header > span {
+  min-width: 0;
+  gap: 7px;
+}
+
+.backlinks-panel > header strong {
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+}
+
+.backlinks-panel > header small,
+.backlink-source > header small {
+  min-width: 18px;
+  padding: 1px 5px;
+  color: var(--syntax-cyan);
+  border-radius: 9px;
+  background: rgb(122 162 247 / 10%);
+  font: 10px/1.5 "Cascadia Code", Consolas, monospace;
+  text-align: center;
+}
+
+.backlinks-panel > header svg {
+  width: 14px;
+  height: 14px;
+}
+
+.backlinks-panel > header button {
+  width: 27px;
+  height: 27px;
+  flex: 0 0 auto;
+  justify-content: center;
+  color: var(--muted);
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.backlinks-panel > header button:hover,
+.backlinks-panel > header button:focus-visible {
+  color: var(--ink);
+  background: var(--panel-hover);
+}
+
+.backlinks-panel-body {
+  height: calc(100% - 38px);
+  overflow-y: auto;
+  scrollbar-color: #444a73 transparent;
+}
+
+.backlinks-panel nav {
+  padding: 8px;
+}
+
+.backlink-source + .backlink-source {
+  margin-top: 12px;
+}
+
+.backlink-source > header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 7px;
+}
+
+.backlink-source > header strong {
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backlink-source > button {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+  margin: 1px 0;
+  padding: 8px;
+  color: var(--muted);
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.backlink-source > button:hover,
+.backlink-source > button:focus-visible {
+  color: var(--ink);
+  background: var(--panel-hover);
+}
+
+.backlink-location {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  color: var(--syntax-teal);
+  font-size: 10px;
+}
+
+.backlink-location > svg {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+}
+
+.backlink-location > span {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.backlink-location i {
+  color: var(--muted-2);
+  font: 9px/1.4 "Cascadia Code", Consolas, monospace;
+  font-style: normal;
+}
+
+.backlink-context {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.backlinks-panel-message {
+  margin: 18px 14px;
+  color: var(--muted-2);
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.backlinks-panel-message.is-error {
+  color: var(--danger);
+}
+
+.backlinks-panel-message code {
+  margin: 0 2px;
+  padding: 1px 4px;
+  color: var(--syntax-teal);
+  border-radius: 3px;
+  background: var(--panel-hover);
+  font: 10px/1.5 "Cascadia Code", Consolas, monospace;
 }
 
 .editor-split {
@@ -3608,12 +3792,13 @@ details.preview-callout > .preview-callout-title {
     padding: 0;
   }
 
-  .editor-workspace.has-outline {
+  .editor-workspace.has-inspector {
     position: relative;
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .editor-workspace.has-outline .document-outline {
+  .editor-workspace.has-inspector .document-outline,
+  .editor-workspace.has-inspector .backlinks-panel {
     position: absolute;
     z-index: 12;
     top: 0;

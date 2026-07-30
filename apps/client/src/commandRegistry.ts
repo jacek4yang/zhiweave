@@ -1,5 +1,6 @@
 export type CommandScope =
   | "activity"
+  | "backlinks"
   | "editor"
   | "embedded-lab"
   | "explorer"
@@ -53,6 +54,7 @@ export type CommandId =
   | "view.review"
   | "view.sources"
   | "view.split"
+  | "view.toggleBacklinks"
   | "view.toggleLivePreview"
   | "view.toggleOutline"
   | "view.today"
@@ -153,6 +155,7 @@ const WORKSPACE_SCOPES: readonly CommandScope[] = [
 ];
 const NOTE_SCOPES: readonly CommandScope[] = ["note-item", "tab"];
 const DOCUMENT_SCOPES: readonly CommandScope[] = [
+  "backlinks",
   "editor",
   "preview",
   "embedded-lab",
@@ -166,6 +169,19 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
     "backup.create",
     "workbench.toggleSidebar",
   ],
+  backlinks: [
+    "view.toggleBacklinks",
+    "view.toggleOutline",
+    "view.toggleLivePreview",
+    "note.copyMarkdown",
+    "note.copyPlainText",
+    "note.copyLearningPrompt",
+    "version.save",
+    "view.edit",
+    "view.split",
+    "view.preview",
+    "note.showVersions",
+  ],
   editor: [
     "edit.copy",
     "edit.undo",
@@ -178,6 +194,7 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
     "view.split",
     "view.preview",
     "view.toggleLivePreview",
+    "view.toggleBacklinks",
     "view.toggleOutline",
     "note.showVersions",
   ],
@@ -191,6 +208,7 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
     "view.split",
     "view.preview",
     "view.toggleLivePreview",
+    "view.toggleBacklinks",
     "view.toggleOutline",
     "note.showVersions",
   ],
@@ -216,6 +234,7 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
   ],
   outline: [
     "view.toggleOutline",
+    "view.toggleBacklinks",
     "view.toggleLivePreview",
     "note.copyMarkdown",
     "note.copyPlainText",
@@ -236,6 +255,7 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
     "view.split",
     "view.preview",
     "view.toggleLivePreview",
+    "view.toggleBacklinks",
     "view.toggleOutline",
     "note.showVersions",
   ],
@@ -450,6 +470,18 @@ export const COMMANDS: readonly CommandDefinition[] = [
     keywords: ["outline", "heading", "标题", "大纲", "导航"],
     visibleRequires: ["note"],
   }),
+  command(
+    "view.toggleBacklinks",
+    "显示或隐藏反向链接",
+    "视图",
+    "view",
+    177,
+    {
+      contexts: DOCUMENT_SCOPES,
+      keywords: ["backlink", "wiki", "关系", "反向链接", "引用"],
+      visibleRequires: ["native", "note"],
+    },
+  ),
   command("tab.close", "关闭当前标签", "标签", "tabs", 180, {
     contexts: ["tab"],
     keywords: ["close", "关闭标签"],

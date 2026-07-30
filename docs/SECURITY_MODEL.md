@@ -33,18 +33,23 @@
   ID/path 唯一约束；损坏时 create/save/rebuild 在正文变更前失败关闭。
 - FTS 查询注入/资源滥用：前端不传 SQL；Rust 把用户输入绑定为参数和字面短语，限制 256 字与
   100 项结果，控制字符和零 limit 被拒绝。
+- Wiki 关系混淆/资源滥用：只扫描 Markdown 正文安全范围，target/alias 有 500 字符上限；
+  path/H1/stem 多候选保留 ambiguous，不用目录距离或排序猜测；反向链接参数绑定且最多返回
+  200 个 occurrence。
 - 文件事件欺骗/丢失：watcher 事件仅作为无路径唤醒信号，不直接修改 UI 状态；每次由固定根
   `WorkspacePort` 重新读取、验证并比较完整快照。平台错误、空路径和 `Rescan` 都按可能漏报处理。
 
 ## 当前文件安全基线
 
-- Tauri 只暴露 `system_status`、工作区快照/变化核对、创建/保存/非覆盖重命名、受限全文搜索和
-  显式索引重建；根目录固定，命令没有任意根路径、SQL、shell 或网络能力。
+- Tauri 只暴露 `system_status`、工作区快照/变化核对、创建/保存/非覆盖重命名、受限全文搜索/
+  反向链接和显式索引重建；根目录固定，命令没有任意根路径、SQL、shell 或网络能力。
 - `PortablePath` 在 Rust 反序列化入口再次验证，不能由前端绕过；文件遍历逐段拒绝符号链接并校验 canonical root。
 - 正文使用同目录原子替换，精确字节 SHA-256 expected revision 阻止常规外部修改覆盖；成功后回读校验。
 - 浏览器 `localStorage` 只保留明确标识的 UI 预览数据。原生端启动后从 Markdown 文件加载正文，不把正文写入 WebView `localStorage`。
 - 冲突不覆盖，编辑器内容先恢复为独立 Markdown 文件后才重新载入外部版本。
 - 稳定 ID 位于 `.zhiweave/identity.json`，不写普通笔记；SQLite 只保存可删除的本机派生副本。
+- Wiki occurrence 只保存派生 link/embed、原始 target、有界上下文和来源范围；YAML、代码、
+  HTML comment、转义/畸形语法不进入关系表，删除 SQLite 后可从 Markdown 重建。
 - 显式索引重建先完整生成/校验候选库，再保存旧数据库到 recovery；失败不会修改 Markdown。
 - 应用内移动采用目标 `create_new`、完整写入/sync/校验、源 revision 复查、最后删源；目的地
   存在时失败，不使用平台相关的覆盖式 rename。

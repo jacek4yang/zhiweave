@@ -18,24 +18,30 @@
 - `pnpm install --frozen-lockfile`：通过，142 个 lockfile 条目通过供应链策略。
 - `pnpm typecheck`：通过。
 - `pnpm lint`：通过（当前等同 TypeScript noEmit，需加入真实 ESLint）。
-- `pnpm test`：通过，9 files / 47 tests；除原有版本/分支、日记/H1、持久版本 DTO、种子、
+- `pnpm test`：通过，9 files / 49 tests；除原有版本/分支、日记/H1、持久版本 DTO、种子、
   交互实验和保存状态用例外，新增 command id/快捷键唯一性、IME 防误触、上下文矩阵、原生能力
   隔离、禁用条件、中文/别名检索、共享 Markdown AST/安全渲染，以及 Lezer frontmatter/Wiki、
   光标揭示、composition 停用、任务/Callout、数学/图片/脚注/fence、多光标、大输入和源码
-  不变回归测试。
-- `pnpm build`：通过，主 chunk 有 >500 KB 警告。
-- `pnpm audit --prod --audit-level high`：无已知漏洞。
+  不变回归测试；另覆盖反向链接面板/来源节点上下文隔离和 UTF-8 字节位置到 UTF-16
+  CodeMirror offset 的 Unicode 转换。
+- `pnpm build`：最终差异通过，主 chunk 有 >500 KB 警告。
+- `pnpm audit --prod --audit-level high`：先使用用户指定 SOCKS5 代理，registry audit 请求重试后
+  失败；不下载依赖的直接网络回退通过，无已知漏洞。代理地址不写入仓库。
+- `pnpm tauri build`：在当前 Windows 电脑通过，生成 5,853,184 B MSI 与 4,438,364 B NSIS；
+  SHA-256 分别为 `96A43F1CE99096573ECD5E398A45B0D2D9949FFC2A3C9CFF27EB976E528263FB`
+  和 `97974D61F0F5BF7364BCA2B337DF502A5EF411E1B8C7DD45462232EC5B490DBF`。
 - 浏览器：搜索、阅读/编辑、分栏、标签、刷新恢复、复制保真、上下文菜单分流、输入粘贴、编辑撤销、UUID 生成/校验/提示词通过；命令面板中文筛选、方向键、Enter、Esc、焦点恢复和 390×844/1280×800 布局通过。
-- 本轮 Live Preview/大纲浏览器自动化因应用内浏览器导航连接超时尚未通过，不得用既有阅读器
-  截图替代；Windows 原生壳启动正常只证明集成可加载。
+- 本轮反向链接浏览器自动化因应用内浏览器本地导航与 DOM 读取连续超时尚未通过，不得用既有
+  阅读器截图替代；原生运行、DWM 截图与临时目录/Tauri 集成测试是明确区分的替代证据。
 - 视口：1280×720、1366×768、1440×900、1920×1080、2560×1440、320×720、390×844、412×915、915×412 均无水平溢出。
-- Rust 1.95.0 基线 fmt、Clippy 与 workspace tests 已在 Windows 通过；合并前必须对最终差异重跑。
+- Rust 1.95.0 的最终差异已通过 fmt、workspace all-target/all-feature Clippy `-D warnings`
+  与 workspace all-feature tests。
 - `cargo audit --no-fetch --stale`：advisory DB 扫描 471 个 lockfile 依赖，无已知 vulnerability；有 17 个 allowed warning。GTK3/glib 项来自非 Windows 的 Tauri target 依赖（当前 Windows `cargo tree -i glib/atk` 不在目标图），其中 `glib` 有一项 unsound advisory；`urlpattern` 链含 6 个 unmaintained `unic-*`，另有 `proc-macro-error` warning。发布前必须在各目标平台更新 Tauri/传递依赖并以 `-D warnings` 重新评估，不能忽略。
 
 ## Markdown 文件纵切证据
 
-- Rust 当前 workspace 49 项测试通过，其中 storage 30 项、portable path 5 项、
-  application 4 项、Markdown 4 项、protocol 1 项、server 1 项和 Tauri 4 项。
+- Rust 当前 workspace 55 项测试通过，其中 storage 33 项、portable path 5 项、
+  application 4 项、Markdown 7 项、protocol 1 项、server 1 项和 Tauri 4 项。
 - 原子保存：真实临时目录创建、修改、无变化保存、回读修订与 H1 标题通过。
 - 字节往返：UTF-8 BOM + CRLF 编辑后精确保留；Mixed 保存失败并要求明确规范化。
 - 冲突：读取后由外部进程改写，保存返回结构化 conflict，外部正文逐字节保留。
@@ -55,7 +61,8 @@
 - 故障原子性：identity 损坏时 create/save/rebuild 在修改 Markdown 前返回结构化失败。
 - 重命名：外部唯一同 revision 改名保持 ID；相同内容的多个文件不共享 ID；应用内移动保持
   ID、更新搜索路径、目标存在时不覆盖任一文件。
-- schema/migration：空库从 `user_version=0` 进入 v1；未来 `user_version=999` 不自动降级。
+- schema/migration：空库从 `user_version=0` 进入 v2，真实 v1 fixture 原位迁移并回填 Wiki 边；
+  未来 `user_version=999` 不自动降级。
 - FTS：标题/正文中文 trigram、单字短查询、保存后增量替换和旧词消失通过；空查询、零 limit
   和超过 256 字查询被拒绝。
 - 可重建：删除 SQLite 后快照重新生成索引且 identity 不变；正文逐字节不变。
@@ -65,6 +72,24 @@
   6 个唯一 ID/路径和有效 `SQLite format 3` 数据库。
 - 本次 UI 变更后的 in-app browser 重新访问被本地 URL 安全策略拒绝，未尝试绕过；由
   TypeScript 检查、组件测试、原生运行和既有视觉基线替代。本切片仍需在后续可用会话补视觉截图。
+
+## Wiki 关系与反向链接证据
+
+- Rust 解析单元覆盖 Unicode 字节范围、alias、embed、YAML、fenced/indented/inline code、
+  HTML comment、转义、嵌套/截断与超限语法；非正文区域不生成边。
+- storage 临时目录覆盖 source 早于 target 创建、内容增量替换旧边、link/embed occurrence、
+  Unicode 行列/上下文、同名 H1 歧义失败关闭、重命名后重解析、删除目标和显式全量重建。
+- schema v1 真实数据库降级夹具原位迁移到 v2；已有 FTS/identity/Markdown 保留，`wiki_revision`
+  触发旧文档回填，迁移后可立即查询反向链接。
+- 普通正文保存只重新解析当前来源边；新建、H1/path 变化及全量快照才重新解析全局候选，避免
+  每次键入后保存都扫描全部关系边。10,000/100,000 节点关系基准仍未完成。
+- application port、Tauri `workspace_backlinks` 和 camelCase TypeScript DTO 已贯通；Tauri
+  种子集成测试验证先创建来源、后创建目标仍返回 welcome → ownership 关系。
+- Windows 原生壳实际显示可关闭关系检查器，2560×1368 DWM 截图无裁切；本机既有 6 篇工作区
+  没有当前目标的入链，所以截图为空状态。真实非空结果由临时目录/Tauri 集成测试验证，未向
+  用户 Markdown 注入验收数据。
+- 应用内浏览器在本地导航和 DOM 读取阶段连续超时，未把本轮浏览器点击/E2E 标记为通过；
+  浏览器预览按设计也不会伪造 SQLite 关系。
 
 ## Windows watcher 与外部更改中心证据
 
@@ -139,7 +164,8 @@
   （约 9 ms、最多 24 行装饰）。
 
 尚未完成的 Markdown 测试：CommonMark 官方全集快照、round-trip 属性/模糊测试、局部输入
-P95/滚动与内存基准、真实 IME + Live Preview Decoration、真实附件/Wiki 目标、Mermaid 和导出。
+P95/滚动与内存基准、真实 IME + Live Preview Decoration、Wiki 正向打开/真实附件、Mermaid
+和导出。
 
 尚未完成：稳定 Windows 磁盘满/只读目录故障注入、Tauri IPC 自动 E2E、watcher 高频压力/休眠恢复、
 占位/安全移动强杀恢复、长读事务、10,000 文件性能基准、100,000 条索引查询基准和 Android

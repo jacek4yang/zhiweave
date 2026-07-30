@@ -15,19 +15,19 @@ use std::{
 use atomic_write_file::AtomicWriteFile;
 use sha2::{Digest, Sha256};
 use zhiweave_application::{
-    ApplyVersionRetentionRequest, ApplyVersionRetentionResult, CheckoutVersionRequest,
-    CreateNoteRequest, CreateWorkspaceBackupRequest, CreateWorkspaceBackupResult,
-    DeleteVersionRequest, DeleteVersionResult, FileRevision, IndexState, IndexStatus, LineEnding,
-    NoteDocument, PrepareWorkspaceRestoreRequest, PrepareWorkspaceRestoreResult,
-    PreviewVersionRetentionRequest, ReadVersionRequest, RebuildIndexResult, RenameNoteRequest,
-    SaveNoteRequest, SaveNoteResult, SaveVersionRequest, SaveVersionResult, SearchNoteResult,
-    SearchNotesRequest, SetVersionCheckpointRequest, VerifyWorkspaceBackupRequest,
-    VerifyWorkspaceBackupResult, VersionContent, VersionHistory, VersionHistoryPort,
-    VersionHistoryRequest, VersionRetentionPreview, WorkspaceBackupPort, WorkspaceBackupSummary,
-    WorkspaceFailure, WorkspacePort, WorkspaceSnapshot,
+    ApplyVersionRetentionRequest, ApplyVersionRetentionResult, BacklinkReference, BacklinksRequest,
+    CheckoutVersionRequest, CreateNoteRequest, CreateWorkspaceBackupRequest,
+    CreateWorkspaceBackupResult, DeleteVersionRequest, DeleteVersionResult, FileRevision,
+    IndexState, IndexStatus, LineEnding, NoteDocument, PrepareWorkspaceRestoreRequest,
+    PrepareWorkspaceRestoreResult, PreviewVersionRetentionRequest, ReadVersionRequest,
+    RebuildIndexResult, RenameNoteRequest, SaveNoteRequest, SaveNoteResult, SaveVersionRequest,
+    SaveVersionResult, SearchNoteResult, SearchNotesRequest, SetVersionCheckpointRequest,
+    VerifyWorkspaceBackupRequest, VerifyWorkspaceBackupResult, VersionContent, VersionHistory,
+    VersionHistoryPort, VersionHistoryRequest, VersionRetentionPreview, WorkspaceBackupPort,
+    WorkspaceBackupSummary, WorkspaceFailure, WorkspacePort, WorkspaceSnapshot,
 };
 use zhiweave_domain::{NoteId, NoteKind, PortablePath};
-use zhiweave_markdown::first_level_one_heading;
+use zhiweave_markdown::{WikiReference, first_level_one_heading, wiki_references};
 
 use crate::{
     backup::{WorkspaceBackups, apply_pending_restore},
@@ -72,6 +72,7 @@ pub(crate) struct IndexedDocument {
     path: PortablePath,
     kind: NoteKind,
     markdown: String,
+    wiki_references: Vec<WikiReference>,
     revision: FileRevision,
     modified_at_millis: u64,
 }
@@ -84,6 +85,7 @@ impl From<&NoteDocument> for IndexedDocument {
             path: document.path.clone(),
             kind: document.kind,
             markdown: document.markdown.clone(),
+            wiki_references: wiki_references(&document.markdown),
             revision: document.revision.clone(),
             modified_at_millis: document.modified_at_millis,
         }
@@ -610,6 +612,13 @@ impl WorkspacePort for FileWorkspace {
         self.index.search(request)
     }
 
+    fn backlinks(
+        &self,
+        request: &BacklinksRequest,
+    ) -> Result<Vec<BacklinkReference>, WorkspaceFailure> {
+        self.index.backlinks(request)
+    }
+
     fn rebuild_index(&self) -> Result<RebuildIndexResult, WorkspaceFailure> {
         let raw_documents = self
             .collect_markdown_paths()?
@@ -926,8 +935,8 @@ mod tests {
     };
 
     use zhiweave_application::{
-        CreateNoteRequest, IndexState, LineEnding, RenameNoteRequest, SaveNoteRequest,
-        SearchNotesRequest, WorkspaceFailure, WorkspacePort,
+        BacklinkReferenceKind, BacklinksRequest, CreateNoteRequest, IndexState, LineEnding,
+        RenameNoteRequest, SaveNoteRequest, SearchNotesRequest, WorkspaceFailure, WorkspacePort,
     };
     use zhiweave_domain::PortablePath;
 
@@ -1328,6 +1337,225 @@ mod tests {
     }
 
     #[test]
+    fn backlinks_resolve_missing_targets_and_preserve_unicode_occurrences() {
+        let directory = TestDirectory::new("backlinks-late-target");
+        let workspace = FileWorkspace::new(directory.path()).unwrap();
+        let source_markdown =
+            "# UUID 实验\n\n理解 [[UUID|通用标识符]]，再查看 ![[topics/uuid.md#格式]]。\n";
+        let source = workspace
+            .create(&CreateNoteRequest {
+                path: path("labs/uuid-lab.md"),
+                markdown: source_markdown.to_owned(),
+            })
+            .unwrap();
+        let target = workspace
+            .create(&CreateNoteRequest {
+                path: path("topics/uuid.md"),
+                markdown: "# UUID\n\n稳定身份。\n".to_owned(),
+            })
+            .unwrap();
+
+        let backlinks = workspace
+            .backlinks(&BacklinksRequest {
+                note_id: target.id,
+                limit: 20,
+            })
+            .unwrap();
+        assert_eq!(backlinks.len(), 2);
+        assert!(backlinks.iter().all(|reference| {
+            reference.source_note_id == source.id
+                && &source_markdown[reference.source_byte_start..reference.source_byte_end]
+                    == match reference.reference_kind {
+                        BacklinkReferenceKind::Link => "[[UUID|通用标识符]]",
+                        BacklinkReferenceKind::Embed => "![[topics/uuid.md#格式]]",
+                    }
+                && reference.line == 3
+                && reference.column > 1
+                && reference.context.contains("UUID")
+        }));
+        assert_eq!(
+            backlinks
+                .iter()
+                .map(|reference| reference.reference_kind)
+                .collect::<Vec<_>>(),
+            vec![BacklinkReferenceKind::Link, BacklinkReferenceKind::Embed]
+        );
+
+        let saved = workspace
+            .save(&SaveNoteRequest {
+                path: source.path,
+                markdown: "# UUID 实验\n\n只保留 [[UUID]]。\n".to_owned(),
+                expected_revision: source.revision,
+                line_ending: source.line_ending,
+                has_utf8_bom: source.has_utf8_bom,
+            })
+            .unwrap();
+        assert!(saved.index_updated);
+        let updated = workspace
+            .backlinks(&BacklinksRequest {
+                note_id: target.id,
+                limit: 20,
+            })
+            .unwrap();
+        assert_eq!(updated.len(), 1);
+        assert_eq!(updated[0].reference_kind, BacklinkReferenceKind::Link);
+        assert_eq!(updated[0].raw_target, "UUID");
+    }
+
+    #[test]
+    fn ambiguous_titles_fail_closed_and_rename_delete_rebuild_re_resolve_edges() {
+        let directory = TestDirectory::new("backlinks-lifecycle");
+        let workspace = FileWorkspace::new(directory.path()).unwrap();
+        let first = workspace
+            .create(&CreateNoteRequest {
+                path: path("one/shared.md"),
+                markdown: "# Shared\n".to_owned(),
+            })
+            .unwrap();
+        let source = workspace
+            .create(&CreateNoteRequest {
+                path: path("source.md"),
+                markdown: "# Source\n\n[[Shared]]\n".to_owned(),
+            })
+            .unwrap();
+        assert_eq!(
+            workspace
+                .backlinks(&BacklinksRequest {
+                    note_id: first.id,
+                    limit: 20,
+                })
+                .unwrap()
+                .len(),
+            1
+        );
+
+        let second = workspace
+            .create(&CreateNoteRequest {
+                path: path("two/shared.md"),
+                markdown: "# Shared\n".to_owned(),
+            })
+            .unwrap();
+        for target in [first.id, second.id] {
+            assert!(
+                workspace
+                    .backlinks(&BacklinksRequest {
+                        note_id: target,
+                        limit: 20,
+                    })
+                    .unwrap()
+                    .is_empty()
+            );
+        }
+
+        let renamed = workspace
+            .rename(&RenameNoteRequest {
+                path: first.path,
+                new_path: path("one/stable.md"),
+                expected_revision: first.revision,
+            })
+            .unwrap();
+        fs::remove_file(directory.path().join("two/shared.md")).unwrap();
+        workspace.snapshot().unwrap();
+        assert_eq!(
+            workspace
+                .backlinks(&BacklinksRequest {
+                    note_id: renamed.id,
+                    limit: 20,
+                })
+                .unwrap()[0]
+                .source_note_id,
+            source.id
+        );
+
+        workspace.rebuild_index().unwrap();
+        assert_eq!(
+            workspace
+                .backlinks(&BacklinksRequest {
+                    note_id: renamed.id,
+                    limit: 20,
+                })
+                .unwrap()
+                .len(),
+            1
+        );
+        fs::remove_file(directory.path().join("one/stable.md")).unwrap();
+        workspace.snapshot().unwrap();
+        assert!(
+            workspace
+                .backlinks(&BacklinksRequest {
+                    note_id: renamed.id,
+                    limit: 20,
+                })
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn version_one_search_index_migrates_and_backfills_wiki_edges() {
+        let directory = TestDirectory::new("backlinks-v1-migration");
+        let workspace = FileWorkspace::new(directory.path()).unwrap();
+        let target = workspace
+            .create(&CreateNoteRequest {
+                path: path("target.md"),
+                markdown: "# Target\n".to_owned(),
+            })
+            .unwrap();
+        workspace
+            .create(&CreateNoteRequest {
+                path: path("source.md"),
+                markdown: "# Source\n\n[[Target]]\n".to_owned(),
+            })
+            .unwrap();
+        drop(workspace);
+
+        let index_path = directory.path().join(".zhiweave/index.sqlite3");
+        {
+            let connection = rusqlite::Connection::open(&index_path).unwrap();
+            connection
+                .pragma_update(None, "journal_mode", "DELETE")
+                .unwrap();
+            connection
+                .execute_batch(
+                    "DROP TABLE wiki_edge;
+                     CREATE TABLE note_index_v1 (
+                         note_id TEXT PRIMARY KEY NOT NULL,
+                         path TEXT NOT NULL UNIQUE,
+                         title TEXT NOT NULL,
+                         kind TEXT NOT NULL,
+                         revision TEXT NOT NULL,
+                         modified_at_millis INTEGER NOT NULL CHECK(modified_at_millis >= 0)
+                     ) STRICT;
+                     INSERT INTO note_index_v1(
+                         note_id, path, title, kind, revision, modified_at_millis
+                     )
+                     SELECT note_id, path, title, kind, revision, modified_at_millis
+                     FROM note_index;
+                     DROP TABLE note_index;
+                     ALTER TABLE note_index_v1 RENAME TO note_index;
+                     CREATE INDEX note_index_modified_at
+                         ON note_index(modified_at_millis DESC);
+                     PRAGMA user_version = 1;",
+                )
+                .unwrap();
+        }
+
+        let reopened = FileWorkspace::new(directory.path()).unwrap();
+        let snapshot = reopened.snapshot().unwrap();
+        assert_eq!(snapshot.index.schema_version, 2);
+        assert_eq!(
+            reopened
+                .backlinks(&BacklinksRequest {
+                    note_id: target.id,
+                    limit: 20,
+                })
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
     fn deleting_only_sqlite_rebuilds_derived_data_without_changing_identity() {
         let directory = TestDirectory::new("delete-index");
         fs::write(directory.path().join("durable.md"), "# Durable identity\n").unwrap();
@@ -1484,6 +1712,18 @@ mod tests {
                 WorkspaceFailure::InvalidSearch { .. }
             ));
         }
+        let snapshot = workspace.snapshot().unwrap();
+        let note_id = snapshot
+            .documents
+            .first()
+            .map(|document| document.id)
+            .unwrap_or_default();
+        assert!(matches!(
+            workspace
+                .backlinks(&BacklinksRequest { note_id, limit: 0 })
+                .unwrap_err(),
+            WorkspaceFailure::InvalidSearch { .. }
+        ));
     }
 
     fn remove_index_artifacts(root: &Path) {

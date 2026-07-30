@@ -8,6 +8,7 @@ import {
   nativeHistoryToSnapshots,
   nativeSnapshotToWorkspace,
   portableSlug,
+  utf16OffsetFromUtf8ByteOffset,
 } from "./nativeWorkspaceModel";
 import type { NativeNoteDocument } from "./workspaceClient";
 
@@ -116,6 +117,16 @@ describe("native workspace model", () => {
     expect(portableSlug("a".repeat(100))).toHaveLength(80);
     expect(folderForView("sources")).toBe("sources");
     expect(folderForView("today")).toBe("daily");
+  });
+
+  it("maps Rust UTF-8 backlink offsets to CodeMirror UTF-16 positions", () => {
+    const markdown = "前😀 [[UUID]]";
+    expect(utf16OffsetFromUtf8ByteOffset(markdown, 8)).toBe(4);
+    expect(utf16OffsetFromUtf8ByteOffset(markdown, 2)).toBe(0);
+    expect(utf16OffsetFromUtf8ByteOffset(markdown, 10_000)).toBe(
+      markdown.length,
+    );
+    expect(utf16OffsetFromUtf8ByteOffset(markdown, -1)).toBe(0);
   });
 
   it("applies clean external changes while preserving dirty editor buffers", () => {

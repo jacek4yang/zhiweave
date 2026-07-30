@@ -10,16 +10,16 @@ use std::{
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use tauri::{Emitter, Manager, State};
 use zhiweave_application::{
-    ApplyVersionRetentionRequest, ApplyVersionRetentionResult, CheckoutVersionRequest,
-    CreateNoteRequest, CreateWorkspaceBackupRequest, CreateWorkspaceBackupResult,
-    DeleteVersionRequest, DeleteVersionResult, DetectWorkspaceChangesRequest, NoteDocument,
-    PrepareWorkspaceRestoreRequest, PrepareWorkspaceRestoreResult, PreviewVersionRetentionRequest,
-    ReadVersionRequest, RebuildIndexResult, RenameNoteRequest, SaveNoteRequest, SaveNoteResult,
-    SaveVersionRequest, SaveVersionResult, SearchNoteResult, SearchNotesRequest,
-    SetVersionCheckpointRequest, SystemStatus, VerifyWorkspaceBackupRequest,
-    VerifyWorkspaceBackupResult, VersionContent, VersionHistory, VersionHistoryRequest,
-    VersionRetentionPreview, WorkspaceApplication, WorkspaceBackupSummary, WorkspaceChangesResult,
-    WorkspaceFailure, WorkspaceSnapshot,
+    ApplyVersionRetentionRequest, ApplyVersionRetentionResult, BacklinkReference, BacklinksRequest,
+    CheckoutVersionRequest, CreateNoteRequest, CreateWorkspaceBackupRequest,
+    CreateWorkspaceBackupResult, DeleteVersionRequest, DeleteVersionResult,
+    DetectWorkspaceChangesRequest, NoteDocument, PrepareWorkspaceRestoreRequest,
+    PrepareWorkspaceRestoreResult, PreviewVersionRetentionRequest, ReadVersionRequest,
+    RebuildIndexResult, RenameNoteRequest, SaveNoteRequest, SaveNoteResult, SaveVersionRequest,
+    SaveVersionResult, SearchNoteResult, SearchNotesRequest, SetVersionCheckpointRequest,
+    SystemStatus, VerifyWorkspaceBackupRequest, VerifyWorkspaceBackupResult, VersionContent,
+    VersionHistory, VersionHistoryRequest, VersionRetentionPreview, WorkspaceApplication,
+    WorkspaceBackupSummary, WorkspaceChangesResult, WorkspaceFailure, WorkspaceSnapshot,
 };
 use zhiweave_domain::PortablePath;
 use zhiweave_storage::FileWorkspace;
@@ -194,6 +194,23 @@ async fn workspace_search(
             .lock()
             .map_err(|_| WorkspaceFailure::Unavailable)?
             .search(&request)
+    })
+    .await
+    .map_err(|_| WorkspaceFailure::Unavailable)?
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri command extractors are ABI values.
+async fn workspace_backlinks(
+    workspace: State<'_, NativeWorkspace>,
+    request: BacklinksRequest,
+) -> Result<Vec<BacklinkReference>, WorkspaceFailure> {
+    let workspace = Arc::clone(workspace.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        workspace
+            .lock()
+            .map_err(|_| WorkspaceFailure::Unavailable)?
+            .backlinks(&request)
     })
     .await
     .map_err(|_| WorkspaceFailure::Unavailable)?
@@ -432,7 +449,7 @@ fn seed_empty_workspace(
                 "把问题、证据、代码、论文、英语和复习组织成可持续修正的知识网络。\n\n",
                 "## 下一步\n\n",
                 "- [ ] 写下一个可在 45 分钟内回答的问题\n",
-                "- [ ] 连接一份可靠来源\n",
+                "- [ ] 连接一份可靠来源，例如 [[Rust 所有权]]\n",
                 "- [ ] 用自己的话解释并留下证据\n",
             ),
         ),
@@ -517,6 +534,7 @@ pub fn run() {
             note_save,
             note_rename,
             workspace_search,
+            workspace_backlinks,
             workspace_rebuild_index,
             version_history,
             version_save,
@@ -545,7 +563,7 @@ mod tests {
     };
 
     use zhiweave_application::{
-        IndexState, SaveNoteRequest, SearchNotesRequest, WorkspaceApplication,
+        BacklinksRequest, IndexState, SaveNoteRequest, SearchNotesRequest, WorkspaceApplication,
     };
     use zhiweave_storage::FileWorkspace;
 
@@ -601,12 +619,26 @@ mod tests {
         assert_eq!(snapshot.documents.len(), 6);
         assert_eq!(snapshot.index.state, IndexState::Ready);
         assert_eq!(snapshot.index.note_count, 6);
+        let ownership_id = snapshot
+            .documents
+            .iter()
+            .find(|document| document.path.as_str() == "topics/ownership.md")
+            .unwrap()
+            .id;
         let welcome = snapshot
             .documents
             .into_iter()
             .find(|document| document.path.as_str() == "learning/welcome.md")
             .unwrap();
         let welcome_id = welcome.id;
+        let backlinks = application
+            .backlinks(&BacklinksRequest {
+                note_id: ownership_id,
+                limit: 20,
+            })
+            .unwrap();
+        assert_eq!(backlinks.len(), 1);
+        assert_eq!(backlinks[0].source_note_id, welcome_id);
 
         application
             .save(&SaveNoteRequest {

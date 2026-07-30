@@ -23,19 +23,21 @@
 
 环境：当前 Windows 电脑，Vite 直接绑定 `127.0.0.1:1420`，Tauri 2 原生开发壳。
 
-- Vitest：9 files / 47 tests，最近一次约 1.18 s。
-- Vite production build：最近一次约 753 ms。
-- 主 CSS：55.20 KB（gzip 10.32 KB）。
-- 主 JavaScript：934.49 KB（gzip 310.59 KB）。
+- Vitest：9 files / 49 tests，最近一次约 0.87 s。
+- Vite production build：最近一次约 513 ms。
+- 主 CSS：57.99 KB（gzip 10.70 KB）。
+- 主 JavaScript：937.15 KB（gzip 311.35 KB）。
 - `EmbeddedLab` 按需 chunk：5.99 KB（gzip 2.46 KB）。
-- `MarkdownPreview` 按需 chunk：11.32 KB（gzip 3.98 KB）。
+- `MarkdownPreview` 按需 chunk：11.18 KB（gzip 3.92 KB）。
 - `markdownAst` 按需 chunk：92.24 KB（gzip 26.02 KB）。
 - `DocumentOutline` 按需 chunk：1.16 KB（gzip 0.67 KB）。
+- `BacklinksPanel` 按需 chunk：2.71 KB（gzip 1.26 KB）。
 - `MathFormula` 包装 chunk：0.47 KB（gzip 0.40 KB）；共享 `mathRenderer`/KaTeX 按需 chunk：
   259.23 KB（gzip 77.61 KB），KaTeX CSS 28.83 KB（gzip 7.92 KB）。
 - Vite 仍报告主 chunk 超过 500 KB。
 
-交互实验、Markdown 解析/阅读、大纲和公式都不进入无关首屏；主包 gzip 仍超过目标 110.59 KB。
+交互实验、Markdown 解析/阅读、大纲、反向链接面板和公式都不进入无关首屏；主包 gzip 仍
+超过目标 111.35 KB。
 KaTeX 只在遇到公式时加载，但当前上游 CSS 让构建产物同时包含 WOFF2/WOFF/TTF 变体，增加
 安装包体积；后续应验证 WebView2/跨平台字体覆盖后收敛到必要格式。下一步必须用可重复的
 chunk 报告定位 CodeMirror、图标、工作台和命令面板边界；语言 grammar、图谱和 Canvas 继续
@@ -49,6 +51,10 @@ Live Preview 自动性能门在当前 Windows 电脑的单次 Vitest 样本中�
 
 这些是回归门而不是输入延迟分布；仍需在固定硬件上补局部编辑 P50/P95/P99、滚动 FPS、内存
 和 Android 低内存样本。
+
+Wiki 增量索引在普通正文保存时只重新解析当前来源的边；只有新建、H1/path 变化或全快照才
+重新解析全部候选/边。现有回归验证语义与迁移，不代表 10,000/100,000 节点关系预算；必须用
+密集 Wiki 数据集测量候选映射、全局重解析、单源更新、反向查询 P50/P95/P99 和数据库增长。
 
 Windows 小样本原生版本验收中，三份约 261–317 B 的 Markdown 版本经内容寻址压缩后实际占用
 796 B/3 块；删除一个独有版本回收 275 B。该结果只证明统计和垃圾回收路径正确，不代表大正文
