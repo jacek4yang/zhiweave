@@ -3,6 +3,11 @@ import {
   reconcileTabSession,
   type TabSession,
 } from "./tabModel";
+import {
+  EXPLORER_WIDTH,
+  INSPECTOR_WIDTH,
+  normalizePanelWidth,
+} from "./panelLayout";
 
 export type WorkbenchEditorMode = "edit" | "preview" | "split";
 export type WorkbenchInspector = "outline" | "backlinks" | "graph" | null;
@@ -10,7 +15,9 @@ export type WorkbenchInspector = "outline" | "backlinks" | "graph" | null;
 export interface WorkbenchPreferences {
   readonly activeNoteId: string | null;
   readonly editorMode: WorkbenchEditorMode;
+  readonly explorerWidth: number;
   readonly inspector: WorkbenchInspector;
+  readonly inspectorWidth: number;
   readonly livePreviewEnabled: boolean;
   readonly sidebarOpen: boolean;
   readonly tabSession: TabSession | null;
@@ -23,11 +30,13 @@ export interface RestoredWorkbenchTabSession {
 }
 
 export const WORKBENCH_PREFERENCES_KEY =
+  "zhiweave.workbench.preferences.v3";
+export const PREVIOUS_WORKBENCH_PREFERENCES_KEY =
   "zhiweave.workbench.preferences.v2";
 export const LEGACY_WORKBENCH_PREFERENCES_KEY =
   "zhiweave.workbench.preferences.v1";
 
-const WORKBENCH_PREFERENCES_SCHEMA_VERSION = 2;
+const WORKBENCH_PREFERENCES_SCHEMA_VERSION = 3;
 const MAX_OPEN_TABS = 50;
 const MAX_CLOSED_TABS = 20;
 const MAX_NOTE_ID_LENGTH = 200;
@@ -36,7 +45,9 @@ const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/u;
 export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
   activeNoteId: null,
   editorMode: "edit",
+  explorerWidth: EXPLORER_WIDTH.defaultValue,
   inspector: null,
+  inspectorWidth: INSPECTOR_WIDTH.defaultValue,
   livePreviewEnabled: true,
   sidebarOpen: true,
   tabSession: null,
@@ -44,9 +55,13 @@ export const DEFAULT_WORKBENCH_PREFERENCES: WorkbenchPreferences = {
 };
 
 export function parseWorkbenchPreferences(
+  storedV3: string | null,
   storedV2: string | null,
   storedLegacyV1: string | null,
 ): WorkbenchPreferences {
+  if (storedV3 !== null) {
+    return parseVersionThree(storedV3);
+  }
   if (storedV2 !== null) {
     return parseVersionTwo(storedV2);
   }
@@ -63,7 +78,15 @@ export function serializeWorkbenchPreferences(
     schemaVersion: WORKBENCH_PREFERENCES_SCHEMA_VERSION,
     activeNoteId: safeNoteId(preferences.activeNoteId),
     editorMode: safeEditorMode(preferences.editorMode),
+    explorerWidth: normalizePanelWidth(
+      "explorer",
+      preferences.explorerWidth,
+    ),
     inspector: safeInspector(preferences.inspector),
+    inspectorWidth: normalizePanelWidth(
+      "inspector",
+      preferences.inspectorWidth,
+    ),
     livePreviewEnabled: preferences.livePreviewEnabled === true,
     sidebarOpen: preferences.sidebarOpen === true,
     tabSession:
@@ -130,7 +153,7 @@ export function restoreWorkbenchTabSession(
   };
 }
 
-function parseVersionTwo(stored: string): WorkbenchPreferences {
+function parseVersionThree(stored: string): WorkbenchPreferences {
   try {
     const parsed: unknown = JSON.parse(stored);
     if (
@@ -140,6 +163,44 @@ function parseVersionTwo(stored: string): WorkbenchPreferences {
       return DEFAULT_WORKBENCH_PREFERENCES;
     }
     return {
+      activeNoteId: safeNoteId(parsed.activeNoteId),
+      editorMode: safeEditorMode(parsed.editorMode),
+      explorerWidth: normalizePanelWidth(
+        "explorer",
+        parsed.explorerWidth,
+      ),
+      inspector: safeInspector(parsed.inspector),
+      inspectorWidth: normalizePanelWidth(
+        "inspector",
+        parsed.inspectorWidth,
+      ),
+      livePreviewEnabled: readBoolean(
+        parsed.livePreviewEnabled,
+        DEFAULT_WORKBENCH_PREFERENCES.livePreviewEnabled,
+      ),
+      sidebarOpen: readBoolean(
+        parsed.sidebarOpen,
+        DEFAULT_WORKBENCH_PREFERENCES.sidebarOpen,
+      ),
+      tabSession: parseStoredTabSession(parsed.tabSession),
+      versionsOpen: readBoolean(
+        parsed.versionsOpen,
+        DEFAULT_WORKBENCH_PREFERENCES.versionsOpen,
+      ),
+    };
+  } catch {
+    return DEFAULT_WORKBENCH_PREFERENCES;
+  }
+}
+
+function parseVersionTwo(stored: string): WorkbenchPreferences {
+  try {
+    const parsed: unknown = JSON.parse(stored);
+    if (!isRecord(parsed) || parsed.schemaVersion !== 2) {
+      return DEFAULT_WORKBENCH_PREFERENCES;
+    }
+    return {
+      ...DEFAULT_WORKBENCH_PREFERENCES,
       activeNoteId: safeNoteId(parsed.activeNoteId),
       editorMode: safeEditorMode(parsed.editorMode),
       inspector: safeInspector(parsed.inspector),

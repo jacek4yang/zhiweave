@@ -10,7 +10,7 @@ import {
 
 describe("workbench preferences", () => {
   it("uses safe defaults when no stored state exists", () => {
-    expect(parseWorkbenchPreferences(null, null)).toEqual(
+    expect(parseWorkbenchPreferences(null, null, null)).toEqual(
       DEFAULT_WORKBENCH_PREFERENCES,
     );
   });
@@ -18,6 +18,7 @@ describe("workbench preferences", () => {
   it("migrates legacy display toggles into one inspector", () => {
     expect(
       parseWorkbenchPreferences(
+        null,
         null,
         JSON.stringify({
           backlinksOpen: true,
@@ -33,11 +34,40 @@ describe("workbench preferences", () => {
     });
   });
 
+  it("migrates the v2 workbench session with default panel widths", () => {
+    expect(
+      parseWorkbenchPreferences(
+        null,
+        JSON.stringify({
+          schemaVersion: 2,
+          activeNoteId: "note-a",
+          editorMode: "split",
+          inspector: "outline",
+          livePreviewEnabled: false,
+          sidebarOpen: false,
+          tabSession: null,
+          versionsOpen: true,
+        }),
+        null,
+      ),
+    ).toEqual({
+      ...DEFAULT_WORKBENCH_PREFERENCES,
+      activeNoteId: "note-a",
+      editorMode: "split",
+      inspector: "outline",
+      livePreviewEnabled: false,
+      sidebarOpen: false,
+      versionsOpen: true,
+    });
+  });
+
   it("round-trips the versioned UI session", () => {
     const preferences: WorkbenchPreferences = {
       activeNoteId: "note-b",
       editorMode: "split",
+      explorerWidth: 318,
       inspector: "backlinks",
+      inspectorWidth: 356,
       livePreviewEnabled: false,
       sidebarOpen: false,
       tabSession: {
@@ -52,6 +82,7 @@ describe("workbench preferences", () => {
       parseWorkbenchPreferences(
         serializeWorkbenchPreferences(preferences),
         null,
+        null,
       ),
     ).toEqual(preferences);
   });
@@ -60,15 +91,17 @@ describe("workbench preferences", () => {
     expect(
       parseWorkbenchPreferences(
         "{",
+        null,
         JSON.stringify({ outlineOpen: true }),
       ),
     ).toEqual(DEFAULT_WORKBENCH_PREFERENCES);
     expect(
       parseWorkbenchPreferences(
         JSON.stringify({
-          schemaVersion: 3,
+          schemaVersion: 4,
           editorMode: "split",
         }),
+        null,
         JSON.stringify({ outlineOpen: true }),
       ),
     ).toEqual(DEFAULT_WORKBENCH_PREFERENCES);
@@ -85,10 +118,12 @@ describe("workbench preferences", () => {
     ];
     const parsed = parseWorkbenchPreferences(
       JSON.stringify({
-        schemaVersion: 2,
+        schemaVersion: 3,
         activeNoteId: "bad\u0000id",
         editorMode: "unexpected",
+        explorerWidth: "wide",
         inspector: "unexpected",
+        inspectorWidth: -500,
         livePreviewEnabled: "yes",
         sidebarOpen: "yes",
         tabSession: {
@@ -105,11 +140,16 @@ describe("workbench preferences", () => {
         versionsOpen: "yes",
       }),
       null,
+      null,
     );
 
     expect(parsed.activeNoteId).toBeNull();
     expect(parsed.editorMode).toBe("edit");
+    expect(parsed.explorerWidth).toBe(
+      DEFAULT_WORKBENCH_PREFERENCES.explorerWidth,
+    );
     expect(parsed.inspector).toBeNull();
+    expect(parsed.inspectorWidth).toBe(220);
     expect(parsed.livePreviewEnabled).toBe(true);
     expect(parsed.sidebarOpen).toBe(true);
     expect(parsed.versionsOpen).toBe(false);
@@ -198,7 +238,9 @@ describe("workbench preferences", () => {
     const serialized = serializeWorkbenchPreferences({
       activeNoteId: "note-a",
       editorMode: "preview",
+      explorerWidth: 299.6,
       inspector: "graph",
+      inspectorWidth: 999,
       livePreviewEnabled: true,
       sidebarOpen: true,
       tabSession: {
@@ -213,7 +255,9 @@ describe("workbench preferences", () => {
     expect(Object.keys(parsed).sort()).toEqual([
       "activeNoteId",
       "editorMode",
+      "explorerWidth",
       "inspector",
+      "inspectorWidth",
       "livePreviewEnabled",
       "schemaVersion",
       "sidebarOpen",
@@ -223,5 +267,7 @@ describe("workbench preferences", () => {
     expect(serialized).not.toMatch(
       /markdown|content|revision|root|path|attachment/i,
     );
+    expect(parsed.explorerWidth).toBe(300);
+    expect(parsed.inspectorWidth).toBe(420);
   });
 });

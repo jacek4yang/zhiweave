@@ -162,6 +162,13 @@ describe("command registry", () => {
       "window.maximize",
       "window.close",
     ]);
+
+    const panelCommands = commandsForContext(
+      context([], "panel-resizer"),
+    );
+    expect(panelCommands.map((command) => command.id)).toEqual([
+      "workbench.resetPanelLayout",
+    ]);
   });
 
   it("offers only the tab state transition that matches the clicked tab", () => {

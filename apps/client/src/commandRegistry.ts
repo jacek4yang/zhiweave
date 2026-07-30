@@ -9,6 +9,7 @@ export type CommandScope =
   | "input"
   | "note-item"
   | "outline"
+  | "panel-resizer"
   | "preview"
   | "status"
   | "tab"
@@ -77,6 +78,7 @@ export type CommandId =
   | "workbench.commandPalette"
   | "workbench.clearQuickOpen"
   | "workbench.quickOpen"
+  | "workbench.resetPanelLayout"
   | "workbench.shortcutEditor"
   | "workbench.toggleSidebar"
   | "workspace.copyRoot"
@@ -310,6 +312,7 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
     "view.preview",
     "note.showVersions",
   ],
+  "panel-resizer": ["workbench.resetPanelLayout"],
   preview: [
     "edit.copy",
     "version.save",
@@ -387,6 +390,10 @@ export const COMMANDS: readonly CommandDefinition[] = [
     contexts: WORKSPACE_SCOPES,
     keywords: ["keyboard", "shortcut", "keybinding", "键盘", "快捷键", "按键"],
     shortcut: shortcutSequence("k", "s", "Ctrl+K Ctrl+S"),
+  }),
+  command("workbench.resetPanelLayout", "恢复默认面板宽度", "工作台", "workbench", 36, {
+    contexts: ["panel-resizer"],
+    keywords: ["layout", "panel", "resize", "布局", "面板", "宽度", "重置"],
   }),
   command("workspace.createNote", "新建知识节点", "知识节点", "workspace", 40, {
     contexts: WORKSPACE_SCOPES,

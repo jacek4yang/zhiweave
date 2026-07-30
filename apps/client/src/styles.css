@@ -74,8 +74,12 @@ button:disabled {
 }
 
 .app-shell {
+  position: relative;
   display: grid;
-  grid-template-columns: 48px 244px minmax(0, 1fr);
+  grid-template-columns:
+    48px
+    var(--explorer-width, 244px)
+    minmax(0, 1fr);
   grid-template-rows: 32px minmax(0, 1fr);
   width: 100%;
   height: 100%;
@@ -259,6 +263,52 @@ button:disabled {
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   border-right: 1px solid var(--line);
   background: var(--panel);
+}
+
+.panel-resize-handle {
+  position: fixed;
+  z-index: 30;
+  top: 32px;
+  bottom: 0;
+  left: calc(48px + var(--explorer-width, 244px) - 4px);
+  display: grid;
+  width: 8px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+
+.panel-resize-handle i {
+  width: 1px;
+  height: 100%;
+  background: transparent;
+  transition:
+    width 120ms ease,
+    background-color 120ms ease;
+}
+
+.panel-resize-handle:hover i,
+.panel-resize-handle:focus-visible i,
+.panel-resize-handle:active i {
+  width: 3px;
+  background: var(--accent);
+}
+
+.panel-resize-handle:focus-visible {
+  outline-offset: -3px;
+}
+
+.panel-resize-handle.is-inspector {
+  position: absolute;
+  z-index: 14;
+  top: 0;
+  right: calc(var(--effective-inspector-width) - 4px);
+  bottom: 0;
+  left: auto;
 }
 
 .explorer-header {
@@ -682,6 +732,11 @@ button:disabled {
 }
 
 .editor-workspace {
+  --effective-inspector-width: min(
+    var(--inspector-width, 270px),
+    calc(100% - 320px)
+  );
+  position: relative;
   display: grid;
   width: 100%;
   height: 100%;
@@ -691,7 +746,9 @@ button:disabled {
 }
 
 .editor-workspace.has-inspector {
-  grid-template-columns: minmax(0, 1fr) minmax(210px, 270px);
+  grid-template-columns:
+    minmax(0, 1fr)
+    var(--effective-inspector-width);
 }
 
 .editor-surface {
@@ -997,7 +1054,9 @@ button:disabled {
 }
 
 .editor-workspace.has-inspector.has-graph {
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+  grid-template-columns:
+    minmax(0, 1fr)
+    var(--effective-inspector-width);
 }
 
 .local-graph-panel {
@@ -4523,6 +4582,39 @@ button.preview-wiki-embed:focus-visible {
   }
 }
 
+@media (max-width: 1100px) {
+  .editor-workspace.has-inspector {
+    position: relative;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .editor-workspace.has-inspector .document-outline,
+  .editor-workspace.has-inspector .backlinks-panel,
+  .editor-workspace.has-inspector .local-graph-panel {
+    position: absolute;
+    z-index: 12;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(
+      var(--inspector-width, 270px),
+      calc(100% - 32px)
+    );
+    box-shadow: -14px 0 32px rgb(0 0 0 / 28%);
+  }
+
+  .editor-workspace.has-inspector.has-graph .local-graph-panel {
+    width: min(
+      var(--inspector-width, 270px),
+      calc(100% - 24px)
+    );
+  }
+
+  .panel-resize-handle.is-inspector {
+    display: none;
+  }
+}
+
 @media (max-width: 960px) {
   .app-shell,
   .app-shell.is-sidebar-collapsed {
@@ -4539,11 +4631,15 @@ button.preview-wiki-embed:focus-visible {
     top: 32px;
     bottom: 0;
     left: 48px;
-    width: min(244px, calc(100vw - 48px));
+    width: min(var(--explorer-width, 244px), calc(100vw - 48px));
     box-shadow: 12px 0 35px rgb(0 0 0 / 30%);
   }
 
   .app-shell.is-sidebar-collapsed .explorer {
+    display: none;
+  }
+
+  .panel-resize-handle.is-explorer {
     display: none;
   }
 }
@@ -4666,27 +4762,6 @@ button.preview-wiki-embed:focus-visible {
   .editor-mode-switch button {
     width: 26px;
     padding: 0;
-  }
-
-  .editor-workspace.has-inspector {
-    position: relative;
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .editor-workspace.has-inspector .document-outline,
-  .editor-workspace.has-inspector .backlinks-panel,
-  .editor-workspace.has-inspector .local-graph-panel {
-    position: absolute;
-    z-index: 12;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    width: min(270px, calc(100% - 32px));
-    box-shadow: -14px 0 32px rgb(0 0 0 / 28%);
-  }
-
-  .editor-workspace.has-inspector.has-graph .local-graph-panel {
-    width: min(360px, calc(100% - 24px));
   }
 
   .editor-split {

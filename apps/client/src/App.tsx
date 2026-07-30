@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
@@ -50,6 +51,7 @@ import {
 } from "lucide-react";
 
 import { CommandPalette } from "./CommandPalette";
+import { PanelResizeHandle } from "./PanelResizeHandle";
 import {
   VIEW_COPY,
   WORKSPACE_STORAGE_KEY,
@@ -93,6 +95,12 @@ import {
   shortcutAriaLabel,
 } from "./shortcutModel";
 import {
+  EXPLORER_WIDTH,
+  INSPECTOR_WIDTH,
+  normalizePanelWidth,
+  type ResizablePanel,
+} from "./panelLayout";
+import {
   MarkdownEditor,
   type EditorStatus,
   type MarkdownEditorHandle,
@@ -130,6 +138,7 @@ import {
 import {
   DEFAULT_WORKBENCH_PREFERENCES,
   LEGACY_WORKBENCH_PREFERENCES_KEY,
+  PREVIOUS_WORKBENCH_PREFERENCES_KEY,
   WORKBENCH_PREFERENCES_KEY,
   parseWorkbenchPreferences,
   restoreWorkbenchTabSession,
@@ -324,6 +333,13 @@ export function App() {
       window.innerWidth > 960 &&
       initialBoot.preferences.sidebarOpen,
   );
+  const [explorerWidth, setExplorerWidth] = useState(
+    initialBoot.preferences.explorerWidth,
+  );
+  const [inspectorWidth, setInspectorWidth] = useState(
+    initialBoot.preferences.inspectorWidth,
+  );
+  const [panelLayoutRevision, setPanelLayoutRevision] = useState(0);
   const [isNewNoteOpen, setIsNewNoteOpen] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newView, setNewView] =
@@ -416,6 +432,10 @@ export function App() {
   const sidebarOpenPreferenceRef = useRef(
     initialBoot.preferences.sidebarOpen,
   );
+  const panelWidthsRef = useRef({
+    explorer: initialBoot.preferences.explorerWidth,
+    inspector: initialBoot.preferences.inspectorWidth,
+  });
   const checkingExternalChangesRef = useRef(false);
   const pendingExternalCheckRef = useRef(false);
   const pendingShortcutRef = useRef<CommandShortcutStroke | null>(null);
@@ -856,6 +876,7 @@ export function App() {
         serializeWorkbenchPreferences({
           activeNoteId,
           editorMode,
+          explorerWidth: panelWidthsRef.current.explorer,
           inspector: outlineOpen
             ? "outline"
             : backlinksOpen
@@ -863,6 +884,7 @@ export function App() {
               : localGraphOpen
                 ? "graph"
                 : null,
+          inspectorWidth: panelWidthsRef.current.inspector,
           livePreviewEnabled,
           sidebarOpen: sidebarOpenPreferenceRef.current,
           tabSession,
@@ -883,6 +905,7 @@ export function App() {
     localGraphOpen,
     nativeRuntime,
     outlineOpen,
+    panelLayoutRevision,
     tabSession,
   ]);
 
@@ -1114,6 +1137,36 @@ export function App() {
         synchronizeSidebarWithViewport,
       );
   }, []);
+
+  function updatePanelWidth(
+    panel: ResizablePanel,
+    width: number,
+    persist: boolean,
+  ) {
+    const next = normalizePanelWidth(panel, width);
+    panelWidthsRef.current = {
+      ...panelWidthsRef.current,
+      [panel]: next,
+    };
+    if (panel === "explorer") {
+      setExplorerWidth(next);
+    } else {
+      setInspectorWidth(next);
+    }
+    if (persist) {
+      setPanelLayoutRevision((revision) => revision + 1);
+    }
+  }
+
+  function resetPanelLayout() {
+    panelWidthsRef.current = {
+      explorer: EXPLORER_WIDTH.defaultValue,
+      inspector: INSPECTOR_WIDTH.defaultValue,
+    };
+    setExplorerWidth(EXPLORER_WIDTH.defaultValue);
+    setInspectorWidth(INSPECTOR_WIDTH.defaultValue);
+    setPanelLayoutRevision((revision) => revision + 1);
+  }
 
   function navigate(view: ViewKey) {
     setActiveView(view);
@@ -2880,6 +2933,10 @@ export function App() {
         }
         setIsShortcutEditorOpen(true);
         return;
+      case "workbench.resetPanelLayout":
+        resetPanelLayout();
+        setToast("笔记栏和检查器已恢复默认宽度。");
+        return;
       case "workbench.quickOpen":
         if (!window.matchMedia("(max-width: 960px)").matches) {
           sidebarOpenPreferenceRef.current = true;
@@ -3619,6 +3676,12 @@ export function App() {
     <main
       className={`app-shell${isSidebarOpen ? "" : " is-sidebar-collapsed"}`}
       onContextMenu={openContextMenu}
+      style={
+        {
+          "--explorer-width": `${explorerWidth}px`,
+          "--inspector-width": `${inspectorWidth}px`,
+        } as CSSProperties
+      }
     >
       <header
         className="app-titlebar"
@@ -3828,6 +3891,19 @@ export function App() {
           </span>
         </footer>
       </aside>
+
+      {isSidebarOpen ? (
+        <PanelResizeHandle
+          onCommit={(width) =>
+            updatePanelWidth("explorer", width, true)
+          }
+          onPreview={(width) =>
+            updatePanelWidth("explorer", width, false)
+          }
+          panel="explorer"
+          value={explorerWidth}
+        />
+      ) : null}
 
       <section className="workspace">
         <header className="workbench-toolbar">
@@ -4211,6 +4287,18 @@ export function App() {
                   />
                 )}
               </div>
+              {outlineOpen || backlinksOpen || localGraphOpen ? (
+                <PanelResizeHandle
+                  onCommit={(width) =>
+                    updatePanelWidth("inspector", width, true)
+                  }
+                  onPreview={(width) =>
+                    updatePanelWidth("inspector", width, false)
+                  }
+                  panel="inspector"
+                  value={inspectorWidth}
+                />
+              ) : null}
               {outlineOpen ? (
                 <Suspense fallback={null}>
                   <DocumentOutline
@@ -5424,6 +5512,7 @@ function readStoredWorkbenchPreferences(): WorkbenchPreferences {
   try {
     return parseWorkbenchPreferences(
       localStorage.getItem(WORKBENCH_PREFERENCES_KEY),
+      localStorage.getItem(PREVIOUS_WORKBENCH_PREFERENCES_KEY),
       localStorage.getItem(LEGACY_WORKBENCH_PREFERENCES_KEY),
     );
   } catch {
@@ -5535,6 +5624,7 @@ function isContextScope(
     case "input":
     case "note-item":
     case "outline":
+    case "panel-resizer":
     case "preview":
     case "status":
     case "tab":
@@ -5572,6 +5662,8 @@ function contextMenuLabel(
       return note === undefined ? "交互实验" : `实验：${note.title}`;
     case "outline":
       return note === undefined ? "文档大纲" : `大纲：${note.title}`;
+    case "panel-resizer":
+      return "面板宽度";
     case "note-item":
       return note === undefined ? "知识节点" : note.title;
     case "tab":
