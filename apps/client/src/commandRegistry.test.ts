@@ -186,6 +186,25 @@ describe("command registry", () => {
     expect(sourceCommands[0]?.id).toBe("note.open");
   });
 
+  it("gives Wiki targets a link-specific menu instead of the preview menu", () => {
+    const wikiCommands = commandsForContext(
+      context(["native", "note", "wikiTarget"], "wiki-link"),
+    );
+
+    expect(wikiCommands.map((command) => command.id)).toEqual([
+      "wiki.open",
+      "wiki.copyTarget",
+    ]);
+    expect(
+      wikiCommands.some((command) => command.id === "note.copyMarkdown"),
+    ).toBe(false);
+    expect(
+      commandsForContext(
+        context(["browser", "note", "wikiTarget"], "wiki-link"),
+      ).map((command) => command.id),
+    ).toEqual(["wiki.copyTarget"]);
+  });
+
   it("searches Chinese and aliases while preserving the registry order", () => {
     const commandContext = context([
       "native",

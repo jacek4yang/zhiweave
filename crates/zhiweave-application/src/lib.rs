@@ -260,6 +260,56 @@ pub struct BacklinkReference {
     pub context: String,
 }
 
+/// Request to resolve one authored Wiki target from a stable source note.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolveWikiTargetRequest {
+    /// Stable identity of the note containing the authored target.
+    pub source_note_id: NoteId,
+    /// Authored target without the surrounding `[[` and `]]` markers.
+    pub raw_target: String,
+}
+
+/// Result state for an authored Wiki target.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WikiTargetResolutionState {
+    /// Exactly one target matched the authoritative index.
+    Resolved,
+    /// No indexed note matched.
+    Missing,
+    /// Multiple indexed notes matched and the application refused to guess.
+    Ambiguous,
+}
+
+/// Minimal stable identity returned for a resolved Wiki target.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedWikiTargetNote {
+    /// Stable hidden note identity.
+    pub id: NoteId,
+    /// Current level-one heading or filename fallback.
+    pub title: String,
+    /// Current portable path.
+    pub path: PortablePath,
+    /// Learning role used by navigation and filtering.
+    pub kind: NoteKind,
+}
+
+/// Authoritative forward-resolution result for one Wiki target.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WikiTargetResolution {
+    /// Trimmed authored target used for the lookup.
+    pub raw_target: String,
+    /// Resolved, missing, or ambiguous without a best-effort guess.
+    pub state: WikiTargetResolutionState,
+    /// Stable target metadata only when `state` is `resolved`.
+    pub target: Option<ResolvedWikiTargetNote>,
+    /// Optional authored heading fragment without the leading `#`.
+    pub heading: Option<String>,
+}
+
 /// Outcome of an explicit derived-index rebuild.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -786,6 +836,12 @@ pub enum WorkspaceFailure {
         /// Stable validation category.
         kind: String,
     },
+    /// A Wiki target lookup exceeded the public boundary or was malformed.
+    #[error("workspace Wiki target is invalid: {kind}")]
+    InvalidWikiTarget {
+        /// Stable validation category.
+        kind: String,
+    },
     /// The caller supplied an ambiguous or excessive change baseline.
     #[error("workspace change baseline is invalid: {kind}")]
     InvalidChangeBaseline {
@@ -863,6 +919,16 @@ pub trait WorkspacePort {
         &self,
         request: &BacklinksRequest,
     ) -> Result<Vec<BacklinkReference>, WorkspaceFailure>;
+
+    /// Resolves one authored Wiki target through the rebuildable index.
+    ///
+    /// # Errors
+    ///
+    /// Returns a structured index, source-identity, or target-boundary failure.
+    fn resolve_wiki_target(
+        &self,
+        request: &ResolveWikiTargetRequest,
+    ) -> Result<WikiTargetResolution, WorkspaceFailure>;
 
     /// Rebuilds the derived index from Markdown and hidden stable identities.
     ///
@@ -1087,6 +1153,18 @@ where
         request: &BacklinksRequest,
     ) -> Result<Vec<BacklinkReference>, WorkspaceFailure> {
         self.port.backlinks(request)
+    }
+
+    /// Resolves one authored Wiki target without guessing between duplicates.
+    ///
+    /// # Errors
+    ///
+    /// Propagates the adapter's structured index, identity, or boundary failure.
+    pub fn resolve_wiki_target(
+        &self,
+        request: &ResolveWikiTargetRequest,
+    ) -> Result<WikiTargetResolution, WorkspaceFailure> {
+        self.port.resolve_wiki_target(request)
     }
 
     /// Explicitly rebuilds derived index data from portable sources.
@@ -1363,8 +1441,9 @@ mod tests {
 
     use super::{
         BacklinksRequest, CreateNoteRequest, DetectWorkspaceChangesRequest, FileRevision,
-        KnownNoteState, LineEnding, NoteDocument, RenameNoteRequest, SaveNoteRequest,
-        SaveNoteResult, WorkspaceApplication, WorkspaceChangeKind, WorkspaceFailure, WorkspacePort,
+        KnownNoteState, LineEnding, NoteDocument, RenameNoteRequest, ResolveWikiTargetRequest,
+        SaveNoteRequest, SaveNoteResult, WikiTargetResolution, WikiTargetResolutionState,
+        WorkspaceApplication, WorkspaceChangeKind, WorkspaceFailure, WorkspacePort,
         WorkspaceSnapshot,
     };
 
@@ -1421,6 +1500,24 @@ mod tests {
         ) -> Result<Vec<super::BacklinkReference>, WorkspaceFailure> {
             self.calls.borrow_mut().push("backlinks");
             Ok(Vec::new())
+        }
+
+        fn resolve_wiki_target(
+            &self,
+            request: &ResolveWikiTargetRequest,
+        ) -> Result<WikiTargetResolution, WorkspaceFailure> {
+            self.calls.borrow_mut().push("resolve_wiki_target");
+            Ok(WikiTargetResolution {
+                raw_target: request.raw_target.trim().to_owned(),
+                state: WikiTargetResolutionState::Resolved,
+                target: Some(super::ResolvedWikiTargetNote {
+                    id: self.document.id,
+                    title: self.document.title.clone(),
+                    path: self.document.path.clone(),
+                    kind: self.document.kind,
+                }),
+                heading: Some("规则".to_owned()),
+            })
         }
 
         fn rebuild_index(&self) -> Result<super::RebuildIndexResult, WorkspaceFailure> {
@@ -1511,8 +1608,24 @@ mod tests {
                 .is_empty()
         );
         assert_eq!(
+            application
+                .resolve_wiki_target(&ResolveWikiTargetRequest {
+                    source_note_id: document.id,
+                    raw_target: " Ownership#规则 ".to_owned(),
+                })
+                .unwrap()
+                .state,
+            WikiTargetResolutionState::Resolved
+        );
+        assert_eq!(
             application.port.calls.into_inner(),
-            ["snapshot", "create", "save", "backlinks"]
+            [
+                "snapshot",
+                "create",
+                "save",
+                "backlinks",
+                "resolve_wiki_target"
+            ]
         );
     }
 

@@ -110,6 +110,33 @@ $$
     expect(html).toContain("HTML 已作为不可信源码显示");
   });
 
+  it("makes Wiki targets interactive only when a navigation capability is supplied", () => {
+    const interactive = renderToStaticMarkup(
+      createElement(MarkdownPreview, {
+        markdown: "[[UUID#版本|版本字段]] 与 ![[diagram.svg]]",
+        onOpenWikiTarget: () => undefined,
+        sourceNoteId: "source-note",
+      }),
+    );
+    const inert = renderToStaticMarkup(
+      createElement(MarkdownPreview, {
+        markdown: "[[UUID]]",
+      }),
+    );
+
+    expect(interactive).toContain(
+      '<button aria-label="打开知识节点：版本字段"',
+    );
+    expect(interactive).toContain('data-context="wiki-link"');
+    expect(interactive).toContain('data-note-id="source-note"');
+    expect(interactive).toContain('data-wiki-target="UUID#版本"');
+    expect(interactive).toContain(
+      '<button aria-label="打开嵌入目标：diagram.svg"',
+    );
+    expect(inert).toContain('<span class="preview-wiki-link"');
+    expect(inert).not.toContain("<button");
+  });
+
   it("preserves unknown fence metadata while recognizing safe display fields", () => {
     expect(
       parseCodeFenceInfo("Rust<script>", `title="src/main.rs" {3,5-8}`),

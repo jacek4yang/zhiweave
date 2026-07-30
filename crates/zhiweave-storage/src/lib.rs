@@ -20,11 +20,12 @@ use zhiweave_application::{
     CreateWorkspaceBackupResult, DeleteVersionRequest, DeleteVersionResult, FileRevision,
     IndexState, IndexStatus, LineEnding, NoteDocument, PrepareWorkspaceRestoreRequest,
     PrepareWorkspaceRestoreResult, PreviewVersionRetentionRequest, ReadVersionRequest,
-    RebuildIndexResult, RenameNoteRequest, SaveNoteRequest, SaveNoteResult, SaveVersionRequest,
-    SaveVersionResult, SearchNoteResult, SearchNotesRequest, SetVersionCheckpointRequest,
-    VerifyWorkspaceBackupRequest, VerifyWorkspaceBackupResult, VersionContent, VersionHistory,
-    VersionHistoryPort, VersionHistoryRequest, VersionRetentionPreview, WorkspaceBackupPort,
-    WorkspaceBackupSummary, WorkspaceFailure, WorkspacePort, WorkspaceSnapshot,
+    RebuildIndexResult, RenameNoteRequest, ResolveWikiTargetRequest, SaveNoteRequest,
+    SaveNoteResult, SaveVersionRequest, SaveVersionResult, SearchNoteResult, SearchNotesRequest,
+    SetVersionCheckpointRequest, VerifyWorkspaceBackupRequest, VerifyWorkspaceBackupResult,
+    VersionContent, VersionHistory, VersionHistoryPort, VersionHistoryRequest,
+    VersionRetentionPreview, WikiTargetResolution, WorkspaceBackupPort, WorkspaceBackupSummary,
+    WorkspaceFailure, WorkspacePort, WorkspaceSnapshot,
 };
 use zhiweave_domain::{NoteId, NoteKind, PortablePath};
 use zhiweave_markdown::{WikiReference, first_level_one_heading, wiki_references};
@@ -619,6 +620,13 @@ impl WorkspacePort for FileWorkspace {
         self.index.backlinks(request)
     }
 
+    fn resolve_wiki_target(
+        &self,
+        request: &ResolveWikiTargetRequest,
+    ) -> Result<WikiTargetResolution, WorkspaceFailure> {
+        self.index.resolve_wiki_target(request)
+    }
+
     fn rebuild_index(&self) -> Result<RebuildIndexResult, WorkspaceFailure> {
         let raw_documents = self
             .collect_markdown_paths()?
@@ -936,7 +944,8 @@ mod tests {
 
     use zhiweave_application::{
         BacklinkReferenceKind, BacklinksRequest, CreateNoteRequest, IndexState, LineEnding,
-        RenameNoteRequest, SaveNoteRequest, SearchNotesRequest, WorkspaceFailure, WorkspacePort,
+        RenameNoteRequest, ResolveWikiTargetRequest, SaveNoteRequest, SearchNotesRequest,
+        WikiTargetResolutionState, WorkspaceFailure, WorkspacePort,
     };
     use zhiweave_domain::PortablePath;
 
@@ -1400,6 +1409,92 @@ mod tests {
         assert_eq!(updated.len(), 1);
         assert_eq!(updated[0].reference_kind, BacklinkReferenceKind::Link);
         assert_eq!(updated[0].raw_target, "UUID");
+    }
+
+    #[test]
+    fn forward_wiki_resolution_uses_paths_names_fragments_and_fails_closed() {
+        let directory = TestDirectory::new("forward-wiki-resolution");
+        let workspace = FileWorkspace::new(directory.path()).unwrap();
+        let source = workspace
+            .create(&CreateNoteRequest {
+                path: path("source.md"),
+                markdown: "# Source\n\n[[topics/uuid#格式]]\n".to_owned(),
+            })
+            .unwrap();
+        let uuid = workspace
+            .create(&CreateNoteRequest {
+                path: path("topics/uuid.md"),
+                markdown: "# UUID\n\n## 格式\n".to_owned(),
+            })
+            .unwrap();
+        workspace
+            .create(&CreateNoteRequest {
+                path: path("one/shared.md"),
+                markdown: "# Shared\n".to_owned(),
+            })
+            .unwrap();
+        workspace
+            .create(&CreateNoteRequest {
+                path: path("two/shared.md"),
+                markdown: "# Shared\n".to_owned(),
+            })
+            .unwrap();
+
+        for raw_target in ["topics/uuid#格式", "UUID", "./topics/uuid.md"] {
+            let resolution = workspace
+                .resolve_wiki_target(&ResolveWikiTargetRequest {
+                    source_note_id: source.id,
+                    raw_target: raw_target.to_owned(),
+                })
+                .unwrap();
+            assert_eq!(resolution.state, WikiTargetResolutionState::Resolved);
+            assert_eq!(resolution.target.unwrap().id, uuid.id);
+        }
+        let heading = workspace
+            .resolve_wiki_target(&ResolveWikiTargetRequest {
+                source_note_id: source.id,
+                raw_target: "topics/uuid#格式".to_owned(),
+            })
+            .unwrap();
+        assert_eq!(heading.heading.as_deref(), Some("格式"));
+        let same_note = workspace
+            .resolve_wiki_target(&ResolveWikiTargetRequest {
+                source_note_id: source.id,
+                raw_target: "#当前段落".to_owned(),
+            })
+            .unwrap();
+        assert_eq!(same_note.target.unwrap().id, source.id);
+        assert_eq!(
+            workspace
+                .resolve_wiki_target(&ResolveWikiTargetRequest {
+                    source_note_id: source.id,
+                    raw_target: "Shared".to_owned(),
+                })
+                .unwrap()
+                .state,
+            WikiTargetResolutionState::Ambiguous
+        );
+        assert_eq!(
+            workspace
+                .resolve_wiki_target(&ResolveWikiTargetRequest {
+                    source_note_id: source.id,
+                    raw_target: "missing/path".to_owned(),
+                })
+                .unwrap()
+                .state,
+            WikiTargetResolutionState::Missing
+        );
+        for raw_target in ["", &"x".repeat(501), "bad\ntarget"] {
+            assert!(matches!(
+                workspace
+                    .resolve_wiki_target(&ResolveWikiTargetRequest {
+                        source_note_id: source.id,
+                        raw_target: raw_target.to_owned(),
+                    })
+                    .unwrap_err(),
+                WorkspaceFailure::InvalidWikiTarget { .. }
+            ));
+        }
     }
 
     #[test]

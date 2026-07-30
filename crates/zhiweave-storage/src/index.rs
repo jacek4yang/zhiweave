@@ -11,7 +11,8 @@ use rusqlite::{
 };
 use zhiweave_application::{
     BacklinkReference, BacklinkReferenceKind, BacklinksRequest, IndexState, IndexStatus,
-    SearchNoteResult, SearchNotesRequest, WorkspaceFailure,
+    ResolveWikiTargetRequest, ResolvedWikiTargetNote, SearchNoteResult, SearchNotesRequest,
+    WikiTargetResolution, WikiTargetResolutionState, WorkspaceFailure,
 };
 use zhiweave_domain::{NoteId, NoteKind, PortablePath};
 use zhiweave_markdown::{WikiReference, WikiReferenceKind};
@@ -23,6 +24,7 @@ const INDEX_APPLICATION_ID: i32 = 0x5a48_5756;
 const MAX_SEARCH_CHARS: usize = 256;
 const MAX_SEARCH_RESULTS: usize = 100;
 const MAX_BACKLINK_RESULTS: usize = 200;
+const MAX_WIKI_TARGET_CHARS: usize = 500;
 const INDEX_FILE_NAME: &str = "index.sqlite3";
 const REBUILD_FILE_NAME: &str = "index.rebuild.sqlite3";
 
@@ -102,6 +104,66 @@ impl SqliteIndex {
             request.note_id,
             request.limit.min(MAX_BACKLINK_RESULTS),
         )
+    }
+
+    pub(crate) fn resolve_wiki_target(
+        &self,
+        request: &ResolveWikiTargetRequest,
+    ) -> Result<WikiTargetResolution, WorkspaceFailure> {
+        let raw_target = request.raw_target.trim();
+        if raw_target.is_empty() {
+            return Err(WorkspaceFailure::InvalidWikiTarget {
+                kind: "emptyTarget".to_owned(),
+            });
+        }
+        if raw_target.chars().count() > MAX_WIKI_TARGET_CHARS {
+            return Err(WorkspaceFailure::InvalidWikiTarget {
+                kind: "targetTooLong".to_owned(),
+            });
+        }
+        if raw_target
+            .chars()
+            .any(|character| matches!(character, '\r' | '\n' | '\0'))
+        {
+            return Err(WorkspaceFailure::InvalidWikiTarget {
+                kind: "invalidTargetCharacter".to_owned(),
+            });
+        }
+
+        let connection = open_index(&self.path)?;
+        let targets = read_wiki_targets(&connection)?;
+        if !targets.notes.contains_key(&request.source_note_id) {
+            return Err(WorkspaceFailure::InvalidWikiTarget {
+                kind: "unknownSourceNote".to_owned(),
+            });
+        }
+        let heading = raw_target
+            .split_once('#')
+            .map(|(_, value)| value.trim())
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
+        let (state, target) = match resolve_wiki_target_id(
+            request.source_note_id,
+            raw_target,
+            &targets.paths,
+            &targets.names,
+        ) {
+            WikiResolution::Resolved(id) => (
+                WikiTargetResolutionState::Resolved,
+                targets.notes.get(&id).cloned(),
+            ),
+            WikiResolution::Missing => (WikiTargetResolutionState::Missing, None),
+            WikiResolution::Ambiguous => (WikiTargetResolutionState::Ambiguous, None),
+        };
+        if state == WikiTargetResolutionState::Resolved && target.is_none() {
+            return Err(index_corrupt("missingResolvedWikiTarget"));
+        }
+        Ok(WikiTargetResolution {
+            raw_target: raw_target.to_owned(),
+            state,
+            target,
+            heading,
+        })
     }
 
     pub(crate) fn rebuild(&self, documents: &[IndexedDocument]) -> Result<bool, WorkspaceFailure> {
@@ -480,35 +542,7 @@ fn resolve_wiki_edges(
     transaction: &Transaction<'_>,
     source_filter: Option<NoteId>,
 ) -> Result<(), WorkspaceFailure> {
-    let notes = {
-        let mut statement = transaction
-            .prepare("SELECT note_id, path, title FROM note_index ORDER BY note_id")
-            .map_err(|error| sqlite_failure("prepareWikiTargets", &error))?;
-        let rows = statement
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            })
-            .map_err(|error| sqlite_failure("queryWikiTargets", &error))?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|error| sqlite_failure("readWikiTargets", &error))?
-    };
-    let mut paths: HashMap<String, BTreeSet<NoteId>> = HashMap::new();
-    let mut names: HashMap<String, BTreeSet<NoteId>> = HashMap::new();
-    for (raw_id, path, title) in notes {
-        let id = raw_id
-            .parse::<NoteId>()
-            .map_err(|_| index_corrupt("invalidWikiTargetId"))?;
-        paths.entry(wiki_key(&path)).or_default().insert(id);
-        names.entry(wiki_key(&title)).or_default().insert(id);
-        names
-            .entry(wiki_key(file_stem(&path)))
-            .or_default()
-            .insert(id);
-    }
+    let targets = read_wiki_targets(transaction)?;
 
     let edges = if let Some(source_id) = source_filter {
         let mut statement = transaction
@@ -541,7 +575,8 @@ fn resolve_wiki_edges(
         let source_id = raw_source_id
             .parse::<NoteId>()
             .map_err(|_| index_corrupt("invalidWikiSourceId"))?;
-        let resolution = resolve_wiki_target(source_id, &raw_target, &paths, &names);
+        let resolution =
+            resolve_wiki_target_id(source_id, &raw_target, &targets.paths, &targets.names);
         let (target_id, state) = match resolution {
             WikiResolution::Resolved(id) => (Some(id.to_string()), "resolved"),
             WikiResolution::Missing => (None, "missing"),
@@ -569,7 +604,70 @@ enum WikiResolution {
     Ambiguous,
 }
 
-fn resolve_wiki_target(
+struct WikiTargets {
+    paths: HashMap<String, BTreeSet<NoteId>>,
+    names: HashMap<String, BTreeSet<NoteId>>,
+    notes: HashMap<NoteId, ResolvedWikiTargetNote>,
+}
+
+fn read_wiki_targets(connection: &Connection) -> Result<WikiTargets, WorkspaceFailure> {
+    let mut statement = connection
+        .prepare("SELECT note_id, path, title, kind FROM note_index ORDER BY note_id")
+        .map_err(|error| sqlite_failure("prepareWikiTargets", &error))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })
+        .map_err(|error| sqlite_failure("queryWikiTargets", &error))?;
+    let notes = rows
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| sqlite_failure("readWikiTargets", &error))?;
+    let mut targets = WikiTargets {
+        paths: HashMap::new(),
+        names: HashMap::new(),
+        notes: HashMap::new(),
+    };
+    for (raw_id, raw_path, title, raw_kind) in notes {
+        let id = raw_id
+            .parse::<NoteId>()
+            .map_err(|_| index_corrupt("invalidWikiTargetId"))?;
+        let path = PortablePath::new_markdown(&raw_path)
+            .map_err(|_| index_corrupt("invalidWikiTargetPath"))?;
+        let kind = parse_kind(&raw_kind).ok_or_else(|| index_corrupt("invalidWikiTargetKind"))?;
+        targets
+            .paths
+            .entry(wiki_key(path.as_str()))
+            .or_default()
+            .insert(id);
+        targets
+            .names
+            .entry(wiki_key(&title))
+            .or_default()
+            .insert(id);
+        targets
+            .names
+            .entry(wiki_key(file_stem(path.as_str())))
+            .or_default()
+            .insert(id);
+        targets.notes.insert(
+            id,
+            ResolvedWikiTargetNote {
+                id,
+                title,
+                path,
+                kind,
+            },
+        );
+    }
+    Ok(targets)
+}
+
+fn resolve_wiki_target_id(
     source_id: NoteId,
     raw_target: &str,
     paths: &HashMap<String, BTreeSet<NoteId>>,

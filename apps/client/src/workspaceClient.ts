@@ -97,6 +97,25 @@ export interface NativeBacklinkReference {
   readonly context: string;
 }
 
+export type NativeWikiTargetResolutionState =
+  | "resolved"
+  | "missing"
+  | "ambiguous";
+
+export interface NativeResolvedWikiTargetNote {
+  readonly id: string;
+  readonly title: string;
+  readonly path: string;
+  readonly kind: NativeNoteKind;
+}
+
+export interface NativeWikiTargetResolution {
+  readonly rawTarget: string;
+  readonly state: NativeWikiTargetResolutionState;
+  readonly target: NativeResolvedWikiTargetNote | null;
+  readonly heading: string | null;
+}
+
 export interface NativeRebuildIndexResult {
   readonly indexedNotes: number;
   readonly schemaVersion: number;
@@ -267,6 +286,15 @@ export function loadNativeBacklinks(
 ): Promise<readonly NativeBacklinkReference[]> {
   return invoke<readonly NativeBacklinkReference[]>("workspace_backlinks", {
     request: { noteId, limit },
+  });
+}
+
+export function resolveNativeWikiTarget(
+  sourceNoteId: string,
+  rawTarget: string,
+): Promise<NativeWikiTargetResolution> {
+  return invoke<NativeWikiTargetResolution>("workspace_resolve_wiki_target", {
+    request: { sourceNoteId, rawTarget },
   });
 }
 

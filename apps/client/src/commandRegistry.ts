@@ -12,6 +12,7 @@ export type CommandScope =
   | "tab"
   | "titlebar"
   | "version-node"
+  | "wiki-link"
   | "workspace";
 
 export type CommandId =
@@ -78,7 +79,9 @@ export type CommandId =
   | "workspace.rebuildIndex"
   | "workspace.resetPreview"
   | "workspace.resolveSave"
-  | "workspace.save";
+  | "workspace.save"
+  | "wiki.copyTarget"
+  | "wiki.open";
 
 export type CommandCapability =
   | "backup"
@@ -104,7 +107,8 @@ export type CommandCapability =
   | "snapshot"
   | "tab"
   | "query"
-  | "undo";
+  | "undo"
+  | "wikiTarget";
 
 export interface CommandContext {
   readonly scope?: CommandScope;
@@ -288,6 +292,7 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
     "version.openNote",
     "version.delete",
   ],
+  "wiki-link": ["wiki.open", "wiki.copyTarget"],
   workspace: [
     "workspace.createNote",
     "workspace.openToday",
@@ -415,6 +420,16 @@ export const COMMANDS: readonly CommandDefinition[] = [
     contexts: NOTE_SCOPES,
     palette: false,
     visibleRequires: ["note"],
+  }),
+  command("wiki.open", "打开 Wiki 链接目标", "知识节点", "wiki", 112, {
+    contexts: ["wiki-link"],
+    palette: false,
+    visibleRequires: ["native", "note", "wikiTarget"],
+  }),
+  command("wiki.copyTarget", "复制 Wiki 目标", "知识节点", "wiki", 114, {
+    contexts: ["wiki-link"],
+    palette: false,
+    visibleRequires: ["wikiTarget"],
   }),
   command("note.openSplit", "打开并实时预览", "知识节点", "note", 120, {
     contexts: NOTE_SCOPES,

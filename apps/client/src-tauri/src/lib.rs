@@ -15,11 +15,12 @@ use zhiweave_application::{
     CreateWorkspaceBackupResult, DeleteVersionRequest, DeleteVersionResult,
     DetectWorkspaceChangesRequest, NoteDocument, PrepareWorkspaceRestoreRequest,
     PrepareWorkspaceRestoreResult, PreviewVersionRetentionRequest, ReadVersionRequest,
-    RebuildIndexResult, RenameNoteRequest, SaveNoteRequest, SaveNoteResult, SaveVersionRequest,
-    SaveVersionResult, SearchNoteResult, SearchNotesRequest, SetVersionCheckpointRequest,
-    SystemStatus, VerifyWorkspaceBackupRequest, VerifyWorkspaceBackupResult, VersionContent,
-    VersionHistory, VersionHistoryRequest, VersionRetentionPreview, WorkspaceApplication,
-    WorkspaceBackupSummary, WorkspaceChangesResult, WorkspaceFailure, WorkspaceSnapshot,
+    RebuildIndexResult, RenameNoteRequest, ResolveWikiTargetRequest, SaveNoteRequest,
+    SaveNoteResult, SaveVersionRequest, SaveVersionResult, SearchNoteResult, SearchNotesRequest,
+    SetVersionCheckpointRequest, SystemStatus, VerifyWorkspaceBackupRequest,
+    VerifyWorkspaceBackupResult, VersionContent, VersionHistory, VersionHistoryRequest,
+    VersionRetentionPreview, WikiTargetResolution, WorkspaceApplication, WorkspaceBackupSummary,
+    WorkspaceChangesResult, WorkspaceFailure, WorkspaceSnapshot,
 };
 use zhiweave_domain::PortablePath;
 use zhiweave_storage::FileWorkspace;
@@ -211,6 +212,23 @@ async fn workspace_backlinks(
             .lock()
             .map_err(|_| WorkspaceFailure::Unavailable)?
             .backlinks(&request)
+    })
+    .await
+    .map_err(|_| WorkspaceFailure::Unavailable)?
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri command extractors are ABI values.
+async fn workspace_resolve_wiki_target(
+    workspace: State<'_, NativeWorkspace>,
+    request: ResolveWikiTargetRequest,
+) -> Result<WikiTargetResolution, WorkspaceFailure> {
+    let workspace = Arc::clone(workspace.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        workspace
+            .lock()
+            .map_err(|_| WorkspaceFailure::Unavailable)?
+            .resolve_wiki_target(&request)
     })
     .await
     .map_err(|_| WorkspaceFailure::Unavailable)?
@@ -535,6 +553,7 @@ pub fn run() {
             note_rename,
             workspace_search,
             workspace_backlinks,
+            workspace_resolve_wiki_target,
             workspace_rebuild_index,
             version_history,
             version_save,
@@ -563,7 +582,8 @@ mod tests {
     };
 
     use zhiweave_application::{
-        BacklinksRequest, IndexState, SaveNoteRequest, SearchNotesRequest, WorkspaceApplication,
+        BacklinksRequest, IndexState, ResolveWikiTargetRequest, SaveNoteRequest,
+        SearchNotesRequest, WikiTargetResolutionState, WorkspaceApplication,
     };
     use zhiweave_storage::FileWorkspace;
 
@@ -639,6 +659,14 @@ mod tests {
             .unwrap();
         assert_eq!(backlinks.len(), 1);
         assert_eq!(backlinks[0].source_note_id, welcome_id);
+        let forward = application
+            .resolve_wiki_target(&ResolveWikiTargetRequest {
+                source_note_id: welcome_id,
+                raw_target: "Rust 所有权".to_owned(),
+            })
+            .unwrap();
+        assert_eq!(forward.state, WikiTargetResolutionState::Resolved);
+        assert_eq!(forward.target.unwrap().id, ownership_id);
 
         application
             .save(&SaveNoteRequest {

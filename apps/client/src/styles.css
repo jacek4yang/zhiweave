@@ -1015,6 +1015,7 @@ button:disabled {
 }
 
 .markdown-editor .cm-scroller {
+  min-width: 0;
   overflow: auto;
   padding: 30px clamp(28px, 7vw, 112px) 88px;
   font:
@@ -1025,6 +1026,7 @@ button:disabled {
 .markdown-editor .cm-content {
   width: 100%;
   max-width: 920px;
+  min-width: 0;
   min-height: 100%;
   margin: 0 auto;
   caret-color: var(--accent-strong);
@@ -1037,7 +1039,14 @@ button:disabled {
 }
 
 .markdown-editor .cm-line {
+  max-width: 100%;
   padding: 0;
+}
+
+.markdown-editor[data-live-preview="on"] .cm-line {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .markdown-editor .cm-line.cm-live-heading {
@@ -1102,6 +1111,7 @@ button:disabled {
 .markdown-editor .cm-live-wiki-link,
 .markdown-editor .cm-live-wiki-embed {
   color: var(--syntax-teal);
+  cursor: pointer;
   text-decoration: underline;
   text-decoration-color: rgb(91 207 189 / 42%);
   text-underline-offset: 3px;
@@ -1700,6 +1710,24 @@ details.preview-callout > .preview-callout-title {
   padding: 0.05em 0.3em;
   border-radius: 4px;
   vertical-align: baseline;
+}
+
+button.preview-wiki-link,
+button.preview-wiki-embed {
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+button.preview-wiki-link:hover,
+button.preview-wiki-embed:hover {
+  box-shadow: 0 0 0 1px currentcolor;
+}
+
+button.preview-wiki-link:focus-visible,
+button.preview-wiki-embed:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .preview-wiki-link {

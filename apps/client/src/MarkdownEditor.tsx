@@ -21,8 +21,10 @@ import { markdownLivePreview } from "./markdownLivePreview";
 
 interface MarkdownEditorProps {
   readonly livePreview?: boolean;
+  readonly noteId?: string;
   readonly value: string;
   readonly onChange: (value: string) => void;
+  readonly onOpenWikiTarget?: (rawTarget: string) => void;
   readonly onStatusChange?: (status: EditorStatus) => void;
 }
 
@@ -119,8 +121,10 @@ export const MarkdownEditor = forwardRef<
   MarkdownEditorProps
 >(function MarkdownEditor({
     livePreview = true,
+    noteId,
     value,
     onChange,
+    onOpenWikiTarget,
     onStatusChange,
   }, ref) {
   const host = useRef<HTMLDivElement>(null);
@@ -131,8 +135,10 @@ export const MarkdownEditor = forwardRef<
   }
   const livePreviewCompartment = livePreviewCompartmentRef.current;
   const onChangeRef = useRef(onChange);
+  const onOpenWikiTargetRef = useRef(onOpenWikiTarget);
   const onStatusChangeRef = useRef(onStatusChange);
   onChangeRef.current = onChange;
+  onOpenWikiTargetRef.current = onOpenWikiTarget;
   onStatusChangeRef.current = onStatusChange;
 
   useImperativeHandle(ref, () => ({
@@ -176,7 +182,11 @@ export const MarkdownEditor = forwardRef<
         }),
         syntaxHighlighting(markdownHighlightStyle),
         livePreviewCompartment.of(
-          livePreview ? markdownLivePreview() : [],
+          livePreview
+            ? markdownLivePreview((rawTarget) =>
+                onOpenWikiTargetRef.current?.(rawTarget)
+              )
+            : [],
         ),
         EditorView.lineWrapping,
         EditorView.updateListener.of((update) => {
@@ -204,7 +214,11 @@ export const MarkdownEditor = forwardRef<
     }
     view.dispatch({
       effects: livePreviewCompartment.reconfigure(
-        livePreview ? markdownLivePreview() : [],
+        livePreview
+          ? markdownLivePreview((rawTarget) =>
+              onOpenWikiTargetRef.current?.(rawTarget)
+            )
+          : [],
       ),
     });
   }, [livePreview, livePreviewCompartment]);
@@ -228,6 +242,7 @@ export const MarkdownEditor = forwardRef<
       className="markdown-editor"
       data-context="editor"
       data-live-preview={livePreview ? "on" : "off"}
+      data-note-id={noteId}
       ref={host}
     />
   );

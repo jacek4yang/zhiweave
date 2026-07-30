@@ -34,6 +34,7 @@ export type LivePreviewToken =
       readonly from: number;
       readonly to: number;
       readonly className: string;
+      readonly wikiTarget?: string;
     }
   | {
       readonly kind: "replace";
@@ -98,7 +99,14 @@ const compositionState = StateField.define<boolean>({
   },
 });
 
-export function markdownLivePreview(): Extension {
+export interface WikiTargetAtPosition {
+  readonly kind: "link" | "embed";
+  readonly target: string;
+}
+
+export function markdownLivePreview(
+  onOpenWikiTarget?: (rawTarget: string) => void,
+): Extension {
   return [
     compositionState,
     livePreviewPlugin,
@@ -111,8 +119,62 @@ export function markdownLivePreview(): Extension {
         view.dispatch({ effects: setComposition.of(false) });
         return false;
       },
+      click(event, view) {
+        if (
+          onOpenWikiTarget === undefined ||
+          event.button !== 0 ||
+          (!event.ctrlKey && !event.metaKey)
+        ) {
+          return false;
+        }
+        const position = view.posAtCoords({
+          x: event.clientX,
+          y: event.clientY,
+        });
+        if (position === null) {
+          return false;
+        }
+        const wikiTarget = wikiTargetAtPosition(view.state, position);
+        if (wikiTarget === null) {
+          return false;
+        }
+        event.preventDefault();
+        onOpenWikiTarget(wikiTarget.target);
+        return true;
+      },
     }),
   ];
+}
+
+export function wikiTargetAtPosition(
+  state: EditorState,
+  position: number,
+): WikiTargetAtPosition | null {
+  let node: SyntaxNode | null = syntaxTree(state).resolveInner(
+    Math.max(0, Math.min(position, state.doc.length)),
+    1,
+  );
+  while (
+    node !== null &&
+    node.name !== "WikiLink" &&
+    node.name !== "WikiEmbed"
+  ) {
+    node = node.parent;
+  }
+  if (node === null) {
+    return null;
+  }
+  const target = directChildren(node, "WikiTarget")[0];
+  if (target === undefined) {
+    return null;
+  }
+  const authored = state.doc.sliceString(target.from, target.to).trim();
+  return authored.length === 0
+    ? null
+    : {
+        kind: node.name === "WikiEmbed" ? "embed" : "link",
+        target: authored,
+      };
 }
 
 export function collectLivePreviewTokens(
@@ -233,7 +295,7 @@ export function collectLivePreviewTokens(
             name === "WikiEmbed") &&
           !isRevealed(node, selections)
         ) {
-          collectLinkTokens(node, tokens);
+          collectLinkTokens(state, node, tokens);
           return false;
         }
 
@@ -343,7 +405,18 @@ function buildDecorations(view: EditorView): DecorationSet {
       return Decoration.line({ class: token.className }).range(token.from);
     }
     if (token.kind === "mark") {
-      return Decoration.mark({ class: token.className }).range(
+      return Decoration.mark({
+        class: token.className,
+        ...(token.wikiTarget === undefined
+          ? {}
+          : {
+              attributes: {
+                "data-context": "wiki-link",
+                "data-wiki-target": token.wikiTarget,
+                title: "Ctrl+点击打开知识节点",
+              },
+            }),
+      }).range(
         token.from,
         token.to,
       );
@@ -579,6 +652,7 @@ class MathWidget extends WidgetType {
 }
 
 function collectLinkTokens(
+  state: EditorState,
   node: SyntaxNode,
   tokens: LivePreviewToken[],
 ): void {
@@ -595,6 +669,7 @@ function collectLinkTokens(
     }
     const visible =
       alias ?? children.find((child) => child.name === "WikiTarget");
+    const target = children.find((child) => child.name === "WikiTarget");
     if (visible !== undefined) {
       tokens.push({
         className:
@@ -602,6 +677,13 @@ function collectLinkTokens(
         from: visible.from,
         kind: "mark",
         to: visible.to,
+        ...(target === undefined
+          ? {}
+          : {
+              wikiTarget: state.doc
+                .sliceString(target.from, target.to)
+                .trim(),
+            }),
       });
     }
     return;

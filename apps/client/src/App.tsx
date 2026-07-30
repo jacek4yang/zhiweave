@@ -118,6 +118,7 @@ import {
   readNativeVersion,
   rebuildNativeIndex,
   renameNativeNote,
+  resolveNativeWikiTarget,
   saveNativeNote,
   saveNativeVersion,
   searchNativeNotes,
@@ -167,6 +168,7 @@ interface ContextMenuState {
   readonly scope: CommandScope;
   readonly hasSelection: boolean;
   readonly noteId?: string;
+  readonly rawWikiTarget?: string;
   readonly snapshotId?: string;
 }
 
@@ -174,6 +176,7 @@ interface CommandTarget {
   readonly backupId?: string;
   readonly hasSelection?: boolean;
   readonly noteId?: string;
+  readonly rawWikiTarget?: string;
   readonly scope?: CommandScope;
   readonly snapshotId?: string;
 }
@@ -292,6 +295,10 @@ export function App() {
   );
   const [saveRetry, setSaveRetry] = useState(0);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [pendingWikiNavigation, setPendingWikiNavigation] = useState<{
+    readonly heading: string;
+    readonly noteId: string;
+  } | null>(null);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [externalChanges, setExternalChanges] =
     useState<NativeWorkspaceChangesResult | null>(null);
@@ -621,6 +628,49 @@ export function App() {
   }, [workspace]);
 
   useEffect(() => {
+    if (
+      pendingWikiNavigation === null ||
+      selectedNote?.id !== pendingWikiNavigation.noteId
+    ) {
+      return undefined;
+    }
+    let active = true;
+    let timer: number | undefined;
+    void import("./wikiNavigation").then(({ wikiHeadingOffset }) => {
+      if (!active) {
+        return;
+      }
+      const offset = wikiHeadingOffset(
+        selectedNote.markdown,
+        pendingWikiNavigation.heading,
+      );
+      setPendingWikiNavigation(null);
+      if (offset === null) {
+        setToast(
+          `已打开“${selectedNote.title}”，但没有找到小节“${pendingWikiNavigation.heading}”。`,
+        );
+        return;
+      }
+      timer = window.setTimeout(() => {
+        if (editorMode === "preview") {
+          document.getElementById(`heading-${offset}`)?.scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+          });
+        } else {
+          editorRef.current?.revealOffset(offset);
+        }
+      }, 0);
+    });
+    return () => {
+      active = false;
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [editorMode, pendingWikiNavigation, selectedNote]);
+
+  useEffect(() => {
     for (const note of workspace.notes) {
       latestMarkdownRef.current.set(note.id, note.markdown);
     }
@@ -865,6 +915,64 @@ export function App() {
         ),
       );
     }, 0);
+  }
+
+  async function openWikiTarget(
+    rawTarget: string,
+    sourceNoteId = activeNoteIdRef.current,
+  ) {
+    if (!nativeRuntime || sourceNoteId === null) {
+      setToast("当前预览没有本地知识索引，未执行 Wiki 跳转。");
+      return;
+    }
+    try {
+      const resolution = await resolveNativeWikiTarget(
+        sourceNoteId,
+        rawTarget,
+      );
+      if (resolution.state === "missing") {
+        setToast(`未找到 Wiki 目标“${resolution.rawTarget}”；知织没有猜测或新建文件。`);
+        return;
+      }
+      if (resolution.state === "ambiguous") {
+        setToast(
+          `Wiki 目标“${resolution.rawTarget}”匹配多个节点；请改用完整 Markdown 路径。`,
+        );
+        return;
+      }
+      const resolved = resolution.target;
+      const target =
+        resolved === null
+          ? undefined
+          : workspaceRef.current.notes.find(
+              (note) => note.id === resolved.id,
+            );
+      if (target === undefined) {
+        setToast("Wiki 索引与当前文件快照不一致；请先处理外部更改。");
+        return;
+      }
+      if (resolution.heading !== null) {
+        setPendingWikiNavigation({
+          heading: resolution.heading,
+          noteId: target.id,
+        });
+      } else {
+        setPendingWikiNavigation(null);
+      }
+      activateNote(target);
+      setToast(
+        resolution.heading === null
+          ? `已打开知识节点“${target.title}”。`
+          : `已打开“${target.title}”，正在定位小节“${resolution.heading}”。`,
+      );
+    } catch (error: unknown) {
+      const failure = asWorkspaceFailure(error);
+      setToast(
+        failure?.code === "invalidWikiTarget"
+          ? "这个 Wiki 目标格式无效，未执行跳转。"
+          : "Wiki 目标解析失败；没有打开未经确认的节点。",
+      );
+    }
   }
 
   function updateMarkdown(markdown: string) {
@@ -2158,6 +2266,12 @@ export function App() {
     if (note !== undefined) {
       capabilities.add("note");
     }
+    if (
+      target.rawWikiTarget !== undefined &&
+      target.rawWikiTarget.trim().length > 0
+    ) {
+      capabilities.add("wikiTarget");
+    }
     if (snapshot !== undefined) {
       capabilities.add("snapshot");
     }
@@ -2360,6 +2474,19 @@ export function App() {
         if (note !== undefined) {
           activateNote(note);
           setQuery("");
+        }
+        return;
+      case "wiki.open":
+        if (note !== undefined && target.rawWikiTarget !== undefined) {
+          void openWikiTarget(target.rawWikiTarget, note.id);
+        }
+        return;
+      case "wiki.copyTarget":
+        if (target.rawWikiTarget !== undefined) {
+          void copyText(target.rawWikiTarget).then(
+            () => setToast("Wiki 目标已复制。"),
+            () => setToast("无法复制 Wiki 目标。"),
+          );
         }
         return;
       case "note.openSplit":
@@ -2684,14 +2811,22 @@ export function App() {
       (window.getSelection()?.toString().length ?? 0) > 0;
     const width = 248;
     const height = 480;
+    const contextualNoteId =
+      contextElement?.dataset.noteId ??
+      contextElement
+        ?.closest<HTMLElement>("[data-note-id]")
+        ?.dataset.noteId;
     setContextMenu({
       x: Math.max(4, Math.min(event.clientX, window.innerWidth - width - 4)),
       y: Math.max(34, Math.min(event.clientY, window.innerHeight - height - 4)),
       scope,
       hasSelection,
-      ...(contextElement?.dataset.noteId === undefined
+      ...(contextualNoteId === undefined
         ? {}
-        : { noteId: contextElement.dataset.noteId }),
+        : { noteId: contextualNoteId }),
+      ...(contextElement?.dataset.wikiTarget === undefined
+        ? {}
+        : { rawWikiTarget: contextElement.dataset.wikiTarget }),
       ...(contextElement?.dataset.snapshotId === undefined
         ? {}
         : { snapshotId: contextElement.dataset.snapshotId }),
@@ -2826,6 +2961,9 @@ export function App() {
           ...(contextMenu.noteId === undefined
             ? {}
             : { noteId: contextMenu.noteId }),
+          ...(contextMenu.rawWikiTarget === undefined
+            ? {}
+            : { rawWikiTarget: contextMenu.rawWikiTarget }),
           ...(contextMenu.snapshotId === undefined
             ? {}
             : { snapshotId: contextMenu.snapshotId }),
@@ -3296,27 +3434,47 @@ export function App() {
               <div className="editor-surface">
                 {editorMode === "preview" ? (
                   <Suspense fallback={<MarkdownPreviewLoading />}>
-                    <MarkdownPreview markdown={selectedNote.markdown} />
+                    <MarkdownPreview
+                      markdown={selectedNote.markdown}
+                      sourceNoteId={selectedNote.id}
+                      {...(nativeRuntime
+                        ? { onOpenWikiTarget: openWikiTarget }
+                        : {})}
+                    />
                   </Suspense>
                 ) : editorMode === "split" ? (
                   <div className="editor-split">
                     <MarkdownEditor
                       key={selectedNote.id}
                       livePreview={livePreviewEnabled}
+                      noteId={selectedNote.id}
                       onChange={updateMarkdown}
+                      {...(nativeRuntime
+                        ? { onOpenWikiTarget: openWikiTarget }
+                        : {})}
                       onStatusChange={setEditorStatus}
                       ref={editorRef}
                       value={selectedNote.markdown}
                     />
                     <Suspense fallback={<MarkdownPreviewLoading />}>
-                      <MarkdownPreview markdown={selectedNote.markdown} />
+                      <MarkdownPreview
+                        markdown={selectedNote.markdown}
+                        sourceNoteId={selectedNote.id}
+                        {...(nativeRuntime
+                          ? { onOpenWikiTarget: openWikiTarget }
+                          : {})}
+                      />
                     </Suspense>
                   </div>
                 ) : (
                   <MarkdownEditor
                     key={selectedNote.id}
                     livePreview={livePreviewEnabled}
+                    noteId={selectedNote.id}
                     onChange={updateMarkdown}
+                    {...(nativeRuntime
+                      ? { onOpenWikiTarget: openWikiTarget }
+                      : {})}
                     onStatusChange={setEditorStatus}
                     ref={editorRef}
                     value={selectedNote.markdown}
@@ -3649,7 +3807,12 @@ export function App() {
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
           <span className="context-heading">
-            {contextMenuLabel(contextMenu.scope, contextNote, contextSnapshot)}
+            {contextMenuLabel(
+              contextMenu.scope,
+              contextNote,
+              contextSnapshot,
+              contextMenu.rawWikiTarget,
+            )}
           </span>
           {contextCommands.map((command, index) => {
             const previous = contextCommands[index - 1];
@@ -4385,6 +4548,7 @@ function isContextScope(
     case "tab":
     case "titlebar":
     case "version-node":
+    case "wiki-link":
     case "workspace":
       return true;
     default:
@@ -4396,6 +4560,7 @@ function contextMenuLabel(
   scope: ContextMenuState["scope"],
   note: LearningNote | undefined,
   snapshot: NoteSnapshot | undefined,
+  rawWikiTarget?: string,
 ): string {
   switch (scope) {
     case "backlinks":
@@ -4416,6 +4581,10 @@ function contextMenuLabel(
       return snapshot === undefined
         ? "版本节点"
         : `版本：${formatDate(snapshot.createdAt)}`;
+    case "wiki-link":
+      return rawWikiTarget === undefined
+        ? "Wiki 链接"
+        : `Wiki 链接：${rawWikiTarget}`;
     case "input":
       return "文本输入";
     case "explorer":
@@ -4473,6 +4642,8 @@ function contextCommandGroupLabel(
       return "工作区";
     case "version":
       return "所选版本节点";
+    case "wiki":
+      return "Wiki 链接";
     case "window":
       return "窗口";
     default:
@@ -4497,6 +4668,10 @@ function contextCommandTitle(
       return "重做";
     case "note.open":
       return note === undefined ? command.title : `打开“${note.title}”`;
+    case "wiki.open":
+      return "解析并打开目标";
+    case "wiki.copyTarget":
+      return "复制目标文本";
     case "note.copyLearningPrompt":
       return "复制学习提示词";
     case "note.copyMarkdown":
@@ -4542,6 +4717,7 @@ function commandIcon(id: CommandId) {
     case "note.copyTitle":
     case "version.copyMarkdown":
     case "workspace.copyRoot":
+    case "wiki.copyTarget":
       return Copy;
     case "edit.cut":
     case "version.delete":
@@ -4563,6 +4739,7 @@ function commandIcon(id: CommandId) {
     case "note.open":
     case "version.openNote":
     case "view.preview":
+    case "wiki.open":
       return BookOpenText;
     case "note.openSplit":
     case "view.split":

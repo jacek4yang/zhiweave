@@ -44,14 +44,22 @@ const MathFormula = lazy(async () => {
 
 interface MarkdownPreviewProps {
   readonly markdown: string;
+  readonly onOpenWikiTarget?: (rawTarget: string) => void;
+  readonly sourceNoteId?: string;
 }
 
 interface RenderContext {
   readonly definitions: ReadonlyMap<string, Definition>;
   readonly document: MarkdownDocument;
+  readonly onOpenWikiTarget?: (rawTarget: string) => void;
+  readonly sourceNoteId?: string;
 }
 
-export function MarkdownPreview({ markdown }: MarkdownPreviewProps) {
+export function MarkdownPreview({
+  markdown,
+  onOpenWikiTarget,
+  sourceNoteId,
+}: MarkdownPreviewProps) {
   const document = useMemo(() => {
     try {
       return parseMarkdownDocument(markdown);
@@ -68,8 +76,10 @@ export function MarkdownPreview({ markdown }: MarkdownPreviewProps) {
           root: { children: [], type: "root" },
           source: markdown,
         },
+      ...(onOpenWikiTarget === undefined ? {} : { onOpenWikiTarget }),
+      ...(sourceNoteId === undefined ? {} : { sourceNoteId }),
     }),
-    [document, markdown],
+    [document, markdown, onOpenWikiTarget, sourceNoteId],
   );
   const footnotes = (document?.root.children ?? []).filter(
     (node): node is FootnoteDefinition => node.type === "footnoteDefinition",
@@ -370,26 +380,62 @@ function renderPhrasing(
           </sup>
         );
       case "wikiLink":
-        return (
+        return context.onOpenWikiTarget === undefined ? (
           <span
             className="preview-wiki-link"
+            data-context="wiki-link"
+            data-note-id={context.sourceNoteId}
+            data-wiki-target={node.target}
             key={key}
             title={`知识节点：${node.target}`}
           >
             <Link2 aria-hidden="true" />
             {node.display}
           </span>
+        ) : (
+          <button
+            aria-label={`打开知识节点：${node.display}`}
+            className="preview-wiki-link"
+            data-context="wiki-link"
+            data-note-id={context.sourceNoteId}
+            data-wiki-target={node.target}
+            key={key}
+            onClick={() => context.onOpenWikiTarget?.(node.target)}
+            title={`打开知识节点：${node.target}`}
+            type="button"
+          >
+            <Link2 aria-hidden="true" />
+            {node.display}
+          </button>
         );
       case "wikiEmbed":
-        return (
+        return context.onOpenWikiTarget === undefined ? (
           <span
             className="preview-wiki-embed"
+            data-context="wiki-link"
+            data-note-id={context.sourceNoteId}
+            data-wiki-target={node.target}
             key={key}
             title={`嵌入目标：${node.target}`}
           >
             <FileImage aria-hidden="true" />
             {node.display}
           </span>
+        ) : (
+          <button
+            aria-label={`打开嵌入目标：${node.display}`}
+            className="preview-wiki-embed"
+            data-context="wiki-link"
+            data-note-id={context.sourceNoteId}
+            data-wiki-target={node.target}
+            key={key}
+            onClick={() => context.onOpenWikiTarget?.(node.target)}
+            title={`打开嵌入目标：${node.target}`}
+            type="button"
+          >
+            <FileImage aria-hidden="true" />
+            {node.display}
+          </button>
         );
       default:
         return (

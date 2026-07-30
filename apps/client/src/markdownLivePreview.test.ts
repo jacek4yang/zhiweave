@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { zhiweaveMarkdownExtensions } from "./markdownLezerExtensions";
 import {
   collectLivePreviewTokens,
+  wikiTargetAtPosition,
   type LivePreviewToken,
 } from "./markdownLivePreview";
 import { MAX_FORMULA_LENGTH } from "./markdownSyntaxContract";
@@ -62,16 +63,27 @@ describe("Markdown live preview", () => {
       tokens.some(
         (token) =>
           token.kind === "mark" &&
-          token.className === "cm-live-wiki-link",
+          token.className === "cm-live-wiki-link" &&
+          token.wikiTarget === "UUID",
       ),
     ).toBe(true);
     expect(
       tokens.some(
         (token) =>
           token.kind === "mark" &&
-          token.className === "cm-live-wiki-embed",
+          token.className === "cm-live-wiki-embed" &&
+          token.wikiTarget === "diagram.svg",
       ),
     ).toBe(true);
+    expect(wikiTargetAtPosition(state, source.indexOf("标识符"))).toEqual({
+      kind: "link",
+      target: "UUID",
+    });
+    expect(wikiTargetAtPosition(state, source.indexOf("diagram"))).toEqual({
+      kind: "embed",
+      target: "diagram.svg",
+    });
+    expect(wikiTargetAtPosition(state, source.indexOf("与"))).toBeNull();
     expect(state.doc.toString()).toBe(source);
   });
 
