@@ -1,6 +1,6 @@
 # Agent 交接
 
-最近更新：2026-07-30 14:30 CST
+最近更新：2026-07-30 15:42 CST
 
 ## 不可改变的用户约束
 
@@ -15,9 +15,12 @@
 - 工作目录：`%USERPROFILE%\Desktop\Projects\zhiweave`
 - 分支：`agent/professional-workbench`
 - Draft PR：[jacek4yang/zhiweave#1](https://github.com/jacek4yang/zhiweave/pull/1)
-- 最新已发布功能提交：`7955800 Restore workbench sessions across restarts`；验证文档提交
-  `91f9337 Record workbench session validation`；都已通过 Linux 一次性裸仓库中继上传。
-- GitHub CI run `30520065978`：Frontend 与 Rust 全部通过。
+- 最新本地功能提交：`2051f85 Add customizable shortcut editor`；标题栏权限修复
+  `5238a81 Fix custom titlebar window controls`。尚待本轮文档提交后通过 Linux 一次性裸仓库
+  中继上传并等待 CI。
+- 上一已发布功能提交：`7955800 Restore workbench sessions across restarts`；验证文档提交
+  `91f9337 Record workbench session validation`；GitHub CI run `30520065978` 的 Frontend
+  与 Rust 全部通过。
 - 上一标签功能提交：`1b203f1 Add preview and pinned tab sessions`；验证文档提交
   `4b4fbca Record tab session validation`。
 - GitHub CI run `30517970089`：Frontend 与 Rust 全部通过。
@@ -229,16 +232,39 @@ SQLite/稳定身份稳定切片增加：
 - v2 不含 Markdown、CodeMirror state、revision、portable path、root、附件、SQLite 或版本
   DAG；原生测试态记录仅 366 B/8 字段。
 
+当前快捷键与标题栏修复切片增加：
+
+- `commandRegistry.ts` 支持一/二段 chord、状态化前缀匹配和用户覆盖；默认值、有效绑定、命令
+  搜索、上下文菜单、工具栏提示和实际分发仍共享同一 command id；
+- `shortcutModel.ts` 使用独立 `zhiweave.shortcuts.v1`，只保存版本、command id、按键或显式
+  `null` 解绑；严格解析，损坏/未来 schema/未知命令失败关闭，不含正文、路径、节点或工作区；
+- 完全相同和前缀冲突都必须显式确认替换；支持解绑、恢复单项和二次确认恢复全部默认，输入法
+  composition 不录制或执行；
+- `Ctrl/Cmd+K Ctrl/Cmd+S` 打开按需加载的可搜索快捷键编辑器；录制支持一/二段、Enter 接受、
+  Backspace 清空、Esc 取消、焦点陷阱/恢复和 aria live；
+- 全局 capture-phase 监听让 CodeMirror 内仍可分发工作台 chord；modifier 在二段之间重复按下
+  不会丢失前缀；
+- Tauri capability 仅新增 `core:window:allow-close`、`allow-minimize` 和
+  `allow-start-dragging`，修复自定义标题栏关闭/最小化/拖动，未扩大文件、Shell 或网络权限。
+
 ## 最近验证
 
-- 当前差异通过 typecheck、14 files / 80 tests 和 production build；图谱独立
-  5.13 KB（gzip 2.42 KB），主 JS 约 964.48 KB（gzip 318.88 KB），仍触发体积警告。
+- 当前差异通过 typecheck、15 files / 92 tests 和 production build；快捷键编辑器独立
+  8.17 KB（gzip 3.04 KB），图谱独立 5.13 KB（gzip 2.42 KB），主 JS 约 973.52 KB
+  （gzip 321.23 KB），仍触发体积警告。
 - Rust workspace 75 项、fmt 与全 target/all feature Clippy `-D warnings` 全部通过；
   Markdown 7 项、storage 50 项覆盖 Wiki 解析/创建、附件安全边界/导入、局部图谱聚合/截断、
   迁移、增量替换、歧义、
   重命名/删除/重建与正向解析，同时保留历史、备份和恢复回归。
-- `pnpm tauri build` 在当前 Windows 电脑通过，生成 6,144,000 B MSI 与 4,637,095 B NSIS；
+- `pnpm tauri build` 在当前 Windows 电脑通过，生成 6,152,192 B MSI 与 4,643,861 B NSIS；
   SHA-256 记录在 `TEST_PLAN.md`，产物位于忽略的 `target/`。
+- 应用内浏览器验证录制、完全/前缀冲突替换、解绑、单项/全部恢复、跨重载、命令面板/右键/
+  实际分发统一，以及 480×720 无水平溢出；测试设置已恢复默认。
+- Windows Tauri WebView2 用两个完整进程验证自定义 `Ctrl+Alt+J` 跨重启保留并实际分栏；最小化
+  返回 true，自定义关闭按钮结束原生/Vite/CDP，新日志无窗口权限错误。
+- 原生验收意外生成的一篇 UUID 实验测试文件已在大小与 SHA-256 双重匹配后精确清理；对应
+  identity 项同步移除。最终恢复原有 6 篇/1004 B 和 1171 B identity，逐文件摘要不变；后续
+  原生写入验收必须使用隔离 profile。
 - 应用内浏览器验证跨重载保留 preview/pinned 标签、活动节点、split、大纲与桌面侧栏意图；
   390×844 和 1280×800 均无水平溢出。Windows Tauri WebView2 两次关闭/重启继续验证上述
   状态和版本视图；前后 6 篇 Markdown/1004 B 逐文件摘要与 1171 B identity 完全一致。
@@ -283,7 +309,8 @@ SQLite/稳定身份稳定切片增加：
    生命周期、延迟恢复与多光标输入/撤销已有证据。
 2. 增加 Wiki 关系/局部查询的 10,000/100,000 节点基准、全局分片图谱、Unicode 归一化契约
    与 corpus/fuzz。
-3. 增加快捷键编辑器、可拖动/可调面板与移动端命令入口；标签和当前 UI 会话恢复已完成。
+3. 增加可拖动/可调面板、Vim 模式与移动端命令入口；快捷键编辑器、标签和当前 UI 会话恢复
+   已完成。
 4. 补 watcher 高频压力、休眠恢复、占位强杀、只读目录和卷级磁盘满夹具。
 5. 增加外部备份导入/跨设备恢复演练，再进入客户端加密和同步；持续排除根 `AGENTS.md`、
    真实工作区文件、地址、密钥和数据库。
@@ -297,8 +324,8 @@ create 强杀可能留下空占位，安全移动强杀可能留下重复副本�
 阅读器、扩展 Live Preview、可交互大纲、Wiki 双向导航、missing 显式创建与受限静态附件预览
 及受控导入、有界一跳局部图谱已落地，但全局分片图谱、导出/版本 diff 尚未接入；关系
 resolver 每次全局变化仍构造全部候选映射，缺少 10,000/
-100,000 节点基准和跨 Rust/JavaScript Unicode 归一化契约。快捷键编辑器与可调面板尚未
-完成，主 bundle gzip 约 318.88 KB 超预算，KaTeX 字体资产待收敛，同步后端仍只是协议/健康
+100,000 节点基准和跨 Rust/JavaScript Unicode 归一化契约。可调面板与 Vim 模式尚未完成，
+主 bundle gzip 约 321.23 KB 超预算，KaTeX 字体资产待收敛，同步后端仍只是协议/健康
 状态骨架。
 
 ## 运行现场与恢复
@@ -306,10 +333,10 @@ resolver 每次全局变化仍构造全部候选映射，缺少 10,000/
 - 浏览器端口：`1420`，本轮 Vite 进程已按命令行与 PID 精确核对后停止，无监听。
 - SSH 隧道：不使用；用户已明确 Linux 只作 GitHub 上传中转，不在其上运行 Vite/Tauri。
 - tmux 会话：不使用；所有开发与验证在当前 Windows 电脑完成。
-- Windows Tauri/Vite/调试进程：已关闭。
+- Windows Tauri/Vite/调试进程：已关闭；快捷键测试设置已恢复默认。
 - 阻塞：无工程阻塞；物理微软拼音候选窗仍需在不干扰用户输入的独立窗口完成。
 - 下一条精确任务：在隔离输入焦点下完成物理微软拼音候选窗与点击回源码验收，再进入 Android
   软键盘；持续排除用户未跟踪的 `AGENTS.md`。
 - 恢复步骤：进入 `%USERPROFILE%\Desktop\Projects\zhiweave`，核对分支
-  `agent/professional-workbench`、最新提交和 `AGENTS.md` 排除；CI run `30520065978` 已通过，
-  从物理候选窗/点击回源码验收或关系大数据基准开始。
+  `agent/professional-workbench`、最新提交和 `AGENTS.md` 排除；先确认快捷键提交已通过 Linux
+  中继推送且新 CI 通过，再从物理候选窗/点击回源码验收、可调面板或关系大数据基准开始。

@@ -1,6 +1,6 @@
 # 开发进度
 
-最后更新：2026-07-30 14:30 CST
+最后更新：2026-07-30 15:42 CST
 
 ## 执行拓扑
 
@@ -16,7 +16,8 @@
 - TypeScript 类型检查、前端测试、生产构建及 Rust fmt/Clippy/workspace tests 基线通过。
 - TokyoNight Moon 角色化语义配色：从服务器 `~/.config/nvim` 只读研究后适配，不复制插件实现。
 - 专业深色工作台：48 px Activity Bar、可折叠笔记栏、编辑器优先布局、无营销卡片、无网络字体。
-- Windows 原生无系统标题栏：客户区顶部差为 1 px，仅保留可缩放边框；自定义最小化/最大化/关闭按钮。
+- Windows 原生无系统标题栏：客户区顶部差为 1 px，仅保留可缩放边框；自定义最小化/最大化/
+  关闭和拖动已按 Tauri 最小窗口权限贯通。
 - 多标签、关闭/重开/切换、单槽临时预览/固定、VS Code 风格快捷键、详细状态栏、实时分栏和
   阅读预览；单击浏览复用预览，双击、显式打开或编辑固定。
 - 版本化工作台 UI 会话跨进程恢复：活动节点、标签顺序/预览/关闭历史、编辑/阅读/分栏、
@@ -61,6 +62,10 @@
 - 完整恢复先校验目标并自动备份当前工作区，再构建完整 stage；下次启动在 SQLite/watcher 打开前切换目录，旧工作区保留为 previous，双 rename 中断可继续恢复。
 - 类型化 command registry 统一 50 余项工作台、导航、视图、标签、知识节点、编辑器、版本、
   备份、窗口与对话框操作；按钮、VS Code 风格快捷键、命令面板和右键菜单只分发同一 command id。
+- 独立 `zhiweave.shortcuts.v1` 保存安全、版本化的本机覆盖：最多两段 chord、显式解绑、完全/
+  前缀冲突检测、确认替换、单项/全部恢复默认；不保存正文、路径、节点或工作区信息。
+- `Ctrl/Cmd+K Ctrl/Cmd+S` 打开可搜索、可录制且有焦点陷阱的快捷键编辑器；工具栏提示、
+  命令面板、右键菜单和 capture-phase 键盘分发统一使用有效绑定，CodeMirror 不会吞掉全局 chord。
 - 命令面板支持中文、关键词/别名与模糊子序列检索，键盘选择/执行/Esc、焦点陷阱和触发点恢复；
   原生能力矩阵不会在浏览器预览中伪造文件、索引、重命名或完整备份能力。
 - 标题栏、Activity Bar、工作区、笔记栏、具体节点、标签、编辑器/输入框、预览、实验、状态栏、
@@ -150,23 +155,24 @@
 
 - `pnpm typecheck`：通过。
 - `pnpm lint`：通过。
-- `pnpm test`：14 files / 80 tests，通过。
+- `pnpm test`：15 files / 92 tests，通过。
 - `pnpm build`：通过。
 - 交互实验独立 chunk：5.99 KB（gzip 2.45 KB）。
 - Markdown 阅读器 / AST 独立 chunk：14.08 / 92.24 KB（gzip 4.81 / 26.02 KB）。
 - 文档大纲独立 chunk：1.16 KB（gzip 0.67 KB）。
 - 反向链接检查器独立 chunk：2.71 KB（gzip 1.26 KB）。
 - 局部图谱独立 chunk：5.13 KB（gzip 2.42 KB）。
+- 快捷键编辑器独立 chunk：8.17 KB（gzip 3.04 KB）。
 - Wiki heading 导航独立 chunk：0.34 KB（gzip 0.26 KB）。
 - KaTeX/mathRenderer 独立 chunk：259.23 KB（gzip 77.61 KB），只在公式出现时加载。
-- 主 CSS：65.56 KB（gzip 11.89 KB）。
-- 主 JavaScript：约 964.48 KB（gzip 318.88 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
+- 主 CSS：72.50 KB（gzip 12.89 KB）。
+- 主 JavaScript：约 973.52 KB（gzip 321.23 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
 - Rust workspace 75 项测试通过，其中 application 4 项、Tauri 6 项、storage 50 项、
   Markdown 7 项、domain 6 项、protocol/server 各 1 项；fmt 和全 workspace Clippy
   `-D warnings` 通过。
 - `pnpm audit --audit-level high`：无已知漏洞；`cargo audit` 扫描 475 个 lockfile 依赖，
   无已知 vulnerability，17 项既有 allowed warning。
-- `pnpm tauri build` 在当前 Windows 电脑通过，生成 6,144,000 B MSI 与 4,637,095 B NSIS；
+- `pnpm tauri build` 在当前 Windows 电脑通过，生成 6,152,192 B MSI 与 4,643,861 B NSIS；
   两个 SHA-256 已写入 `TEST_PLAN.md`，构建产物保持在忽略的 `target/`。
 - Windows 原生验收进程已关闭；固定工作区保持 6 个真实 Markdown、identity v1 的 6 个唯一
   ID/路径和有效 SQLite 3 数据库。
@@ -261,6 +267,17 @@
   不允许占位状态写回。
 - 工作台会话功能/验证提交 `7955800`/`91f9337` 已经 Linux 一次性裸仓库中继上传；GitHub
   CI run `30520065978` 的 Frontend 与 Rust 全部通过。
+- 快捷键功能提交 `2051f85` 覆盖有效绑定投影、一/二段 chord、完全/前缀冲突、持久化安全边界
+  和 41 项可编辑命令；标题栏权限修复提交 `5238a81` 只增加关闭、最小化和开始拖动能力。
+- 应用内浏览器验证：录制 `Ctrl+P` 给分栏时准确提示快速打开冲突，确认替换后实际分栏、命令
+  面板和编辑器右键都显示/执行新值，重载后仍保留；单项恢复仍要求处理冲突，恢复全部需二次
+  确认。480×720 下对话框宽 464 px、页面无水平溢出。
+- Windows Tauri WebView2 两次完整关闭/重启后，`Ctrl+Alt+J` 自定义分栏仍从独立设置恢复并
+  实际执行；记录只含 schema、command id 和按键字段。自定义标题栏最小化返回
+  `is_minimized=true`，关闭按钮退出原生/Vite/CDP 进程，第二轮日志没有窗口权限错误。
+- 原生验收期间曾意外生成一篇可精确识别的 UUID 实验测试 Markdown；仅在大小与 SHA-256 完全
+  匹配后移出工作区，并删除对应 identity 项。清理后逐文件复核恢复为 6 篇/1004 B，identity
+  恢复 1171 B 与既有 SHA-256；快捷键测试设置、隔离文件和所有验收进程均已清理。
 - 应用内浏览器跨重载保持两标签中的唯一临时预览、活动节点、实时分栏、大纲和侧栏；390×844
   强制隐藏侧栏且 `scrollWidth === innerWidth === 390`，返回 1280×800 后桌面侧栏意图恢复，
   分栏和大纲仍在，无新增 console error/warning。
@@ -283,7 +300,8 @@
    生命周期、延迟恢复和多光标输入/撤销已覆盖。
 2. 扩展 Markdown Corpus、局部输入 P95/深层/恶意输入，以及 10,000/100,000 节点关系与
    全局分片图谱基准。
-3. 增加快捷键编辑器、可调面板尺寸/位置和移动触控入口；标签与当前工作台会话恢复已完成。
+3. 增加可调面板尺寸/位置、Vim 模式和移动触控入口；快捷键编辑器、标签与当前工作台会话恢复
+   已完成。
 4. 补 watcher 高频压力、文件锁、磁盘满、只读目录和强杀恢复夹具。
 5. 继续集合、Canvas 与跨设备加密备份/同步设计；现有本机目录备份不能冒充加密云备份。
 
@@ -300,14 +318,16 @@
   预览、导入和有界一跳局部图谱已按显式 source/身份契约对齐；全局图谱、导出和版本差异尚未
   统一完成。Rust/JavaScript 的 Unicode
   归一化跨平台一致性及 10,000/100,000 节点关系性能仍需基准。
-- 首屏 JS gzip 超预算约 118.88 KB；CodeMirror/图标/工作台和命令面板需进一步分包和测量。
+- 首屏 JS gzip 超预算约 121.23 KB；CodeMirror/图标/工作台、命令有效绑定和命令面板需进一步
+  分包和测量。
 - KaTeX 虽按需加载，但构建仍携带上游 WOFF2/WOFF/TTF 多格式字体，安装包资产需要收敛。
 - 已有可校验完整工作区目录包和重启前目录切换恢复，但尚无外部备份包选择/导入、跨设备恢复
   演练、备份加密或同步加密；本地 SQLite 与备份包目前未加密，不得宣称客户端密码保护已完成。
 - Command registry/命令面板、临时预览/固定标签、原生 Wiki 双向导航、missing 显式创建、
-  安全静态附件预览、受控附件导入及一跳局部图谱已完成，但快捷键编辑器、完整树/属性、
-  全局图谱、FSRS 与深度学习 schema 尚未完成。
-- 本轮局部图谱已发布到 Draft PR 且 CI 通过；根目录 `AGENTS.md` 仍是用户未跟踪文件，严禁暂存。
+  安全静态附件预览、受控附件导入、一跳局部图谱和快捷键编辑器已完成，但完整树/属性、可调
+  布局、全局图谱、FSRS 与深度学习 schema 尚未完成。
+- 快捷键与标题栏提交尚待 Linux 上传中继发布及 GitHub CI；根目录 `AGENTS.md` 仍是用户未跟踪
+  文件，严禁暂存。
 
 ## 当前截图
 

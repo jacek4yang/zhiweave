@@ -18,7 +18,7 @@
 - `pnpm install --frozen-lockfile`：通过，142 个 lockfile 条目通过供应链策略。
 - `pnpm typecheck`：通过。
 - `pnpm lint`：通过（当前等同 TypeScript noEmit，需加入真实 ESLint）。
-- `pnpm test`：通过，14 files / 80 tests；除原有版本/分支、日记/H1、持久版本 DTO、种子、
+- `pnpm test`：通过，15 files / 92 tests；除原有版本/分支、日记/H1、持久版本 DTO、种子、
   交互实验和保存状态用例外，新增 command id/快捷键唯一性、IME 防误触、上下文矩阵、原生能力
   隔离、禁用条件、中文/别名检索、共享 Markdown AST/安全渲染，以及 Lezer frontmatter/Wiki、
   光标揭示、composition 停用、任务/Callout、数学/图片/脚注/fence、多光标、大输入和源码
@@ -28,13 +28,15 @@
   会话覆盖唯一预览槽替换、固定、转为预览、显式关闭/重开、关闭其他、无效 ID 协调和 recovery
   ID 重映射；command matrix 断言固定/转预览命令互斥。工作台偏好新增 9 项用例，覆盖 v1
   迁移、v2 round-trip、损坏/未来 schema、安全默认、ID 去重/控制字符/数量上限、失效 ID
-  回退、活动标签确保打开、明确空标签会话和仅序列化 UI 字段。
+  回退、活动标签确保打开、明确空标签会话和仅序列化 UI 字段。快捷键新增 12 项回归，覆盖
+  一/二段 chord、modifier 重复按下、完全/前缀冲突、确认替换解绑、单项/全部恢复、损坏设置
+  失败关闭、IME 防误触，以及命令面板/右键/提示/实际分发共享同一有效绑定。
 - `pnpm build`：最终差异通过，主 chunk 有 >500 KB 警告。
 - `pnpm audit --audit-level high`：先使用用户指定 SOCKS5 代理，50 秒无响应后安全中止；
   临时直连回退通过，无已知漏洞。代理地址不写入仓库。
-- `pnpm tauri build`：在当前 Windows 电脑通过，生成 6,144,000 B MSI 与 4,637,095 B NSIS；
-  SHA-256 分别为 `EFFEBACC7E5F5190D4673DCF74C200EA49602A09217CDF390DCE9157AD319A5F`
-  和 `600DE896A8D86AD4C510267644F2CC9A4F63C04B7591FC82C8408F500D2C6BB0`。
+- `pnpm tauri build`：在当前 Windows 电脑通过，生成 6,152,192 B MSI 与 4,643,861 B NSIS；
+  SHA-256 分别为 `A954B15EB6F448338266129055A410E404D91B9DFF3F8D2AC87368F274808214`
+  和 `44D028BB1D9A499C979F8B42A2990214197B5E09ABE77C7F66A77E60F84FDDDD`。
 - 浏览器：搜索、阅读/编辑、分栏、标签、刷新恢复、复制保真、上下文菜单分流、输入粘贴、编辑撤销、UUID 生成/校验/提示词通过；单击节点生成临时预览、双击/编辑固定，固定和临时标签的
   右键菜单只出现相反状态动作；命令面板中文筛选、方向键、Enter、Esc、焦点恢复和
   390×844/1280×800 布局通过。
@@ -49,6 +51,10 @@
   重载后逐项恢复；390×844 启动不自动打开侧栏且 `scrollWidth === innerWidth === 390`，
   回到 1280×800 后桌面侧栏意图恢复，split/大纲仍存在。最终重载没有新增 console
   error/warning。
+- 快捷键浏览器验收：`Ctrl+K Ctrl+S` 打开 41 项编辑器；把分栏录为 `Ctrl+P` 时准确指出快速
+  打开冲突，确认替换后快速打开解绑，实际按键进入分栏，命令面板和编辑器右键同步显示新值；
+  重载保持覆盖，单项恢复仍处理冲突，全部恢复有二次确认。480×720 下页面与对话框均无水平
+  溢出，测试设置已恢复默认。
 - Windows Tauri WebView2 跨进程验收：welcome pinned + ownership preview、split、大纲和
   隐藏侧栏在首次关闭/重启后恢复；随后版本视图在第二次关闭/重启后恢复。测试态 v2 记录
   366 B、恰含 schema version、活动节点、编辑模式、检查器、实时语法、侧栏、标签会话和版本
@@ -57,6 +63,13 @@
   `.zhiweave/identity.json` 仍为 1171 B，SHA-256 为
   `E9CF4C6438DE888803B85E6123BF27680F830C31338A62679C6CB7EFA00D07E2`。测试 v2 偏好已移除，
   原有 v1 偏好保留；所有 Tauri/Vite/9335 进程和端口均已关闭。
+- Windows Tauri WebView2 快捷键验收：录制 `Ctrl+Alt+J` 分栏后，独立设置 JSON 只含
+  schema、command id 和按键字段；完整关闭/第二个原生进程启动后 UI 与实际分栏行为均恢复。
+  最小化 API 返回 `is_minimized=true`，自定义关闭按钮结束原生/Vite/CDP；权限修复后新日志
+  无窗口 permission error。
+- 原生验收曾意外创建精确的 UUID 实验测试文件。只在文件大小与 SHA-256 同时匹配后移出，并
+  只删除对应稳定 identity 项；最终复核恢复原有 6 篇 Markdown/1004 B、逐文件 SHA-256 和
+  1171 B identity 摘要，隔离文件与快捷键设置均已删除。后续原生写入验收必须使用隔离 profile。
 - Rust 1.95.0 的最终差异已通过 fmt、workspace all-target/all-feature Clippy `-D warnings`
   与 workspace all-feature tests。
 - GitHub CI run `30509720758` 在 Linux runner 上再次通过 Frontend、fmt、workspace
