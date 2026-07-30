@@ -1,5 +1,6 @@
 export type CommandScope =
   | "activity"
+  | "appearance"
   | "attachment"
   | "backlinks"
   | "editor"
@@ -19,6 +20,13 @@ export type CommandScope =
   | "workspace";
 
 export type CommandId =
+  | "appearance.densityComfortable"
+  | "appearance.densityCompact"
+  | "appearance.densityTerminal"
+  | "appearance.reset"
+  | "appearance.themeDark"
+  | "appearance.themeHighContrast"
+  | "appearance.themeLight"
   | "attachment.confirmImport"
   | "attachment.copyTarget"
   | "attachment.import"
@@ -76,6 +84,7 @@ export type CommandId =
   | "window.maximize"
   | "window.minimize"
   | "workbench.commandPalette"
+  | "workbench.appearance"
   | "workbench.clearQuickOpen"
   | "workbench.quickOpen"
   | "workbench.resetPanelLayout"
@@ -212,8 +221,18 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
     "workspace.openToday",
     "workspace.createUuidLab",
     "backup.create",
+    "workbench.appearance",
     "workbench.shortcutEditor",
     "workbench.toggleSidebar",
+  ],
+  appearance: [
+    "appearance.themeDark",
+    "appearance.themeLight",
+    "appearance.themeHighContrast",
+    "appearance.densityComfortable",
+    "appearance.densityCompact",
+    "appearance.densityTerminal",
+    "appearance.reset",
   ],
   attachment: ["attachment.copyTarget"],
   backlinks: [
@@ -333,6 +352,8 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
     "workspace.copyRoot",
     "workspace.openExternalChanges",
     "workspace.rebuildIndex",
+    "workbench.appearance",
+    "appearance.reset",
     "workspace.resetPreview",
   ],
   tab: [
@@ -365,6 +386,7 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
     "workspace.openToday",
     "workspace.createUuidLab",
     "backup.create",
+    "workbench.appearance",
     "workbench.shortcutEditor",
     "workbench.toggleSidebar",
   ],
@@ -394,6 +416,66 @@ export const COMMANDS: readonly CommandDefinition[] = [
   command("workbench.resetPanelLayout", "恢复默认面板宽度", "工作台", "workbench", 36, {
     contexts: ["panel-resizer"],
     keywords: ["layout", "panel", "resize", "布局", "面板", "宽度", "重置"],
+  }),
+  command("workbench.appearance", "打开主题与密度设置", "外观", "appearance", 37, {
+    contexts: ["activity", "status", "workspace"],
+    keywords: ["theme", "density", "appearance", "主题", "颜色", "密度", "外观"],
+  }),
+  command("appearance.themeDark", "使用月夜深色主题", "外观", "appearance", 38, {
+    contexts: ["appearance"],
+    keywords: ["theme", "dark", "深色", "月夜"],
+  }),
+  command("appearance.themeLight", "使用暖纸浅色主题", "外观", "appearance", 39, {
+    contexts: ["appearance"],
+    keywords: ["theme", "light", "浅色", "暖纸"],
+  }),
+  command(
+    "appearance.themeHighContrast",
+    "使用高对比主题",
+    "外观",
+    "appearance",
+    40,
+    {
+      contexts: ["appearance"],
+      keywords: ["theme", "contrast", "accessibility", "高对比", "无障碍"],
+    },
+  ),
+  command(
+    "appearance.densityComfortable",
+    "使用舒适界面密度",
+    "外观",
+    "appearance",
+    41,
+    {
+      contexts: ["appearance"],
+      keywords: ["density", "comfortable", "舒适", "宽松"],
+    },
+  ),
+  command(
+    "appearance.densityCompact",
+    "使用紧凑界面密度",
+    "外观",
+    "appearance",
+    42,
+    {
+      contexts: ["appearance"],
+      keywords: ["density", "compact", "紧凑", "默认"],
+    },
+  ),
+  command(
+    "appearance.densityTerminal",
+    "使用终端界面密度",
+    "外观",
+    "appearance",
+    43,
+    {
+      contexts: ["appearance"],
+      keywords: ["density", "terminal", "终端", "高密度"],
+    },
+  ),
+  command("appearance.reset", "恢复默认主题与密度", "外观", "appearance", 44, {
+    contexts: ["appearance", "status"],
+    keywords: ["reset", "default", "恢复", "默认", "主题", "密度"],
   }),
   command("workspace.createNote", "新建知识节点", "知识节点", "workspace", 40, {
     contexts: WORKSPACE_SCOPES,

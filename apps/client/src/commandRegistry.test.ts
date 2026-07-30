@@ -169,6 +169,38 @@ describe("command registry", () => {
     expect(panelCommands.map((command) => command.id)).toEqual([
       "workbench.resetPanelLayout",
     ]);
+
+    const appearanceCommands = commandsForContext(
+      context([], "appearance"),
+    );
+    expect(appearanceCommands.map((command) => command.id)).toEqual([
+      "appearance.themeDark",
+      "appearance.themeLight",
+      "appearance.themeHighContrast",
+      "appearance.densityComfortable",
+      "appearance.densityCompact",
+      "appearance.densityTerminal",
+      "appearance.reset",
+    ]);
+  });
+
+  it("exposes appearance choices consistently to palette and relevant surfaces", () => {
+    expect(
+      commandsForPalette(context([], "workspace"), "暖纸浅色").map(
+        (command) => command.id,
+      ),
+    ).toContain("appearance.themeLight");
+    expect(
+      commandsForPalette(context([], "workspace"), "终端密度").map(
+        (command) => command.id,
+      ),
+    ).toContain("appearance.densityTerminal");
+    expect(
+      commandsForContext(context([], "status")).map((command) => command.id),
+    ).toContain("workbench.appearance");
+    expect(
+      commandsForContext(context([], "activity")).map((command) => command.id),
+    ).toContain("workbench.appearance");
   });
 
   it("offers only the tab state transition that matches the clicked tab", () => {

@@ -4,6 +4,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -38,6 +39,7 @@ import {
   Minus,
   Network,
   NotebookPen,
+  Palette,
   Paperclip,
   PencilLine,
   Plus,
@@ -52,6 +54,14 @@ import {
 
 import { CommandPalette } from "./CommandPalette";
 import { PanelResizeHandle } from "./PanelResizeHandle";
+import {
+  APPEARANCE_PREFERENCES_KEY,
+  DEFAULT_APPEARANCE_PREFERENCES,
+  appearanceDensityLabel,
+  appearanceThemeLabel,
+  parseAppearancePreferences,
+  serializeAppearancePreferences,
+} from "./appearanceModel";
 import {
   VIEW_COPY,
   WORKSPACE_STORAGE_KEY,
@@ -211,6 +221,10 @@ const ShortcutEditor = lazy(async () => {
   const module = await import("./ShortcutEditor");
   return { default: module.ShortcutEditor };
 });
+const AppearancePanel = lazy(async () => {
+  const module = await import("./AppearancePanel");
+  return { default: module.AppearancePanel };
+});
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
@@ -314,6 +328,8 @@ export function App() {
   const [editorMode, setEditorMode] = useState<EditorMode>(
     initialBoot.preferences.editorMode,
   );
+  const [appearance, setAppearance] = useState(readStoredAppearancePreferences);
+  const [isAppearanceOpen, setIsAppearanceOpen] = useState(false);
   const [livePreviewEnabled, setLivePreviewEnabled] = useState(
     initialBoot.preferences.livePreviewEnabled,
   );
@@ -919,6 +935,24 @@ export function App() {
       // Shortcut preferences are optional and never affect Markdown persistence.
     }
   }, [shortcutOverrides]);
+
+  useLayoutEffect(() => {
+    document.documentElement.dataset.theme = appearance.theme;
+    document.documentElement.dataset.density = appearance.density;
+    document.documentElement.style.colorScheme =
+      appearance.theme === "light" ? "light" : "dark";
+  }, [appearance]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        APPEARANCE_PREFERENCES_KEY,
+        serializeAppearancePreferences(appearance),
+      );
+    } catch {
+      // Appearance preferences are optional and never affect Markdown data.
+    }
+  }, [appearance]);
 
   useEffect(() => {
     if (
@@ -2920,6 +2954,9 @@ export function App() {
     if (id !== "workbench.shortcutEditor") {
       setIsShortcutEditorOpen(false);
     }
+    if (id !== "workbench.appearance" && !id.startsWith("appearance.")) {
+      setIsAppearanceOpen(false);
+    }
 
     switch (id) {
       case "workbench.commandPalette":
@@ -2932,6 +2969,43 @@ export function App() {
           shortcutTimerRef.current = null;
         }
         setIsShortcutEditorOpen(true);
+        return;
+      case "workbench.appearance":
+        setIsAppearanceOpen((value) => !value);
+        return;
+      case "appearance.themeDark":
+        setAppearance((current) => ({ ...current, theme: "dark" }));
+        setToast("已切换到月夜深色主题。");
+        return;
+      case "appearance.themeLight":
+        setAppearance((current) => ({ ...current, theme: "light" }));
+        setToast("已切换到低眩光暖纸浅色主题。");
+        return;
+      case "appearance.themeHighContrast":
+        setAppearance((current) => ({
+          ...current,
+          theme: "high-contrast",
+        }));
+        setToast("已切换到高对比主题。");
+        return;
+      case "appearance.densityComfortable":
+        setAppearance((current) => ({
+          ...current,
+          density: "comfortable",
+        }));
+        setToast("已切换到舒适界面密度。");
+        return;
+      case "appearance.densityCompact":
+        setAppearance((current) => ({ ...current, density: "compact" }));
+        setToast("已切换到紧凑界面密度。");
+        return;
+      case "appearance.densityTerminal":
+        setAppearance((current) => ({ ...current, density: "terminal" }));
+        setToast("已切换到终端界面密度。");
+        return;
+      case "appearance.reset":
+        setAppearance(DEFAULT_APPEARANCE_PREFERENCES);
+        setToast("主题与密度已恢复为月夜深色和紧凑模式。");
         return;
       case "workbench.resetPanelLayout":
         resetPanelLayout();
@@ -3675,6 +3749,8 @@ export function App() {
   return (
     <main
       className={`app-shell${isSidebarOpen ? "" : " is-sidebar-collapsed"}`}
+      data-density={appearance.density}
+      data-theme={appearance.theme}
       onContextMenu={openContextMenu}
       style={
         {
@@ -3782,8 +3858,30 @@ export function App() {
               <Icon />
             </button>
           ))}
+          <button
+            aria-expanded={isAppearanceOpen}
+            aria-haspopup="dialog"
+            aria-label="主题与密度"
+            className={isAppearanceOpen ? "is-active" : ""}
+            data-appearance-trigger
+            onClick={() => runCommand("workbench.appearance")}
+            title="主题与密度"
+            type="button"
+          >
+            <Palette />
+          </button>
         </nav>
       </aside>
+
+      {isAppearanceOpen && (
+        <Suspense fallback={null}>
+          <AppearancePanel
+            appearance={appearance}
+            onClose={() => setIsAppearanceOpen(false)}
+            onRunCommand={runCommand}
+          />
+        </Suspense>
+      )}
 
       <aside
         className="explorer"
@@ -4426,6 +4524,19 @@ export function App() {
           <span className="status-sync" title="同步服务尚未连接">
             同步：本机
           </span>
+          <button
+            aria-expanded={isAppearanceOpen}
+            aria-haspopup="dialog"
+            className="status-appearance"
+            data-appearance-trigger
+            onClick={() => runCommand("workbench.appearance")}
+            title="切换主题与界面密度"
+            type="button"
+          >
+            <Palette />
+            {appearanceThemeLabel(appearance.theme)} ·{" "}
+            {appearanceDensityLabel(appearance.density)}
+          </button>
           <span className="status-protocol">
             {status?.protocol ?? "ZHIWEAVE/1"}
           </span>
@@ -5530,6 +5641,16 @@ function readStoredShortcutOverrides(): ShortcutOverrides {
   }
 }
 
+function readStoredAppearancePreferences() {
+  try {
+    return parseAppearancePreferences(
+      localStorage.getItem(APPEARANCE_PREFERENCES_KEY),
+    );
+  } catch {
+    return DEFAULT_APPEARANCE_PREFERENCES;
+  }
+}
+
 async function copyText(text: string): Promise<void> {
   if (navigator.clipboard?.writeText !== undefined) {
     await navigator.clipboard.writeText(text);
@@ -5615,6 +5736,7 @@ function isContextScope(
 ): value is ContextMenuState["scope"] {
   switch (value) {
     case "activity":
+    case "appearance":
     case "attachment":
     case "backlinks":
     case "editor":
@@ -5664,6 +5786,8 @@ function contextMenuLabel(
       return note === undefined ? "文档大纲" : `大纲：${note.title}`;
     case "panel-resizer":
       return "面板宽度";
+    case "appearance":
+      return "主题与密度";
     case "note-item":
       return note === undefined ? "知识节点" : note.title;
     case "tab":
@@ -5737,6 +5861,8 @@ function contextCommandGroupLabel(
       return "Wiki 链接";
     case "attachment":
       return "附件";
+    case "appearance":
+      return "外观";
     case "window":
       return "窗口";
     default:
@@ -5838,7 +5964,16 @@ function commandIcon(id: CommandId) {
     case "version.restore":
     case "workspace.rebuildIndex":
     case "workspace.resetPreview":
+    case "appearance.reset":
       return RotateCcw;
+    case "appearance.themeDark":
+    case "appearance.themeHighContrast":
+    case "appearance.themeLight":
+    case "appearance.densityComfortable":
+    case "appearance.densityCompact":
+    case "appearance.densityTerminal":
+    case "workbench.appearance":
+      return Palette;
     case "note.copyLearningPrompt":
       return Sparkles;
     case "note.open":
