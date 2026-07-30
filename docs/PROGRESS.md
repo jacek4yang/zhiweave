@@ -1,6 +1,6 @@
 # 开发进度
 
-最后更新：2026-07-30 13:20 CST
+最后更新：2026-07-30 13:45 CST
 
 ## 执行拓扑
 
@@ -17,7 +17,8 @@
 - TokyoNight Moon 角色化语义配色：从服务器 `~/.config/nvim` 只读研究后适配，不复制插件实现。
 - 专业深色工作台：48 px Activity Bar、可折叠笔记栏、编辑器优先布局、无营销卡片、无网络字体。
 - Windows 原生无系统标题栏：客户区顶部差为 1 px，仅保留可缩放边框；自定义最小化/最大化/关闭按钮。
-- 多标签、关闭/重开/切换、VS Code 风格快捷键、详细状态栏、实时分栏和阅读预览。
+- 多标签、关闭/重开/切换、单槽临时预览/固定、VS Code 风格快捷键、详细状态栏、实时分栏和
+  阅读预览；单击浏览复用预览，双击、显式打开或编辑固定。
 - H1 驱动知识节点显示名，恢复同一笔记版本时编辑器正确同步。
 - 持久化父节点版本 DAG、分支、图形历史、恢复保护、旧节点安全删除/子节点重接与真实存储摘要。
 - 幂等今日日记入口；学习、知识库、复习、收集箱、实验与旧学习节点入口均保留。
@@ -147,7 +148,7 @@
 
 - `pnpm typecheck`：通过。
 - `pnpm lint`：通过。
-- `pnpm test`：12 files / 62 tests，通过。
+- `pnpm test`：13 files / 71 tests，通过。
 - `pnpm build`：通过。
 - 交互实验独立 chunk：5.99 KB（gzip 2.46 KB）。
 - Markdown 阅读器 / AST 独立 chunk：14.08 / 92.24 KB（gzip 4.81 / 26.01 KB）。
@@ -156,13 +157,13 @@
 - 局部图谱独立 chunk：5.13 KB（gzip 2.42 KB）。
 - Wiki heading 导航独立 chunk：0.34 KB（gzip 0.26 KB）。
 - KaTeX/mathRenderer 独立 chunk：259.23 KB（gzip 77.61 KB），只在公式出现时加载。
-- 主 CSS：64.98 KB（gzip 11.81 KB）。
-- 主 JavaScript：约 958.44 KB（gzip 317.20 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
+- 主 CSS：65.56 KB（gzip 11.89 KB）。
+- 主 JavaScript：约 961.46 KB（gzip 318.01 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
 - Rust workspace 75 项测试通过，其中 application 4 项、Tauri 6 项、storage 50 项、
   Markdown 7 项、domain 6 项、protocol/server 各 1 项；fmt 和全 workspace Clippy
   `-D warnings` 通过。
 - `pnpm audit --prod --audit-level high`：无已知漏洞；`cargo audit --no-fetch --stale` 扫描 475 个 lockfile 依赖，无已知 vulnerability，17 项既有 allowed warning。
-- `pnpm tauri build` 在当前 Windows 电脑通过，生成 6,144,000 B MSI 与 4,635,321 B NSIS；
+- `pnpm tauri build` 在当前 Windows 电脑通过，生成 6,144,000 B MSI 与 4,637,433 B NSIS；
   两个 SHA-256 已写入 `TEST_PLAN.md`，构建产物保持在忽略的 `target/`。
 - Windows 原生进程：`知织 · ZhiWeave` 正常运行；固定工作区有 6 个真实 Markdown、identity v1 的 6 个唯一 ID/路径和有效 SQLite 3 数据库。
 - 共享 Markdown AST 功能提交 `27bf009` 已推送；GitHub CI run `30497652526` 的 Frontend 与
@@ -239,6 +240,16 @@
   Tauri/Vite/WebView2 进程、端口、临时日志和截图已清理。
 - 局部图谱提交 `9faa7bc` 已通过 Linux 一次性裸仓库中继上传；GitHub CI run `30516132915`
   的 Frontend 与 Rust 全部通过。
+- 标签会话使用单一状态模型协调打开、关闭历史和唯一临时预览；预览替换不进入关闭历史，
+  显式关闭可重开为固定标签，外部快照/删除/recovery 会移除或重映射悬空稳定 ID。
+- 应用内浏览器验证单击预览、双击固定、编辑自动固定，以及固定/临时两种互斥右键命令；
+  390×844 下两个标签无水平溢出。≤480 px 的大纲/反向链接/图谱改为完整正文宽度覆盖层，
+  关闭后正文恢复完整宽度。
+- Windows Tauri WebView2 只读验收确认 welcome/ownership 固定后，“复习”预览可由“今天”
+  在原位置替换，总标签数不增长；预览右键只有“固定”，双击后状态变为 pinned。验收前后
+  6 篇 Markdown 仍为 1004 B，组合摘要 `FC7B12872F9C699524187D15EE82F0332216DCCF3159EB2CCC6026A3F9303E75`；
+  1171 B identity 摘要仍为
+  `E9CF4C6438DE888803B85E6123BF27680F830C31338A62679C6CB7EFA00D07E2`。
 - 本轮应用内浏览器在本地导航和 DOM 读取阶段连续超时，未把反向链接浏览器点击/E2E 标记为
   通过；浏览器预览按能力边界也不会伪造 SQLite 关系。
 - Live Preview 性能回归：2 MiB 窄视口约 322 ms；10,000 行 fence 可见 24 行用例约 9 ms。
@@ -252,7 +263,7 @@
    生命周期、延迟恢复和多光标输入/撤销已覆盖。
 2. 扩展 Markdown Corpus、局部输入 P95/深层/恶意输入，以及 10,000/100,000 节点关系与
    全局分片图谱基准。
-3. 增加快捷键编辑器、预览标签和移动触控入口。
+3. 增加快捷键编辑器、工作台布局恢复和移动触控入口；临时预览/固定标签已完成。
 4. 补 watcher 高频压力、文件锁、磁盘满、只读目录和强杀恢复夹具。
 5. 继续集合、Canvas 与跨设备加密备份/同步设计；现有本机目录备份不能冒充加密云备份。
 
@@ -268,13 +279,13 @@
   预览、导入和有界一跳局部图谱已按显式 source/身份契约对齐；全局图谱、导出和版本差异尚未
   统一完成。Rust/JavaScript 的 Unicode
   归一化跨平台一致性及 10,000/100,000 节点关系性能仍需基准。
-- 首屏 JS gzip 超预算 117.20 KB；CodeMirror/图标/工作台和命令面板需进一步分包和测量。
+- 首屏 JS gzip 超预算约 118.01 KB；CodeMirror/图标/工作台和命令面板需进一步分包和测量。
 - KaTeX 虽按需加载，但构建仍携带上游 WOFF2/WOFF/TTF 多格式字体，安装包资产需要收敛。
 - 已有可校验完整工作区目录包和重启前目录切换恢复，但尚无外部备份包选择/导入、跨设备恢复
   演练、备份加密或同步加密；本地 SQLite 与备份包目前未加密，不得宣称客户端密码保护已完成。
-- Command registry/命令面板、原生 Wiki 双向导航、missing 显式创建、安全静态附件预览和受控
-  附件导入及一跳局部图谱已完成，但快捷键编辑器、完整树/属性、全局图谱、FSRS 与深度学习
-  schema 尚未完成。
+- Command registry/命令面板、临时预览/固定标签、原生 Wiki 双向导航、missing 显式创建、
+  安全静态附件预览、受控附件导入及一跳局部图谱已完成，但快捷键编辑器、完整树/属性、
+  全局图谱、FSRS 与深度学习 schema 尚未完成。
 - 本轮局部图谱已发布到 Draft PR 且 CI 通过；根目录 `AGENTS.md` 仍是用户未跟踪文件，严禁暂存。
 
 ## 当前截图

@@ -60,6 +60,9 @@ import 加载。CodeMirror/Lezer 继续负责输入期增量语法；mdast 是�
 id，由 `App` 的执行器连接现有工作流；编辑器撤销、重做、剪贴板仍委托给 CodeMirror command，
 不会复制其历史状态。当前已加入“复制 Markdown 原文”和“复制结构化阅读文本”：前者逐字符
 复制 note buffer，后者通过共享 AST 生成标题、任务层级、表格制表符、代码、公式和脚注文本。
+`tabModel.ts` 独立维护打开、关闭和唯一临时预览 ID：预览替换不产生伪关闭历史，显式打开和
+编辑把当前预览固定，外部快照刷新只按仍有效的稳定节点 ID 协调或恢复标签，不进入 Markdown、
+SQLite 或版本历史。切换已有标签只改变活动节点，不暗中改变固定状态。
 局部图谱也使用同一命令边界：面板背景是 `graph` scope，SVG 节点是带稳定 ID 的
 `note-item` scope；事件目标允许 HTMLElement/SVGElement，避免右键落在 `<g>/<rect>/<text>`
 时错误回退成工作区菜单。图谱、大纲和反向链接共享互斥检查器槽位，但各自保持独立按需模块。

@@ -18,24 +18,31 @@
 - `pnpm install --frozen-lockfile`：通过，142 个 lockfile 条目通过供应链策略。
 - `pnpm typecheck`：通过。
 - `pnpm lint`：通过（当前等同 TypeScript noEmit，需加入真实 ESLint）。
-- `pnpm test`：通过，12 files / 62 tests；除原有版本/分支、日记/H1、持久版本 DTO、种子、
+- `pnpm test`：通过，13 files / 71 tests；除原有版本/分支、日记/H1、持久版本 DTO、种子、
   交互实验和保存状态用例外，新增 command id/快捷键唯一性、IME 防误触、上下文矩阵、原生能力
   隔离、禁用条件、中文/别名检索、共享 Markdown AST/安全渲染，以及 Lezer frontmatter/Wiki、
   光标揭示、composition 停用、任务/Callout、数学/图片/脚注/fence、多光标、大输入和源码
   不变回归测试；另覆盖反向链接面板/来源节点上下文隔离、Wiki 正向解析/阅读按钮/编辑器
   `Ctrl/Cmd+单击`、heading offset、UTF-8 字节位置到 UTF-16 CodeMirror offset 的 Unicode
-  转换，以及图谱背景/具体 SVG 节点的上下文隔离与 79 邻居（80 总节点）确定布局。
+  转换，以及图谱背景/具体 SVG 节点的上下文隔离与 79 邻居（80 总节点）确定布局。新增标签
+  会话覆盖唯一预览槽替换、固定、转为预览、显式关闭/重开、关闭其他、无效 ID 协调和 recovery
+  ID 重映射；command matrix 断言固定/转预览命令互斥。
 - `pnpm build`：最终差异通过，主 chunk 有 >500 KB 警告。
 - `pnpm audit --prod --audit-level high`：先使用用户指定 SOCKS5 代理，registry audit 请求重试后
   失败；不下载依赖的直接网络回退通过，无已知漏洞。代理地址不写入仓库。
-- `pnpm tauri build`：在当前 Windows 电脑通过，生成 6,144,000 B MSI 与 4,635,321 B NSIS；
-  SHA-256 分别为 `F5B117DA42072EACF629C11195A1006F898DD7B58D463E9BC029AA6FC26DBE7E`
-  和 `A18CAD461544E398D4CF6581AFA255816A4743AF734EBF4F0FFC0C102C0AB53B`。
-- 浏览器：搜索、阅读/编辑、分栏、标签、刷新恢复、复制保真、上下文菜单分流、输入粘贴、编辑撤销、UUID 生成/校验/提示词通过；命令面板中文筛选、方向键、Enter、Esc、焦点恢复和 390×844/1280×800 布局通过。
+- `pnpm tauri build`：在当前 Windows 电脑通过，生成 6,144,000 B MSI 与 4,637,433 B NSIS；
+  SHA-256 分别为 `CEF5EC78794372F871F1BA0E713B66C4B7C3818F5EDA5F754C40265DDD3A46F9`
+  和 `15317F8154B80676586810E2A92BFA3BCDA4D7FBF903D7E2C6B4F1EF7C1F22F6`。
+- 浏览器：搜索、阅读/编辑、分栏、标签、刷新恢复、复制保真、上下文菜单分流、输入粘贴、编辑撤销、UUID 生成/校验/提示词通过；单击节点生成临时预览、双击/编辑固定，固定和临时标签的
+  右键菜单只出现相反状态动作；命令面板中文筛选、方向键、Enter、Esc、焦点恢复和
+  390×844/1280×800 布局通过。
 - 本轮 Wiki 正向导航浏览器自动化因应用内浏览器本地导航与 DOM 读取连续超时尚未通过，不得用
   原生截图替代；Windows 原生 IPC、WebView2 DOM 检查、DWM 截图与临时目录/Tauri 集成测试是
   明确区分的替代证据。
 - 视口：1280×720、1366×768、1440×900、1920×1080、2560×1440、320×720、390×844、412×915、915×412 均无水平溢出。
+- 标签增量检查在 390×844 返回 `scrollWidth === innerWidth === 390`；两个标签宽度为
+  153/123 px。≤480 px 检查器与正文表面同宽（342 px），关闭后正文仍为 342 px，没有留下
+  看似裁切的正文窄条。
 - Rust 1.95.0 的最终差异已通过 fmt、workspace all-target/all-feature Clippy `-D warnings`
   与 workspace all-feature tests。
 - GitHub CI run `30509720758` 在 Linux runner 上再次通过 Frontend、fmt、workspace
@@ -232,6 +239,12 @@
 - Windows Tauri WebView2 实际验证 `Ctrl+Alt+↑` 产生 2 个光标且状态栏同步显示；单次输入让
   82 字符变为 84，单次 `Ctrl+Z` 精确恢复 82。composition gate 的 Live Preview 装饰数按
   `5 → 0 → 0（结束后 20 ms）→ 5（总计 90 ms）` 变化。
+- Windows Tauri WebView2 标签验收：从 pinned welcome 单击“知识库”得到 preview ownership，
+  预览右键有“固定”且无“转为预览”；双击后变为 pinned。随后“复习”生成一个 preview，
+  “今天”在同一槽位替换它，总标签数保持 3。窗口宽度与 document scrollWidth 都是 1280。
+- 标签验收只导航和改变会话状态；前后 6 个 Markdown 均为 1004 B，组合摘要
+  `FC7B12872F9C699524187D15EE82F0332216DCCF3159EB2CCC6026A3F9303E75`，1171 B identity
+  摘要 `E9CF4C6438DE888803B85E6123BF27680F830C31338A62679C6CB7EFA00D07E2`，均不变。
 - 验收前后 6 篇用户 Markdown 的组合 SHA-256 与 identity 摘要逐字节相同；未创建版本、附件或
   笔记，Tauri/Vite/9335 进程和端口均已关闭。物理微软拼音候选窗尝试因用户正在使用前台窗口而
   在发送任何按键前中止，输入布局已恢复英文，因此不得将物理候选窗标记为通过。

@@ -1,6 +1,6 @@
 # Agent 交接
 
-最近更新：2026-07-30 13:20 CST
+最近更新：2026-07-30 13:45 CST
 
 ## 不可改变的用户约束
 
@@ -198,15 +198,29 @@ SQLite/稳定身份稳定切片增加：
 - 验收前后 6 篇 Markdown/1004 B 组合摘要和 1171 B identity 摘要完全一致；未保存或注入正文，
   所有 Tauri/Vite/WebView2 进程、端口和临时文件已清理。
 
+当前标签会话切片增加：
+
+- `tabModel.ts` 统一打开标签、20 项关闭历史和唯一临时预览 ID；单击未打开节点原位复用预览，
+  自动替换不污染关闭历史，显式关闭可按 pinned 状态重开；
+- 笔记列表、主导航、Wiki、反向链接和局部图谱都使用预览打开；双击、显式打开、分栏、版本入口
+  或首次编辑固定标签，切换已有 pinned 标签不会把它降级；
+- `tab.pin` / `tab.unpin` 进入同一 command registry。标签对象菜单和命令面板按 capability
+  只展示与当前状态相反的动作；预览标题同时用 accessible name 和柔和斜体下划线表达；
+- 外部快照、删除和 recovery 按稳定 ID 协调/重映射会话，清除悬空预览；会话状态不进入
+  Markdown、identity、SQLite 或版本 DAG，跨进程布局恢复仍待单独实现；
+- ≤480 px 的大纲、反向链接和图谱改为完整正文宽度覆盖层，避免留下看似被裁切的正文窄条；
+- 应用内浏览器与 Windows Tauri WebView2 均通过预览→固定→替换和状态相关右键验收。原生验收
+  前后 6 篇 Markdown/1004 B 和 1171 B identity 摘要完全一致。
+
 ## 最近验证
 
-- 当前局部图谱差异通过 typecheck、12 files / 62 tests 和 production build；图谱独立
-  5.13 KB（gzip 2.42 KB），主 JS 约 958.44 KB（gzip 317.20 KB），仍触发体积警告。
+- 当前标签差异通过 typecheck、13 files / 71 tests 和 production build；图谱独立
+  5.13 KB（gzip 2.42 KB），主 JS 约 961.46 KB（gzip 318.01 KB），仍触发体积警告。
 - Rust workspace 75 项、fmt 与全 target/all feature Clippy `-D warnings` 全部通过；
   Markdown 7 项、storage 50 项覆盖 Wiki 解析/创建、附件安全边界/导入、局部图谱聚合/截断、
   迁移、增量替换、歧义、
   重命名/删除/重建与正向解析，同时保留历史、备份和恢复回归。
-- `pnpm tauri build` 在当前 Windows 电脑通过，生成 6,144,000 B MSI 与 4,635,321 B NSIS；
+- `pnpm tauri build` 在当前 Windows 电脑通过，生成 6,144,000 B MSI 与 4,637,433 B NSIS；
   SHA-256 记录在 `TEST_PLAN.md`，产物位于忽略的 `target/`。
 - 局部图谱提交 `9faa7bc` 仅经 Linux 一次性裸仓库中继上传；GitHub CI run `30516132915`
   的 Frontend 与 Rust 全部通过。
@@ -249,7 +263,7 @@ SQLite/稳定身份稳定切片增加：
    生命周期、延迟恢复与多光标输入/撤销已有证据。
 2. 增加 Wiki 关系/局部查询的 10,000/100,000 节点基准、全局分片图谱、Unicode 归一化契约
    与 corpus/fuzz。
-3. 增加快捷键编辑器、预览标签和移动端命令入口。
+3. 增加快捷键编辑器、完整工作台布局恢复和移动端命令入口；临时预览/固定标签已完成。
 4. 补 watcher 高频压力、休眠恢复、占位强杀、只读目录和卷级磁盘满夹具。
 5. 增加外部备份导入/跨设备恢复演练，再进入客户端加密和同步；持续排除根 `AGENTS.md`、
    真实工作区文件、地址、密钥和数据库。
@@ -263,8 +277,9 @@ create 强杀可能留下空占位，安全移动强杀可能留下重复副本�
 阅读器、扩展 Live Preview、可交互大纲、Wiki 双向导航、missing 显式创建与受限静态附件预览
 及受控导入、有界一跳局部图谱已落地，但全局分片图谱、导出/版本 diff 尚未接入；关系
 resolver 每次全局变化仍构造全部候选映射，缺少 10,000/
-100,000 节点基准和跨 Rust/JavaScript Unicode 归一化契约。快捷键编辑器尚未完成，主 bundle
-gzip 约 317.20 KB 超预算，KaTeX 字体资产待收敛，同步后端仍只是协议/健康状态骨架。
+100,000 节点基准和跨 Rust/JavaScript Unicode 归一化契约。快捷键编辑器与跨进程布局恢复尚未
+完成，主 bundle gzip 约 318.01 KB 超预算，KaTeX 字体资产待收敛，同步后端仍只是协议/健康
+状态骨架。
 
 ## 运行现场与恢复
 
