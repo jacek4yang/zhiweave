@@ -1,6 +1,6 @@
 # Agent 交接
 
-最近更新：2026-07-30 15:53 CST
+最近更新：2026-07-30 16:35 CST
 
 ## 不可改变的用户约束
 
@@ -15,6 +15,8 @@
 - 工作目录：`%USERPROFILE%\Desktop\Projects\zhiweave`
 - 分支：`agent/professional-workbench`
 - Draft PR：[jacek4yang/zhiweave#1](https://github.com/jacek4yang/zhiweave/pull/1)
+- 最新本地功能提交：`a9fa6c6 Add resizable workbench panels`；验证文档待本轮提交和 Linux
+  一次性裸仓库中继上传。
 - 最新已发布功能提交：`2051f85 Add customizable shortcut editor`；标题栏权限修复
   `5238a81 Fix custom titlebar window controls`；验证文档提交 `e9aac5b Document shortcut
   editor validation`。都已通过 Linux 一次性裸仓库中继上传。
@@ -248,21 +250,37 @@ SQLite/稳定身份稳定切片增加：
 - Tauri capability 仅新增 `core:window:allow-close`、`allow-minimize` 和
   `allow-start-dragging`，修复自定义标题栏关闭/最小化/拖动，未扩大文件、Shell 或网络权限。
 
+当前可调面板切片增加：
+
+- `panelLayout.ts` 统一 Explorer `200–400 px`、Inspector `220–420 px` 的默认值、归一化、
+  左右指针方向和键盘步长，非法值回退默认；
+- `PanelResizeHandle.tsx` 使用可聚焦 `separator`、pointer capture、释放提交、双击/Enter 恢复、
+  Home/End 和普通/Shift 方向键；右键命中独立 `panel-resizer` scope；
+- 工作台偏好升级为 v3，只读迁移 v2/v1，面板宽度与既有标签/检查器/编辑模式一起跨进程恢复，
+  但仍排除 Markdown、缓冲、路径、revision、根、附件、索引和版本图；
+- 响应式在 `≤1100 px` 将检查器改为覆盖层、`≤960 px` 将 Explorer 改为覆盖层，桌面正文至少
+  保留 320 px；紧凑视口不覆盖桌面宽度意图。
+
 ## 最近验证
 
-- 当前差异通过 typecheck、15 files / 92 tests 和 production build；快捷键编辑器独立
-  8.17 KB（gzip 3.04 KB），图谱独立 5.13 KB（gzip 2.42 KB），主 JS 约 973.52 KB
-  （gzip 321.23 KB），仍触发体积警告。
+- 当前差异通过 typecheck、16 files / 96 tests 和 production build；快捷键编辑器独立
+  8.17 KB（gzip 3.04 KB），图谱独立 5.13 KB（gzip 2.42 KB），主 JS 约 977.32 KB
+  （gzip 322.55 KB），仍触发体积警告。
 - Rust workspace 75 项、fmt 与全 target/all feature Clippy `-D warnings` 全部通过；
   Markdown 7 项、storage 50 项覆盖 Wiki 解析/创建、附件安全边界/导入、局部图谱聚合/截断、
   迁移、增量替换、歧义、
   重命名/删除/重建与正向解析，同时保留历史、备份和恢复回归。
-- `pnpm tauri build` 在当前 Windows 电脑通过，生成 6,152,192 B MSI 与 4,643,861 B NSIS；
+- `pnpm tauri build` 在当前 Windows 电脑通过，生成 6,152,192 B MSI 与 4,644,943 B NSIS；
   SHA-256 记录在 `TEST_PLAN.md`，产物位于忽略的 `target/`。
 - 应用内浏览器验证录制、完全/前缀冲突替换、解绑、单项/全部恢复、跨重载、命令面板/右键/
   实际分发统一，以及 480×720 无水平溢出；测试设置已恢复默认。
 - Windows Tauri WebView2 用两个完整进程验证自定义 `Ctrl+Alt+J` 跨重启保留并实际分栏；最小化
   返回 true，自定义关闭按钮结束原生/Vite/CDP，新日志无窗口权限错误。
+- 应用内浏览器验证两侧面板键盘、双击、对象右键、命令面板、拖动模型跨重载和
+  1280/1101/1100/960/720/480 px 响应式；无页面水平溢出或 console error/warning。
+- Windows Tauri WebView2 用两个完整进程真实拖动 `244/270 → 324/330 px` 并跨重启精确恢复，
+  随后恢复默认。v2 只读迁移到 v3，旧记录不改写；工作区 6 篇/1004 B、逐文件 SHA-256 与
+  1171 B identity 摘要前后完全一致，原生/Vite/CDP 监听已关闭。
 - 原生验收意外生成的一篇 UUID 实验测试文件已在大小与 SHA-256 双重匹配后精确清理；对应
   identity 项同步移除。最终恢复原有 6 篇/1004 B 和 1171 B identity，逐文件摘要不变；后续
   原生写入验收必须使用隔离 profile。
@@ -310,8 +328,8 @@ SQLite/稳定身份稳定切片增加：
    生命周期、延迟恢复与多光标输入/撤销已有证据。
 2. 增加 Wiki 关系/局部查询的 10,000/100,000 节点基准、全局分片图谱、Unicode 归一化契约
    与 corpus/fuzz。
-3. 增加可拖动/可调面板、Vim 模式与移动端命令入口；快捷键编辑器、标签和当前 UI 会话恢复
-   已完成。
+3. 增加可停靠面板位置、Vim 模式与移动端命令入口；面板宽度、快捷键编辑器、标签和当前 UI
+   会话恢复已完成。
 4. 补 watcher 高频压力、休眠恢复、占位强杀、只读目录和卷级磁盘满夹具。
 5. 增加外部备份导入/跨设备恢复演练，再进入客户端加密和同步；持续排除根 `AGENTS.md`、
    真实工作区文件、地址、密钥和数据库。
@@ -325,8 +343,8 @@ create 强杀可能留下空占位，安全移动强杀可能留下重复副本�
 阅读器、扩展 Live Preview、可交互大纲、Wiki 双向导航、missing 显式创建与受限静态附件预览
 及受控导入、有界一跳局部图谱已落地，但全局分片图谱、导出/版本 diff 尚未接入；关系
 resolver 每次全局变化仍构造全部候选映射，缺少 10,000/
-100,000 节点基准和跨 Rust/JavaScript Unicode 归一化契约。可调面板与 Vim 模式尚未完成，
-主 bundle gzip 约 321.23 KB 超预算，KaTeX 字体资产待收敛，同步后端仍只是协议/健康
+100,000 节点基准和跨 Rust/JavaScript Unicode 归一化契约。面板停靠位置与 Vim 模式尚未完成，
+主 bundle gzip 约 322.55 KB 超预算，KaTeX 字体资产待收敛，同步后端仍只是协议/健康
 状态骨架。
 
 ## 运行现场与恢复
@@ -334,10 +352,10 @@ resolver 每次全局变化仍构造全部候选映射，缺少 10,000/
 - 浏览器端口：`1420`，本轮 Vite 进程已按命令行与 PID 精确核对后停止，无监听。
 - SSH 隧道：不使用；用户已明确 Linux 只作 GitHub 上传中转，不在其上运行 Vite/Tauri。
 - tmux 会话：不使用；所有开发与验证在当前 Windows 电脑完成。
-- Windows Tauri/Vite/调试进程：已关闭；快捷键测试设置已恢复默认。
+- Windows Tauri/Vite/调试进程：已关闭；快捷键和面板测试设置已恢复默认。
 - 阻塞：无工程阻塞；物理微软拼音候选窗仍需在不干扰用户输入的独立窗口完成。
 - 下一条精确任务：在隔离输入焦点下完成物理微软拼音候选窗与点击回源码验收，再进入 Android
   软键盘；持续排除用户未跟踪的 `AGENTS.md`。
 - 恢复步骤：进入 `%USERPROFILE%\Desktop\Projects\zhiweave`，核对分支
-  `agent/professional-workbench`、最新提交和 `AGENTS.md` 排除；CI run `30524240833` 已通过，
-  从物理候选窗/点击回源码验收、可调面板或关系大数据基准开始。
+  `agent/professional-workbench`、最新提交和 `AGENTS.md` 排除；本轮面板提交上传和 CI 完成后，
+  从物理候选窗/点击回源码、面板停靠位置或关系大数据基准开始。

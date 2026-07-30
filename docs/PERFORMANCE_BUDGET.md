@@ -23,10 +23,10 @@
 
 环境：当前 Windows 电脑，Vite 直接绑定 `127.0.0.1:1420`，Tauri 2 原生开发壳。
 
-- Vitest：15 files / 92 tests。
+- Vitest：16 files / 96 tests。
 - Vite production build：通过。
-- 主 CSS：72.50 KB（gzip 12.89 KB）。
-- 主 JavaScript：约 973.52 KB（gzip 321.23 KB）。
+- 主 CSS：73.56 KB（gzip 13.13 KB）。
+- 主 JavaScript：约 977.32 KB（gzip 322.55 KB）。
 - `EmbeddedLab` 按需 chunk：5.99 KB（gzip 2.45 KB）。
 - `MarkdownPreview` 按需 chunk：14.08 KB（gzip 4.81 KB）。
 - `markdownAst` 按需 chunk：92.24 KB（gzip 26.02 KB）。
@@ -40,9 +40,10 @@
 - Vite 仍报告主 chunk 超过 500 KB。
 
 交互实验、Markdown 解析/阅读、大纲、反向链接面板、局部图谱和公式都不进入无关首屏；
-主包当前为 973.52 KB（gzip 321.23 KB），仍超过 200 KB 目标约 121.23 KB。快捷键编辑器 UI
+主包当前为 977.32 KB（gzip 322.55 KB），仍超过 200 KB 目标约 122.55 KB。快捷键编辑器 UI
 已拆成独立 chunk，但命令有效绑定、冲突匹配和全局分发模型属于工作台启动路径；工作台会话
-模型没有增加运行时依赖，但初始化/迁移代码仍进入主包。局部图谱与标签/紧凑检查器状态样式暂在全局样式中；
+与面板尺寸模型没有增加运行时依赖，但初始化/迁移、分隔条和 pointer/keyboard 分发代码仍进入
+主包。局部图谱与标签/紧凑检查器状态样式暂在全局样式中；
 后两者共增加约 0.58 KB 原始 CSS，主要增量仍来自工作台状态/命令代码。局部图谱的 CSS 暂在
 全局样式中，增加约 3.88 KB 原始 CSS；后续建立 CSS 分片门前必须继续记录这项成本。
 KaTeX 只在遇到公式时加载，但当前上游 CSS 让构建产物同时包含 WOFF2/WOFF/TTF 变体，增加

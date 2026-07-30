@@ -18,6 +18,8 @@
 - 边界：`--border-subtle`、`--border-default`、`--border-focus`
 - 语义：`--accent`、`--success`、`--warning`、`--danger`、`--info`
 - 尺寸：4 px 基线网格，控件高度 24/28/32 px，正文行高 1.6–1.75
+- 面板：主侧栏默认 244 px（200–400 px），检查器默认 270 px（220–420 px）；8 px 分隔热区，
+  空闲线条不制造视觉噪声，Hover/Focus/拖动时才使用强调色
 - 圆角：2/4/6/8 px；避免 12 px 以上大圆角
 - 阴影：只用于命令面板、菜单、对话框等真实叠层
 
