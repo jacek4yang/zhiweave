@@ -1,6 +1,6 @@
 # 开发进度
 
-最后更新：2026-07-30 08:05 CST
+最后更新：2026-07-30 08:56 CST
 
 ## 执行拓扑
 
@@ -35,7 +35,7 @@
 - 状态栏显示实际 UTF-8 BOM、换行风格和保存状态；状态栏右键只展示保存恢复与工作区操作。
 - `.zhiweave/identity.json` 使用版本化开放 JSON 保存不可见稳定节点 ID；正文和 YAML 属性不暴露技术 ID。
 - 外部单一文件改名且内容未变时通过唯一 revision 匹配保留 ID；原生“移动或重命名 Markdown”使用 F2/节点右键，目标存在时绝不覆盖。
-- SQLite schema v1 使用 `rusqlite 0.40.1` bundled SQLite、WAL、FULL synchronous、foreign keys、5 秒 busy timeout、显式 checkpoint 和 application ID。
+- SQLite schema v2 使用 `rusqlite 0.40.1` bundled SQLite、WAL、FULL synchronous、foreign keys、5 秒 busy timeout、显式 checkpoint 和 application ID；v1 原位迁移回填关系边。
 - FTS5 trigram 覆盖中英文子串；1–2 字查询使用有界短查询；查询最多 256 字、返回最多 100 项，UI 默认 50 项。
 - 工作区快照只增量更新 revision/path/title/kind/mtime 发生变化的 FTS 行并清理失效行；保存后同步更新单篇索引。
 - 删除 `index.sqlite3` 后从 Markdown + 隐藏身份自动生成派生库；现存损坏库不会静默替换，工作区仍显示正文并标记“索引需重建”。
@@ -88,20 +88,37 @@
 - 未知/截断 `:::` 指令块与未闭合数学/围栏保持原文；点击展示 widget 会把光标送回源码，
   多光标进入四类结构时均停止对应替换。
 - 自动性能门覆盖 2 MiB 窄视口和 10,000 行代码围栏，只对可见行生成装饰并核对原文不变。
+- Rust Markdown 关系扫描器保真读取 `[[target]]`、alias 与 embed，排除 YAML、代码、注释、
+  转义、嵌套/截断和超限输入；每个 occurrence 保存 link/embed、稳定来源 ID、UTF-8 字节范围、
+  Unicode 行列和有界上下文，不改写 Markdown。
+- `wiki_edge` 是可删除重建的 SQLite 派生表；目标按精确 portable path、唯一 H1/文件 stem
+  和当前节点 heading fragment 解析，同名候选保留 ambiguous，绝不按顺序猜测。
+- 关系在来源正文保存时增量替换；创建、标题/路径变化、删除和全快照会重新解析全局候选。
+  真实 v1 数据库迁移、来源先于目标、重命名、删除、歧义和显式重建均有临时目录回归。
+- Tauri `workspace_backlinks`、application port 与 TypeScript DTO 已贯通；原生右侧反向链接
+  检查器按来源分组，显示 link/embed、行列和上下文，点击后把 Rust UTF-8 byte offset 安全
+  转换成 CodeMirror UTF-16 position 再定位。
+- 关系检查器与大纲互斥、可关闭并持久化界面偏好；面板空白与具体来源 occurrence 使用不同
+  右键上下文，来源项的命令始终作用于来源知识节点。
 
 ## 当前质量证据
 
 - `pnpm typecheck`：通过。
-- `pnpm test`：9 files / 47 tests，通过。
-- `pnpm build`：通过，最近一次约 753 ms。
+- `pnpm lint`：通过。
+- `pnpm test`：9 files / 49 tests，通过。
+- `pnpm build`：通过，最近一次约 513 ms。
 - 交互实验独立 chunk：5.99 KB（gzip 2.46 KB）。
-- Markdown 阅读器 / AST 独立 chunk：11.32 / 92.24 KB（gzip 3.98 / 26.02 KB）。
+- Markdown 阅读器 / AST 独立 chunk：11.18 / 92.24 KB（gzip 3.92 / 26.02 KB）。
 - 文档大纲独立 chunk：1.16 KB（gzip 0.67 KB）。
+- 反向链接检查器独立 chunk：2.71 KB（gzip 1.26 KB）。
 - KaTeX/mathRenderer 独立 chunk：259.23 KB（gzip 77.61 KB），只在公式出现时加载。
-- 主 CSS：55.20 KB（gzip 10.32 KB）。
-- 主 JavaScript：934.49 KB（gzip 310.59 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
-- Rust workspace 49 项测试通过，其中 application 4 项、Tauri 4 项、storage 30 项、portable path 5 项；fmt 和全 workspace Clippy `-D warnings` 通过。
+- 主 CSS：57.99 KB（gzip 10.70 KB）。
+- 主 JavaScript：937.15 KB（gzip 311.35 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
+- Rust workspace 55 项测试通过，其中 application 4 项、Tauri 4 项、storage 33 项、
+  Markdown 7 项、portable path 5 项；fmt 和全 workspace Clippy `-D warnings` 通过。
 - `pnpm audit --prod --audit-level high`：无已知漏洞；`cargo audit --no-fetch --stale` 扫描 471 个 lockfile 依赖，无已知 vulnerability，17 项既有 allowed warning。
+- `pnpm tauri build` 在当前 Windows 电脑通过，生成 5,853,184 B MSI 与 4,438,364 B NSIS；
+  两个 SHA-256 已写入 `TEST_PLAN.md`，构建产物保持在忽略的 `target/`。
 - Windows 原生进程：`知织 · ZhiWeave` 正常运行；固定工作区有 6 个真实 Markdown、identity v1 的 6 个唯一 ID/路径和有效 SQLite 3 数据库。
 - 共享 Markdown AST 功能提交 `27bf009` 已推送；GitHub CI run `30497652526` 的 Frontend 与
   Rust 全部通过。
@@ -134,18 +151,26 @@
 - 本轮 Windows Tauri dev profile 重新编译并启动 `知织 · ZhiWeave`，窗口进程正常响应且启动
   日志无运行期错误；DWM 实际像素窗口截图确认 1924×1204 客户区无裁切。该证据只覆盖原生壳
   启动与静态布局，不替代光标、IME 和点击交互验收。
+- Wiki 反向链接功能提交 `cb70abe` 已在 Windows 完成最终全门禁；2560×1368 原生 DWM 截图
+  显示可关闭检查器且无裁切。本机既有工作区没有当前目标入链，未为截图修改用户 Markdown；
+  非空关系由 storage/Tauri 临时工作区集成测试验证。
+- 本轮应用内浏览器在本地导航和 DOM 读取阶段连续超时，未把反向链接浏览器点击/E2E 标记为
+  通过；浏览器预览按能力边界也不会伪造 SQLite 关系。
 - Live Preview 性能回归：2 MiB 窄视口约 322 ms；10,000 行 fence 可见 24 行用例约 9 ms。
-- `pnpm audit --prod --audit-level high` 无已知漏洞；SOCKS 代理等待无响应后按既有回退策略直连。
+- `pnpm audit --prod --audit-level high` 无已知漏洞；SOCKS 代理 audit 请求重试后失败，按既有
+  回退策略直连完成，代理地址没有写入仓库。
   `cargo audit --no-fetch` 扫描 471 个依赖，无 vulnerability，保留 17 项既有 allowed warning。
 
 ## 当前任务
 
-1. 为扩展后的 Live Preview 完成真实 Windows 光标/IME/多光标、点击回源码与窄屏验收。
-2. 扩展 Markdown Corpus、局部输入 P95/深层/恶意输入基准；大纲已接入，继续 Wiki 目标、反向链接、
-   附件和版本语义 diff。
-3. 增加快捷键编辑器、预览标签和移动触控入口。
-4. 补 watcher 高频压力、文件锁、磁盘满、只读目录和强杀恢复夹具。
-5. 继续集合、Canvas 与跨设备加密备份/同步设计；现有本机目录备份不能冒充加密云备份。
+1. 通过 Linux 上传中转推送 `cb70abe` 与本次验证记录，等待 Draft PR CI 并记录结果。
+2. 下一纵切完成 Wiki 正向目标解析/打开、missing/ambiguous 诊断和阅读/编辑一致交互，再连接
+   真实附件解析；不得在前端另写正则或伪造浏览器关系。
+3. 为扩展后的 Live Preview 补真实 Windows 光标/IME/多光标、点击回源码与窄屏验收。
+4. 扩展 Markdown Corpus、局部输入 P95/深层/恶意输入以及 10,000/100,000 节点关系基准。
+5. 增加快捷键编辑器、预览标签和移动触控入口。
+6. 补 watcher 高频压力、文件锁、磁盘满、只读目录和强杀恢复夹具。
+7. 继续集合、Canvas 与跨设备加密备份/同步设计；现有本机目录备份不能冒充加密云备份。
 
 ## 未解决风险
 
@@ -155,15 +180,19 @@
 - 外部“改名同时改正文”无法仅凭 revision 自动识别为同一节点；应用内显式重命名可以稳定保持身份。
 - watcher 只保证“事件后完整核对”，不保证底层平台一定投递事件；网络文件系统不在当前固定本机工作区支持范围，高频事件压力和进程休眠恢复仍需基准。
 - create 的空占位后若进程强杀可能留下空 Markdown，自动恢复日志未完成。
-- 通用阅读器、Lezer Decoration 和大纲已按 source offset 对齐；数学/脚注/fence 完成当前
-  编辑纵切，但真实附件、搜索/反向链接/导出/版本差异尚未统一完成。
-- 首屏 JS gzip 超预算 110.59 KB；CodeMirror/图标/工作台和命令面板需进一步分包和测量。
+- 通用阅读器、Lezer Decoration、大纲和 Rust 反向关系已按显式 source offset 契约对齐；
+  Wiki 正向打开、真实附件、导出和版本差异尚未统一完成。Rust/JavaScript 的 Unicode
+  归一化跨平台一致性及 10,000/100,000 节点关系性能仍需基准。
+- 首屏 JS gzip 超预算 111.35 KB；CodeMirror/图标/工作台和命令面板需进一步分包和测量。
 - KaTeX 虽按需加载，但构建仍携带上游 WOFF2/WOFF/TTF 多格式字体，安装包资产需要收敛。
 - 已有可校验完整工作区目录包和重启前目录切换恢复，但尚无系统文件选择器导入、跨设备恢复演练、备份加密或同步加密；本地 SQLite 与备份包目前未加密，不得宣称客户端密码保护已完成。
-- Command registry/命令面板第一纵切已完成，但快捷键编辑器、完整树/属性/反向链接、FSRS 与深度学习 schema 尚未完成。
-- 当前垂直切片已发布到 Draft PR；根目录 `AGENTS.md` 仍是用户未跟踪文件，严禁暂存。
+- Command registry/命令面板与原生反向链接第一纵切已完成，但快捷键编辑器、完整树/属性、
+  正向 Wiki/局部图谱、FSRS 与深度学习 schema 尚未完成。
+- 当前垂直切片本地验证完成、等待 Linux 中继发布到 Draft PR；根目录 `AGENTS.md` 仍是用户
+  未跟踪文件，严禁暂存。
 
 ## 当前截图
 
 - [Windows 工作台 1280×720](./baseline/workbench-windows-1280x720.png)
 - [窄屏工作台 390×844](./baseline/workbench-narrow-390x844.png)
+- [Windows 原生反向链接检查器 2560×1368](./baseline/backlinks-windows-2560x1368.png)

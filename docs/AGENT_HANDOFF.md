@@ -1,6 +1,6 @@
 # Agent 交接
 
-最近更新：2026-07-30 08:05 CST
+最近更新：2026-07-30 08:56 CST
 
 ## 不可改变的用户约束
 
@@ -15,8 +15,10 @@
 - 工作目录：`%USERPROFILE%\Desktop\Projects\zhiweave`
 - 分支：`agent/professional-workbench`
 - Draft PR：[jacek4yang/zhiweave#1](https://github.com/jacek4yang/zhiweave/pull/1)
-- 当前功能提交：`9f85c43 Add safe rich Markdown live preview`；验证文档提交：`a2c70cf`。
-- 两个提交已通过 Linux 中继推送；GitHub CI run `30501315962` 的 Frontend 与 Rust 均通过。
+- 最后已推送 HEAD：`2949aad Record rich live preview CI`；GitHub CI run `30501606610` 的
+  Frontend 与 Rust 均通过。
+- 当前本地功能提交：`cb70abe feat(storage): add rebuildable Wiki backlinks`，尚待本次
+  进度/交接提交后一起通过 Linux 中继推送；对应 CI 尚未开始，不能标记通过。
 - 共享 Markdown AST 功能提交 `27bf009` 对应 GitHub CI run `30497652526`：Frontend 与 Rust
   均通过。
 - Windows 原生验证进程已安全关闭；临时日志只在 `%TEMP%`。
@@ -101,11 +103,30 @@ SQLite/稳定身份稳定切片增加：
 - widget 点击回到源码，composition 全局停用替换，全部多光标范围共同决定源码揭示；
 - 2 MiB 窄视口与 10,000 行 fence 自动性能门，原始 CodeMirror 文档逐字符不变。
 
+当前 Wiki 关系与反向链接切片增加：
+
+- Rust 正文扫描器支持 link/alias/embed，并排除 YAML、fenced/indented/inline code、HTML
+  comment、转义、嵌套/截断和超过 500 Unicode scalar 的 target/alias；
+- SQLite index schema v2 新增可重建 `wiki_edge` 与 `wiki_revision`；v1 fixture 原位迁移后
+  从 Markdown 回填，不改变 identity、FTS 或正文；
+- 精确 portable path 优先，其后唯一 H1/filename stem；同名候选 ambiguous、缺失 missing，
+  带目录引用不回退标题，`[[#heading]]` 绑定当前稳定节点；
+- 来源正文保存只替换当前来源边；创建、标题/路径变化、删除和全快照重新解析候选；
+- application/Tauri/TypeScript 贯通 `workspace_backlinks`，原生面板按来源分组显示 link/embed、
+  行列和上下文，点击使用受测 UTF-8 byte → UTF-16 offset 转换定位 CodeMirror；
+- 面板与大纲互斥且可关闭；空白面板和具体来源 occurrence 的右键菜单按实际对象分流；
+- Windows 原生 2560×1368 截图无裁切。未修改本机既有 Markdown 来伪造入链；真实非空关系由
+  临时目录 storage/Tauri 集成测试证明。
+
 ## 最近验证
 
-- pnpm lint/typecheck、47 项前端测试和生产构建通过。
-- Rust workspace 49 项、fmt 与 Clippy `-D warnings` 全部通过；storage 30 项覆盖历史、保留、
-  完整备份、篡改拒绝和恢复中断。
+- 最终差异通过 pnpm lint/typecheck、9 files / 49 tests 和 production build；反向链接检查器
+  独立 chunk 2.71 KB（gzip 1.26 KB），主 JS 937.15 KB（gzip 311.35 KB）仍触发体积警告。
+- Rust workspace 55 项、fmt 与全 target/all feature Clippy `-D warnings` 全部通过；
+  Markdown 7 项、storage 33 项覆盖 Wiki 解析、迁移、增量替换、歧义、重命名/删除/重建，
+  同时保留历史、备份和恢复回归。
+- `pnpm tauri build` 在当前 Windows 电脑通过，生成 5,853,184 B MSI 与 4,438,364 B NSIS；
+  SHA-256 记录在 `TEST_PLAN.md`，产物位于忽略的 `target/`。
 - Windows Tauri 原生验收覆盖保存、分支、重启、删除/空间回收和恢复；测试正文与版本均已清理，固定工作区保持 6 个 Markdown。
 - GitHub CI run `30482533535`：Frontend 21 s、Rust 3 min 1 s，全部通过；Node 20 actions deprecation annotation 尚待 workflow 维护。
 - Windows Tauri 客户区顶部非客户区仅 1 px，证明系统标题栏已移除。
@@ -124,21 +145,26 @@ SQLite/稳定身份稳定切片增加：
   验收只读且调试进程/端口已关闭。
 - 扩展 Live Preview 功能提交 `9f85c43`：Windows 全门禁通过；2 MiB 窄视口约 322 ms，
   10,000 行 fence 可见 24 行用例约 9 ms。
-- GitHub CI run `30501315962`：Frontend 20 s、Rust 3 min 50 s，全部通过。
+- 最后已推送验证提交 `2949aad` 的 GitHub CI run `30501606610`：Frontend 与 Rust 全部通过。
 - Windows Tauri dev profile 7.15 s 编译并启动，原生进程可响应；DWM 1924×1204 截图无窗口
   裁切。随后已关闭进程和 1420 监听。
-- 应用内浏览器连续两次在导航本机页面时超时，所以本轮不能把真实光标、点击、IME 或窄屏
-  交互标记为通过。
-- pnpm 生产依赖审计无已知漏洞；`cargo audit --no-fetch` 扫描 471 个依赖，无 vulnerability，
-  保留 17 项既有 allowed warning。
+- 本轮应用内浏览器在本地导航和 DOM 读取阶段连续超时，所以不能把反向链接浏览器点击/E2E
+  标记为通过；原生 DWM 截图与临时目录集成测试是区分记录的替代证据。
+- pnpm 生产依赖审计先按用户指定 SOCKS5 代理重试，失败后以不下载依赖的直接 audit 回退完成，
+  无已知漏洞；`cargo audit --no-fetch --stale` 扫描 471 个依赖，无 vulnerability，保留
+  17 项既有维护/unsound warning。
 
 ## 下一步顺序
 
-1. 完成扩展 Live Preview 的真实 Windows 光标/点击/IME/多光标/窄屏和 Android 验收。
-2. 已有共享 AST 大纲；继续接入 Wiki 目标/反向链接、附件、导出和版本语义 diff。
-3. 增加快捷键编辑器、预览标签和移动端命令入口。
-4. 补 watcher 高频压力、休眠恢复、占位强杀、只读目录和卷级磁盘满夹具。
-5. 增加外部备份导入/跨设备恢复演练，再进入客户端加密和同步；持续排除根 `AGENTS.md`、
+1. 提交本次 `PROGRESS.md`/`AGENT_HANDOFF.md`，仅用 Linux homeserver 中转推送两个本地提交，
+   更新 Draft PR #1 并等待/修复 GitHub CI。
+2. 下一纵切复用 Rust resolver 完成 Wiki 正向打开与 missing/ambiguous 诊断，再接真实附件；
+   不在浏览器预览中用前端正则或 mock 冒充原生能力。
+3. 补扩展 Live Preview 的真实 Windows 光标/点击/IME/多光标/窄屏和 Android 验收。
+4. 增加 Wiki 关系的 10,000/100,000 节点基准、Unicode 归一化契约与 corpus/fuzz。
+5. 增加快捷键编辑器、预览标签和移动端命令入口。
+6. 补 watcher 高频压力、休眠恢复、占位强杀、只读目录和卷级磁盘满夹具。
+7. 增加外部备份导入/跨设备恢复演练，再进入客户端加密和同步；持续排除根 `AGENTS.md`、
    真实工作区文件、地址、密钥和数据库。
 
 ## 关键风险
@@ -147,6 +173,20 @@ Markdown 文件事实源、稳定 ID、可重建 SQLite/FTS、本机 watcher、�
 重启恢复已进入 alpha，但还不能称为完整长期数据保证：启动与每次外部事件仍全量扫描正文，
 备份包尚未加密且缺少外部导入/跨设备演练；底层平台漏报只能依赖 `Rescan`/后续事件或重启发现。
 create 强杀可能留下空占位，安全移动强杀可能留下重复副本，删源前仍有极窄竞态。共享 mdast
-阅读器、扩展 Live Preview 与可交互大纲已落地，但真实附件、搜索/反向链接/导出/版本 diff
-尚未接入；快捷键编辑器尚未完成，主 bundle gzip 310.59 KB 超预算，KaTeX 字体资产待收敛，
-同步后端仍只是协议/健康状态骨架。
+阅读器、扩展 Live Preview、可交互大纲与可重建反向链接已落地，但 Wiki 正向打开、真实附件、
+导出/版本 diff 尚未接入；关系 resolver 每次全局变化仍构造全部候选映射，缺少 10,000/
+100,000 节点基准和跨 Rust/JavaScript Unicode 归一化契约。快捷键编辑器尚未完成，主 bundle
+gzip 311.35 KB 超预算，KaTeX 字体资产待收敛，同步后端仍只是协议/健康状态骨架。
+
+## 运行现场与恢复
+
+- 浏览器端口：`1420`，当前已停止且无监听。
+- SSH 隧道：不使用；用户已明确 Linux 只作 GitHub 上传中转，不在其上运行 Vite/Tauri。
+- tmux 会话：不使用；所有开发与验证在当前 Windows 电脑完成。
+- Windows Tauri/Vite/调试进程：已关闭。
+- 阻塞：无工程阻塞；应用内浏览器控制连接超时是已记录的 E2E 证据缺口。
+- 下一条精确命令：`git status --short --branch`，确认只有用户未跟踪的 `AGENTS.md` 后创建
+  增量 bundle，经 `ssh homeserver` 导入既有 Linux 仓库并从 Linux 推送当前分支。
+- 恢复步骤：进入 `%USERPROFILE%\Desktop\Projects\zhiweave`，核对分支
+  `agent/professional-workbench`、功能提交 `cb70abe`、本文件的验证提交和 `AGENTS.md` 排除；
+  然后执行 Linux 中继推送、`gh pr checks 1 --watch`，把实际 CI run/结论写回文档。
