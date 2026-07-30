@@ -250,6 +250,8 @@
   6 篇 Markdown 仍为 1004 B，组合摘要 `FC7B12872F9C699524187D15EE82F0332216DCCF3159EB2CCC6026A3F9303E75`；
   1171 B identity 摘要仍为
   `E9CF4C6438DE888803B85E6123BF27680F830C31338A62679C6CB7EFA00D07E2`。
+- 标签功能/验证提交 `1b203f1`/`4b4fbca` 已经 Linux 一次性裸仓库中继上传；GitHub CI run
+  `30517970089` 的 Frontend 与 Rust 全部通过。
 - 本轮应用内浏览器在本地导航和 DOM 读取阶段连续超时，未把反向链接浏览器点击/E2E 标记为
   通过；浏览器预览按能力边界也不会伪造 SQLite 关系。
 - Live Preview 性能回归：2 MiB 窄视口约 322 ms；10,000 行 fence 可见 24 行用例约 9 ms。

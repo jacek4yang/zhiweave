@@ -15,8 +15,9 @@
 - 工作目录：`%USERPROFILE%\Desktop\Projects\zhiweave`
 - 分支：`agent/professional-workbench`
 - Draft PR：[jacek4yang/zhiweave#1](https://github.com/jacek4yang/zhiweave/pull/1)
-- 最新已发布功能提交：`9faa7bc Add bounded local knowledge graph`；已通过 Linux
-  一次性裸仓库中继上传。
+- 最新已发布功能提交：`1b203f1 Add preview and pinned tab sessions`；验证文档提交
+  `4b4fbca Record tab session validation`；都已通过 Linux 一次性裸仓库中继上传。
+- GitHub CI run `30517970089`：Frontend 与 Rust 全部通过。
 - GitHub CI run `30516132915`：Frontend 与 Rust 全部通过。
 - GitHub CI run `30514256379`：Frontend 与 Rust 全部通过。
 - GitHub CI run `30512970355`：Frontend 与 Rust 全部通过。
