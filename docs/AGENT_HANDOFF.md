@@ -1,6 +1,6 @@
 # Agent 交接
 
-最近更新：2026-07-30 17:22 CST
+最近更新：2026-07-30 17:29 CST
 
 ## 不可改变的用户约束
 
@@ -15,6 +15,9 @@
 - 工作目录：`%USERPROFILE%\Desktop\Projects\zhiweave`
 - 分支：`agent/professional-workbench`
 - Draft PR：[jacek4yang/zhiweave#1](https://github.com/jacek4yang/zhiweave/pull/1)
+- 最新已发布功能提交：`20e0ede Add complete workbench appearance modes`；验证文档提交
+  `493860d Document appearance validation`，均已通过 Linux 一次性裸仓库中继上传。
+- GitHub CI run `30530585925`：Frontend 与 Rust 全部通过。
 - 最新已发布功能提交：`a9fa6c6 Add resizable workbench panels`；验证文档提交
   `962ce3d Document resizable panel validation`，均已通过 Linux 一次性裸仓库中继上传。
 - GitHub CI run `30527471482`：Frontend 与 Rust 全部通过。
@@ -39,8 +42,6 @@
 - 共享 Markdown AST 功能提交 `27bf009` 对应 GitHub CI run `30497652526`：Frontend 与 Rust
   均通过。
 - Windows 原生验证进程已安全关闭；临时日志只在 `%TEMP%`。
-- 当前本地外观功能提交：`20e0ede Add complete workbench appearance modes`；等待本轮验证
-  文档提交后经 Linux 一次性中继推送。
 
 ## 已实现切片
 
@@ -277,7 +278,7 @@ SQLite/稳定身份稳定切片增加：
 
 ## 最近验证
 
-- 当前差异通过 typecheck/lint、17 files / 101 tests 和 production build；外观面板独立
+- 完整外观切片通过 typecheck/lint、17 files / 101 tests 和 production build；外观面板独立
   3.26 KB（gzip 1.44 KB），快捷键编辑器独立 8.17 KB（gzip 3.04 KB），图谱独立
   5.13 KB（gzip 2.42 KB），主 JS 约 983.22 KB（gzip 324.34 KB），仍触发体积警告。
 - Rust workspace 75 项、fmt 与全 target/all feature Clippy `-D warnings` 全部通过；
@@ -300,6 +301,8 @@ SQLite/稳定身份稳定切片增加：
 - Windows Tauri WebView2 用两个完整进程验证暖纸浅色/舒适跨重启精确恢复；CodeMirror 实例、
   Markdown、活动标签和滚动位置不变。外观 JSON 只含 3 个允许字段；测试后恢复默认并关闭
   Tauri/Vite/CDP。6 篇/1004 B Markdown 与 1171 B identity 逐文件摘要前后完全一致。
+- 外观功能/验证提交 `20e0ede`/`493860d` 已经 Linux 一次性裸仓库中继上传；GitHub CI run
+  `30530585925` 的 Frontend 与 Rust 全部通过。
 - 原生验收意外生成的一篇 UUID 实验测试文件已在大小与 SHA-256 双重匹配后精确清理；对应
   identity 项同步移除。最终恢复原有 6 篇/1004 B 和 1171 B identity，逐文件摘要不变；后续
   原生写入验收必须使用隔离 profile。
@@ -376,5 +379,5 @@ resolver 每次全局变化仍构造全部候选映射，缺少 10,000/
 - 下一条精确任务：在隔离输入焦点下完成物理微软拼音候选窗与点击回源码验收，再进入 Android
   软键盘；持续排除用户未跟踪的 `AGENTS.md`。
 - 恢复步骤：进入 `%USERPROFILE%\Desktop\Projects\zhiweave`，核对分支
-  `agent/professional-workbench`、最新提交和 `AGENTS.md` 排除；CI run `30527471482` 已通过，
+  `agent/professional-workbench`、最新提交和 `AGENTS.md` 排除；CI run `30530585925` 已通过，
   从物理候选窗/点击回源码、面板停靠位置或关系大数据基准开始。

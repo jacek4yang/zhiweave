@@ -318,8 +318,9 @@
   摘要完全一致，原生/Vite/CDP 监听均已关闭。
 - 可调面板功能/验证提交 `a9fa6c6`/`962ce3d` 已经 Linux 一次性裸仓库中继上传；GitHub CI
   run `30527471482` 的 Frontend 与 Rust 全部通过。
-- 完整外观功能提交 `20e0ede` 已在当前 Windows 电脑通过 17 files / 101 tests、production
-  build、fmt、Clippy 和 75 项 Rust tests；等待本轮验证文档一并通过 Linux 中继上传。
+- 完整外观功能/验证提交 `20e0ede`/`493860d` 已经 Linux 一次性裸仓库中继上传；当前 Windows
+  电脑通过 17 files / 101 tests、production build、fmt、Clippy 和 75 项 Rust tests，
+  GitHub CI run `30530585925` 的 Frontend 与 Rust 全部通过。
 
 ## 当前任务
 
