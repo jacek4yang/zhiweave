@@ -1,6 +1,6 @@
 # Agent 交接
 
-最近更新：2026-07-30 08:56 CST
+最近更新：2026-07-30 09:04 CST
 
 ## 不可改变的用户约束
 
@@ -15,10 +15,10 @@
 - 工作目录：`%USERPROFILE%\Desktop\Projects\zhiweave`
 - 分支：`agent/professional-workbench`
 - Draft PR：[jacek4yang/zhiweave#1](https://github.com/jacek4yang/zhiweave/pull/1)
-- 最后已推送 HEAD：`2949aad Record rich live preview CI`；GitHub CI run `30501606610` 的
-  Frontend 与 Rust 均通过。
-- 当前本地功能提交：`cb70abe feat(storage): add rebuildable Wiki backlinks`，尚待本次
-  进度/交接提交后一起通过 Linux 中继推送；对应 CI 尚未开始，不能标记通过。
+- 当前已推送 HEAD：`d9e2fa3 docs: record Wiki backlink validation`；功能提交
+  `cb70abe feat(storage): add rebuildable Wiki backlinks`。
+- GitHub CI run `30504384326`：Frontend 20 s、Rust 3 min 19 s，全部通过；只保留既有
+  actions Node 20 弃用 annotation。
 - 共享 Markdown AST 功能提交 `27bf009` 对应 GitHub CI run `30497652526`：Frontend 与 Rust
   均通过。
 - Windows 原生验证进程已安全关闭；临时日志只在 `%TEMP%`。
@@ -146,6 +146,8 @@ SQLite/稳定身份稳定切片增加：
 - 扩展 Live Preview 功能提交 `9f85c43`：Windows 全门禁通过；2 MiB 窄视口约 322 ms，
   10,000 行 fence 可见 24 行用例约 9 ms。
 - 最后已推送验证提交 `2949aad` 的 GitHub CI run `30501606610`：Frontend 与 Rust 全部通过。
+- Wiki 反向链接功能/验证提交 `cb70abe`/`d9e2fa3` 已经 Linux 中继推送；GitHub CI run
+  `30504384326` 的 Frontend（20 s）与 Rust（3 min 19 s）全部通过。
 - Windows Tauri dev profile 7.15 s 编译并启动，原生进程可响应；DWM 1924×1204 截图无窗口
   裁切。随后已关闭进程和 1420 监听。
 - 本轮应用内浏览器在本地导航和 DOM 读取阶段连续超时，所以不能把反向链接浏览器点击/E2E
@@ -156,8 +158,7 @@ SQLite/稳定身份稳定切片增加：
 
 ## 下一步顺序
 
-1. 提交本次 `PROGRESS.md`/`AGENT_HANDOFF.md`，仅用 Linux homeserver 中转推送两个本地提交，
-   更新 Draft PR #1 并等待/修复 GitHub CI。
+1. 提交本次 CI 记录，并仅用 Linux homeserver 中转推送。
 2. 下一纵切复用 Rust resolver 完成 Wiki 正向打开与 missing/ambiguous 诊断，再接真实附件；
    不在浏览器预览中用前端正则或 mock 冒充原生能力。
 3. 补扩展 Live Preview 的真实 Windows 光标/点击/IME/多光标/窄屏和 Android 验收。
@@ -185,8 +186,8 @@ gzip 311.35 KB 超预算，KaTeX 字体资产待收敛，同步后端仍只是�
 - tmux 会话：不使用；所有开发与验证在当前 Windows 电脑完成。
 - Windows Tauri/Vite/调试进程：已关闭。
 - 阻塞：无工程阻塞；应用内浏览器控制连接超时是已记录的 E2E 证据缺口。
-- 下一条精确命令：`git status --short --branch`，确认只有用户未跟踪的 `AGENTS.md` 后创建
-  增量 bundle，经 `ssh homeserver` 导入既有 Linux 仓库并从 Linux 推送当前分支。
+- 下一条精确命令：`git status --short --branch`，确认只有用户未跟踪的 `AGENTS.md` 后审计
+  Wiki resolver、阅读器/编辑器 Wiki 点击入口与 command registry，开始正向打开纵切。
 - 恢复步骤：进入 `%USERPROFILE%\Desktop\Projects\zhiweave`，核对分支
-  `agent/professional-workbench`、功能提交 `cb70abe`、本文件的验证提交和 `AGENTS.md` 排除；
-  然后执行 Linux 中继推送、`gh pr checks 1 --watch`，把实际 CI run/结论写回文档。
+  `agent/professional-workbench`、功能提交 `cb70abe`、验证提交 `d9e2fa3`、本文件的 CI 记录提交
+  和 `AGENTS.md` 排除；确认 Draft PR #1 checks 后从 resolver API/诊断测试开始下一纵切。
