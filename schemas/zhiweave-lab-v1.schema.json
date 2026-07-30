@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:zhiweave:schema:lab:1",
+  "title": "ZhiWeave Embedded Lab v1",
+  "description": "A portable declarative embedded lab rendered by a trusted ZhiWeave component.",
+  "type": "object",
+  "required": [
+    "schema",
+    "kind",
+    "title"
+  ],
+  "properties": {
+    "schema": {
+      "const": "zhiweave/lab@1"
+    },
+    "kind": {
+      "const": "uuid"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "initialValue": {
+      "type": "string",
+      "format": "uuid"
+    }
+  },
+  "additionalProperties": false
+}

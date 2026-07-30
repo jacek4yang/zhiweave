@@ -11,16 +11,33 @@ export interface LearningNote {
   readonly id: string;
   readonly title: string;
   readonly view: Exclude<ViewKey, "versions">;
+  readonly kind?: "journal" | "learning_node" | "note";
+  readonly journalDate?: string;
+  readonly path?: string;
+  readonly revision?: string;
+  readonly lineEnding?: "none" | "lf" | "crlf" | "cr" | "mixed";
+  readonly hasUtf8Bom?: boolean;
   readonly markdown: string;
   readonly updatedAt: string;
+}
+
+export interface TextDelta {
+  readonly prefixLength: number;
+  readonly deleteCount: number;
+  readonly insertedText: string;
 }
 
 export interface NoteSnapshot {
   readonly id: string;
   readonly noteId: string;
   readonly noteTitle: string;
-  readonly markdown: string;
+  readonly parentId: string | null;
+  readonly delta: TextDelta;
+  readonly contentLength: number;
   readonly createdAt: string;
+  readonly contentHash?: string;
+  readonly message?: string;
+  readonly checkpointName?: string;
 }
 
 export interface WorkspaceState {
@@ -28,6 +45,7 @@ export interface WorkspaceState {
   readonly selectedNoteId: string;
   readonly completedChecks: Readonly<Record<string, boolean>>;
   readonly snapshots: readonly NoteSnapshot[];
+  readonly versionHeads: Readonly<Record<string, string>>;
 }
 
 export const WORKSPACE_STORAGE_KEY = "zhiweave.workspace.v1";
@@ -40,19 +58,19 @@ export const VIEW_COPY: Readonly<
     description: "把今天最重要的一件事做完。",
   },
   continue: {
-    label: "继续学习",
+    label: "学习",
     description: "回到上次停下的位置。",
   },
   topics: {
-    label: "学习主题",
+    label: "知识库",
     description: "围绕问题组织可持续生长的知识树。",
   },
   sources: {
-    label: "资料与论文",
+    label: "收集箱",
     description: "记录证据、出处、观点与尚未解决的疑问。",
   },
   experiments: {
-    label: "实验与记录",
+    label: "实验",
     description: "用可复现步骤验证代码与想法。",
   },
   review: {
@@ -60,7 +78,7 @@ export const VIEW_COPY: Readonly<
     description: "用主动回忆检查真正掌握的内容。",
   },
   versions: {
-    label: "版本控制",
+    label: "版本",
     description: "手动保存关键节点，需要时恢复。",
   },
 };
@@ -68,7 +86,7 @@ export const VIEW_COPY: Readonly<
 const INITIAL_NOTES: readonly LearningNote[] = [
   {
     id: "welcome",
-    title: "独立跨平台架构",
+    title: "欢迎来到知织",
     view: "continue",
     updatedAt: "2026-07-29T14:00:00.000Z",
     markdown: `# 欢迎来到知织
@@ -106,7 +124,7 @@ const INITIAL_NOTES: readonly LearningNote[] = [
   },
   {
     id: "english-learning",
-    title: "技术英语：ownership",
+    title: "ownership",
     view: "topics",
     updatedAt: "2026-07-29T14:02:00.000Z",
     markdown: `# ownership
@@ -123,7 +141,7 @@ Ownership describes who is responsible for a value and when that value is releas
   },
   {
     id: "paper-reading",
-    title: "论文阅读：先判断证据",
+    title: "论文阅读",
     view: "sources",
     updatedAt: "2026-07-29T14:03:00.000Z",
     markdown: `# 论文阅读
@@ -142,7 +160,7 @@ Ownership describes who is responsible for a value and when that value is releas
   },
   {
     id: "programming-experiment",
-    title: "编程实验：同步健康检查",
+    title: "同步健康检查",
     view: "experiments",
     updatedAt: "2026-07-29T14:04:00.000Z",
     markdown: `# 同步健康检查
@@ -164,7 +182,7 @@ Ownership describes who is responsible for a value and when that value is releas
   },
   {
     id: "review-card",
-    title: "主动回忆：为什么离线优先",
+    title: "为什么离线优先？",
     view: "review",
     updatedAt: "2026-07-29T14:05:00.000Z",
     markdown: `# 为什么离线优先？
@@ -189,10 +207,14 @@ const INITIAL_CHECKS: Readonly<Record<string, boolean>> = {
 
 export function createInitialWorkspace(): WorkspaceState {
   return {
-    notes: INITIAL_NOTES.map((note) => ({ ...note })),
+    notes: INITIAL_NOTES.map((note) => ({
+      ...note,
+      title: titleFromMarkdown(note.markdown, note.title),
+    })),
     selectedNoteId: "welcome",
     completedChecks: { ...INITIAL_CHECKS },
     snapshots: [],
+    versionHeads: {},
   };
 }
 
@@ -203,10 +225,17 @@ export function parseWorkspace(raw: string | null): WorkspaceState {
 
   try {
     const value: unknown = JSON.parse(raw);
-    if (!isWorkspace(value)) {
+    const normalized = normalizeWorkspace(value);
+    if (normalized === undefined) {
       return createInitialWorkspace();
     }
-    return value;
+    return {
+      ...normalized,
+      notes: normalized.notes.map((note) => ({
+        ...note,
+        title: titleFromMarkdown(note.markdown, note.title),
+      })),
+    };
   } catch {
     return createInitialWorkspace();
   }
@@ -252,6 +281,79 @@ export function createLearningPrompt(note: LearningNote): string {
 ${note.markdown}`;
 }
 
+export function titleFromMarkdown(
+  markdown: string,
+  fallback: string,
+): string {
+  const lines = markdown.replaceAll(/\r\n?/g, "\n").split("\n");
+  let frontmatter =
+    lines[0]?.trim() === "---" &&
+    lines
+      .slice(1)
+      .some((line) => /^(?:---|\.\.\.)[ \t]*$/.test(line));
+  let fence: { readonly marker: "`" | "~"; readonly size: number } | null =
+    null;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (frontmatter) {
+      if (index > 0 && /^(?:---|\.\.\.)[ \t]*$/.test(line)) {
+        frontmatter = false;
+      }
+      continue;
+    }
+
+    const fenceMarker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence !== null) {
+      if (
+        fenceMarker?.[0] === fence.marker &&
+        fenceMarker.length >= fence.size &&
+        new RegExp(`^ {0,3}\\${fence.marker}{${fence.size},}[ \\t]*$`).test(
+          line,
+        )
+      ) {
+        fence = null;
+      }
+      continue;
+    }
+    if (fenceMarker !== undefined) {
+      fence = {
+        marker: fenceMarker[0] as "`" | "~",
+        size: fenceMarker.length,
+      };
+      continue;
+    }
+
+    const atxHeading = /^ {0,3}#(?:[ \t]+|$)(.*?)(?:[ \t]+#+[ \t]*)?$/.exec(
+      line,
+    );
+    const setextHeading =
+      line.trim().length > 0 &&
+      /^ {0,3}=+[ \t]*$/.test(lines[index + 1] ?? "")
+        ? line
+        : null;
+    const title = markdownHeadingText(atxHeading?.[1] ?? setextHeading ?? "");
+    if (title.length > 0) {
+      return title;
+    }
+  }
+  return fallback;
+}
+
+function markdownHeadingText(source: string): string {
+  return source
+    .replaceAll(/!\[([^\]]*)\]\([^)\r\n]*\)/g, "$1")
+    .replaceAll(/\[([^\]]+)\]\([^)\r\n]*\)/g, "$1")
+    .replaceAll(/!?\[\[([^\]|\r\n]+)\|([^\]\r\n]+)\]\]/g, "$2")
+    .replaceAll(/!?\[\[([^\]\r\n]+)\]\]/g, "$1")
+    .replaceAll(/<[^>\r\n]+>/g, "")
+    .replaceAll(/\\([\\`*_[\]{}()#+\-.!~>])/g, "$1")
+    .replaceAll(/[*_`~]/g, "")
+    .replaceAll(/\s+/g, " ")
+    .trim()
+    .slice(0, 200);
+}
+
 export function createBlankNote(
   title: string,
   view: Exclude<ViewKey, "versions">,
@@ -265,6 +367,7 @@ export function createBlankNote(
     id,
     title: normalizedTitle,
     view,
+    kind: "note",
     updatedAt: now.toISOString(),
     markdown: `# ${normalizedTitle}
 
@@ -289,16 +392,30 @@ export function addSnapshot(
   note: LearningNote,
   now = new Date(),
 ): WorkspaceState {
+  const parentId =
+    workspace.versionHeads[note.id] ??
+    workspace.snapshots.find((snapshot) => snapshot.noteId === note.id)?.id ??
+    null;
+  const parentMarkdown =
+    parentId === null
+      ? ""
+      : resolveSnapshotMarkdown(workspace, parentId) ?? "";
   const snapshot: NoteSnapshot = {
     id: `${note.id}-${now.getTime().toString(36)}`,
     noteId: note.id,
     noteTitle: note.title,
-    markdown: note.markdown,
+    parentId,
+    delta: createTextDelta(parentMarkdown, note.markdown),
+    contentLength: note.markdown.length,
     createdAt: now.toISOString(),
   };
   return {
     ...workspace,
-    snapshots: [snapshot, ...workspace.snapshots].slice(0, 30),
+    snapshots: [snapshot, ...workspace.snapshots],
+    versionHeads: {
+      ...workspace.versionHeads,
+      [note.id]: snapshot.id,
+    },
   };
 }
 
@@ -311,14 +428,22 @@ export function restoreSnapshot(
   if (snapshot === undefined) {
     return workspace;
   }
+  const markdown = resolveSnapshotMarkdown(workspace, snapshotId);
+  if (markdown === undefined) {
+    return workspace;
+  }
   return {
     ...workspace,
     selectedNoteId: snapshot.noteId,
+    versionHeads: {
+      ...workspace.versionHeads,
+      [snapshot.noteId]: snapshot.id,
+    },
     notes: workspace.notes.map((note) =>
       note.id === snapshot.noteId
         ? {
             ...note,
-            markdown: snapshot.markdown,
+            markdown,
             updatedAt: now.toISOString(),
           }
         : note,
@@ -326,12 +451,216 @@ export function restoreSnapshot(
   };
 }
 
-function isWorkspace(value: unknown): value is WorkspaceState {
-  if (typeof value !== "object" || value === null) {
-    return false;
+export function createTextDelta(base: string, target: string): TextDelta {
+  let prefixLength = 0;
+  const maximumPrefix = Math.min(base.length, target.length);
+  while (
+    prefixLength < maximumPrefix &&
+    base[prefixLength] === target[prefixLength]
+  ) {
+    prefixLength += 1;
   }
-  const candidate = value as Partial<WorkspaceState>;
+
+  let suffixLength = 0;
+  const maximumSuffix = Math.min(
+    base.length - prefixLength,
+    target.length - prefixLength,
+  );
+  while (
+    suffixLength < maximumSuffix &&
+    base[base.length - suffixLength - 1] ===
+      target[target.length - suffixLength - 1]
+  ) {
+    suffixLength += 1;
+  }
+
+  return {
+    prefixLength,
+    deleteCount: base.length - prefixLength - suffixLength,
+    insertedText: target.slice(
+      prefixLength,
+      target.length - suffixLength,
+    ),
+  };
+}
+
+export function applyTextDelta(
+  base: string,
+  delta: TextDelta,
+): string | undefined {
+  if (
+    delta.prefixLength < 0 ||
+    delta.deleteCount < 0 ||
+    delta.prefixLength + delta.deleteCount > base.length
+  ) {
+    return undefined;
+  }
   return (
+    base.slice(0, delta.prefixLength) +
+    delta.insertedText +
+    base.slice(delta.prefixLength + delta.deleteCount)
+  );
+}
+
+export function resolveSnapshotMarkdown(
+  workspace: Pick<WorkspaceState, "snapshots">,
+  snapshotId: string,
+): string | undefined {
+  const snapshots = new Map(
+    workspace.snapshots.map((snapshot) => [snapshot.id, snapshot]),
+  );
+  const chain: NoteSnapshot[] = [];
+  const visited = new Set<string>();
+  let current = snapshots.get(snapshotId);
+
+  while (current !== undefined) {
+    if (visited.has(current.id)) {
+      return undefined;
+    }
+    visited.add(current.id);
+    chain.push(current);
+    if (current.parentId === null) {
+      break;
+    }
+    current = snapshots.get(current.parentId);
+  }
+
+  if (
+    chain.length === 0 ||
+    chain[chain.length - 1]?.parentId !== null
+  ) {
+    return undefined;
+  }
+
+  let markdown = "";
+  for (const snapshot of chain.reverse()) {
+    const next = applyTextDelta(markdown, snapshot.delta);
+    if (next === undefined || next.length !== snapshot.contentLength) {
+      return undefined;
+    }
+    markdown = next;
+  }
+  return markdown;
+}
+
+export function deleteSnapshot(
+  workspace: WorkspaceState,
+  snapshotId: string,
+): WorkspaceState {
+  const target = workspace.snapshots.find(
+    (snapshot) => snapshot.id === snapshotId,
+  );
+  if (target === undefined) {
+    return workspace;
+  }
+
+  const childMarkdown = new Map<string, string>();
+  for (const child of workspace.snapshots) {
+    if (child.parentId === target.id) {
+      const markdown = resolveSnapshotMarkdown(workspace, child.id);
+      if (markdown === undefined) {
+        return workspace;
+      }
+      childMarkdown.set(child.id, markdown);
+    }
+  }
+  const newParentMarkdown =
+    target.parentId === null
+      ? ""
+      : resolveSnapshotMarkdown(workspace, target.parentId);
+  if (newParentMarkdown === undefined) {
+    return workspace;
+  }
+
+  const snapshots = workspace.snapshots
+    .filter((snapshot) => snapshot.id !== target.id)
+    .map((snapshot) => {
+      const markdown = childMarkdown.get(snapshot.id);
+      if (markdown === undefined) {
+        return snapshot;
+      }
+      return {
+        ...snapshot,
+        parentId: target.parentId,
+        delta: createTextDelta(newParentMarkdown, markdown),
+      };
+    });
+  const versionHeads = { ...workspace.versionHeads };
+  if (versionHeads[target.noteId] === target.id) {
+    if (target.parentId === null) {
+      delete versionHeads[target.noteId];
+    } else {
+      versionHeads[target.noteId] = target.parentId;
+    }
+  }
+  return {
+    ...workspace,
+    snapshots,
+    versionHeads,
+  };
+}
+
+export function snapshotStorageBytes(snapshot: NoteSnapshot): number {
+  return new TextEncoder().encode(JSON.stringify(snapshot.delta)).length;
+}
+
+export function openOrCreateDailyJournal(
+  workspace: WorkspaceState,
+  now = new Date(),
+): { readonly workspace: WorkspaceState; readonly note: LearningNote } {
+  const journalDate = formatLocalDate(now);
+  const existing = workspace.notes.find(
+    (note) =>
+      note.kind === "journal" && note.journalDate === journalDate,
+  );
+  if (existing !== undefined) {
+    return {
+      note: existing,
+      workspace: {
+        ...workspace,
+        selectedNoteId: existing.id,
+      },
+    };
+  }
+
+  const note: LearningNote = {
+    id: `journal-${journalDate}`,
+    title: `${journalDate} 日记`,
+    view: "today",
+    kind: "journal",
+    journalDate,
+    updatedAt: now.toISOString(),
+    markdown: `# ${journalDate} 日记
+
+## 今日记录
+
+
+## 学到什么
+
+
+## 明天继续
+
+- [ ]
+`,
+  };
+  return {
+    note,
+    workspace: {
+      ...workspace,
+      notes: [note, ...workspace.notes],
+      selectedNoteId: note.id,
+    },
+  };
+}
+
+function normalizeWorkspace(value: unknown): WorkspaceState | undefined {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+  const candidate = value as Partial<WorkspaceState> & {
+    readonly snapshots?: readonly unknown[];
+  };
+  const validBase =
     typeof candidate.selectedNoteId === "string" &&
     Array.isArray(candidate.notes) &&
     candidate.notes.length > 0 &&
@@ -339,9 +668,25 @@ function isWorkspace(value: unknown): value is WorkspaceState {
     candidate.notes.some((note) => note.id === candidate.selectedNoteId) &&
     typeof candidate.completedChecks === "object" &&
     candidate.completedChecks !== null &&
-    Array.isArray(candidate.snapshots) &&
-    candidate.snapshots.every(isSnapshot)
-  );
+    Array.isArray(candidate.snapshots);
+  if (!validBase || candidate.snapshots === undefined) {
+    return undefined;
+  }
+
+  const snapshots = normalizeSnapshots(candidate.snapshots);
+  if (snapshots === undefined) {
+    return undefined;
+  }
+  const versionHeads = isVersionHeads(candidate.versionHeads)
+    ? candidate.versionHeads
+    : deriveVersionHeads(snapshots);
+  return {
+    notes: candidate.notes,
+    selectedNoteId: candidate.selectedNoteId,
+    completedChecks: candidate.completedChecks,
+    snapshots,
+    versionHeads,
+  };
 }
 
 function isSnapshot(value: unknown): value is NoteSnapshot {
@@ -353,8 +698,106 @@ function isSnapshot(value: unknown): value is NoteSnapshot {
     typeof candidate.id === "string" &&
     typeof candidate.noteId === "string" &&
     typeof candidate.noteTitle === "string" &&
+    (candidate.parentId === null || typeof candidate.parentId === "string") &&
+    isTextDelta(candidate.delta) &&
+    typeof candidate.contentLength === "number" &&
+    Number.isSafeInteger(candidate.contentLength) &&
+    candidate.contentLength >= 0 &&
+    typeof candidate.createdAt === "string"
+  );
+}
+
+interface LegacySnapshot {
+  readonly id: string;
+  readonly noteId: string;
+  readonly noteTitle: string;
+  readonly markdown: string;
+  readonly createdAt: string;
+}
+
+function isLegacySnapshot(value: unknown): value is LegacySnapshot {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const candidate = value as Partial<LegacySnapshot>;
+  return (
+    typeof candidate.id === "string" &&
+    typeof candidate.noteId === "string" &&
+    typeof candidate.noteTitle === "string" &&
     typeof candidate.markdown === "string" &&
     typeof candidate.createdAt === "string"
+  );
+}
+
+function normalizeSnapshots(
+  values: readonly unknown[],
+): readonly NoteSnapshot[] | undefined {
+  if (values.every(isSnapshot)) {
+    return values;
+  }
+  if (!values.every(isLegacySnapshot)) {
+    return undefined;
+  }
+
+  const parentByNote = new Map<string, NoteSnapshot>();
+  const convertedById = new Map<string, NoteSnapshot>();
+  for (const legacy of [...values].reverse()) {
+    const parent = parentByNote.get(legacy.noteId);
+    const parentMarkdown =
+      parent === undefined
+        ? ""
+        : resolveSnapshotMarkdown(
+            { snapshots: [...convertedById.values()] },
+            parent.id,
+          ) ?? "";
+    const converted: NoteSnapshot = {
+      id: legacy.id,
+      noteId: legacy.noteId,
+      noteTitle: legacy.noteTitle,
+      parentId: parent?.id ?? null,
+      delta: createTextDelta(parentMarkdown, legacy.markdown),
+      contentLength: legacy.markdown.length,
+      createdAt: legacy.createdAt,
+    };
+    parentByNote.set(legacy.noteId, converted);
+    convertedById.set(converted.id, converted);
+  }
+  return values.map((legacy) => convertedById.get(legacy.id)!);
+}
+
+function deriveVersionHeads(
+  snapshots: readonly NoteSnapshot[],
+): Readonly<Record<string, string>> {
+  const heads: Record<string, string> = {};
+  for (const snapshot of snapshots) {
+    heads[snapshot.noteId] ??= snapshot.id;
+  }
+  return heads;
+}
+
+function isTextDelta(value: unknown): value is TextDelta {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const candidate = value as Partial<TextDelta>;
+  return (
+    typeof candidate.prefixLength === "number" &&
+    Number.isSafeInteger(candidate.prefixLength) &&
+    candidate.prefixLength >= 0 &&
+    typeof candidate.deleteCount === "number" &&
+    Number.isSafeInteger(candidate.deleteCount) &&
+    candidate.deleteCount >= 0 &&
+    typeof candidate.insertedText === "string"
+  );
+}
+
+function isVersionHeads(
+  value: unknown,
+): value is Readonly<Record<string, string>> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    Object.values(value).every((head) => typeof head === "string")
   );
 }
 
@@ -368,6 +811,23 @@ function isLearningNote(value: unknown): value is LearningNote {
     typeof candidate.title === "string" &&
     typeof candidate.markdown === "string" &&
     typeof candidate.updatedAt === "string" &&
+    (candidate.path === undefined || typeof candidate.path === "string") &&
+    (candidate.revision === undefined ||
+      typeof candidate.revision === "string") &&
+    (candidate.lineEnding === undefined ||
+      candidate.lineEnding === "none" ||
+      candidate.lineEnding === "lf" ||
+      candidate.lineEnding === "crlf" ||
+      candidate.lineEnding === "cr" ||
+      candidate.lineEnding === "mixed") &&
+    (candidate.hasUtf8Bom === undefined ||
+      typeof candidate.hasUtf8Bom === "boolean") &&
+    (candidate.kind === undefined ||
+      candidate.kind === "journal" ||
+      candidate.kind === "learning_node" ||
+      candidate.kind === "note") &&
+    (candidate.journalDate === undefined ||
+      typeof candidate.journalDate === "string") &&
     (candidate.view === "today" ||
       candidate.view === "continue" ||
       candidate.view === "topics" ||
@@ -375,4 +835,11 @@ function isLearningNote(value: unknown): value is LearningNote {
       candidate.view === "experiments" ||
       candidate.view === "review")
   );
+}
+
+function formatLocalDate(value: Date): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }

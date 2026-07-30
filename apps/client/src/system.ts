@@ -17,11 +17,15 @@ const BROWSER_PREVIEW_STATUS: SystemStatus = {
 };
 
 export async function loadSystemStatus(): Promise<SystemStatus> {
-  if (
-    typeof window === "undefined" ||
-    !("__TAURI_INTERNALS__" in window)
-  ) {
+  if (!isNativeRuntime()) {
     return BROWSER_PREVIEW_STATUS;
   }
   return invoke<SystemStatus>("system_status");
+}
+
+export function isNativeRuntime(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    "__TAURI_INTERNALS__" in window
+  );
 }
