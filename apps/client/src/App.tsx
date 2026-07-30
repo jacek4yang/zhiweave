@@ -114,7 +114,18 @@ import {
   reconcileTabSession,
   remapTabSession,
   reopenClosedTabInSession,
+  type TabSession,
 } from "./tabModel";
+import {
+  DEFAULT_WORKBENCH_PREFERENCES,
+  LEGACY_WORKBENCH_PREFERENCES_KEY,
+  WORKBENCH_PREFERENCES_KEY,
+  parseWorkbenchPreferences,
+  restoreWorkbenchTabSession,
+  serializeWorkbenchPreferences,
+  type WorkbenchEditorMode,
+  type WorkbenchPreferences,
+} from "./workbenchPreferences";
 import {
   applyNativeVersionRetention,
   asWorkspaceFailure,
@@ -179,8 +190,7 @@ const LocalGraphPanel = lazy(async () => {
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-type EditorMode = "edit" | "preview" | "split";
-const WORKBENCH_PREFERENCES_KEY = "zhiweave.workbench.preferences.v1";
+type EditorMode = WorkbenchEditorMode;
 type SaveState =
   | "preview"
   | "loading"
@@ -210,6 +220,14 @@ interface CommandTarget {
   readonly rawWikiTarget?: string;
   readonly scope?: CommandScope;
   readonly snapshotId?: string;
+}
+
+interface InitialWorkbenchBoot {
+  readonly activeNoteId: string | null;
+  readonly activeView: ViewKey;
+  readonly preferences: WorkbenchPreferences;
+  readonly tabSession: TabSession;
+  readonly workspace: WorkspaceState;
 }
 
 interface PendingWikiCreation {
@@ -254,39 +272,42 @@ const NOTE_VIEWS = [...PRIMARY_NAVIGATION, ...SECONDARY_NAVIGATION]
 
 export function App() {
   const nativeRuntime = isNativeRuntime();
-  const [workspace, setWorkspace] = useState<WorkspaceState>(() =>
-    nativeRuntime
-      ? createInitialWorkspace()
-      : parseWorkspace(readStoredWorkspace()),
+  const [initialBoot] = useState(() =>
+    createInitialWorkbenchBoot(nativeRuntime),
+  );
+  const [workspace, setWorkspace] = useState<WorkspaceState>(
+    initialBoot.workspace,
   );
   const [activeView, setActiveView] = useState<ViewKey>(
-    () =>
-      workspace.notes.find((note) => note.id === workspace.selectedNoteId)
-        ?.view ?? "continue",
+    initialBoot.activeView,
   );
   const [activeNoteId, setActiveNoteId] = useState<string | null>(
-    workspace.selectedNoteId,
+    initialBoot.activeNoteId,
   );
-  const [tabSession, setTabSession] = useState(() =>
-    createTabSession(workspace.selectedNoteId),
+  const [tabSession, setTabSession] = useState<TabSession>(
+    initialBoot.tabSession,
   );
-  const [editorMode, setEditorMode] = useState<EditorMode>("edit");
+  const [editorMode, setEditorMode] = useState<EditorMode>(
+    initialBoot.preferences.editorMode,
+  );
   const [livePreviewEnabled, setLivePreviewEnabled] = useState(
-    () => readWorkbenchPreferences().livePreviewEnabled,
+    initialBoot.preferences.livePreviewEnabled,
   );
   const [outlineOpen, setOutlineOpen] = useState(
-    () => readWorkbenchPreferences().outlineOpen,
+    initialBoot.preferences.inspector === "outline",
   );
   const [backlinksOpen, setBacklinksOpen] = useState(
-    () => nativeRuntime && readWorkbenchPreferences().backlinksOpen,
+    nativeRuntime && initialBoot.preferences.inspector === "backlinks",
   );
   const [localGraphOpen, setLocalGraphOpen] = useState(
-    () => nativeRuntime && readWorkbenchPreferences().localGraphOpen,
+    nativeRuntime && initialBoot.preferences.inspector === "graph",
   );
   const [editorStatus, setEditorStatus] =
     useState<EditorStatus>(EMPTY_EDITOR_STATUS);
   const [isSidebarOpen, setIsSidebarOpen] = useState(
-    () => window.innerWidth > 960,
+    () =>
+      window.innerWidth > 960 &&
+      initialBoot.preferences.sidebarOpen,
   );
   const [isNewNoteOpen, setIsNewNoteOpen] = useState(false);
   const [newTitle, setNewTitle] = useState("");
@@ -374,6 +395,9 @@ export function App() {
   const saveAttemptRef = useRef(0);
   const workspaceRef = useRef(workspace);
   const workspaceReadyRef = useRef(false);
+  const sidebarOpenPreferenceRef = useRef(
+    initialBoot.preferences.sidebarOpen,
+  );
   const checkingExternalChangesRef = useRef(false);
   const pendingExternalCheckRef = useRef(false);
 
@@ -446,23 +470,40 @@ export function App() {
           return;
         }
         const next = nativeSnapshotToWorkspace(snapshot);
-        const selected = next.notes.find(
-          (note) => note.id === next.selectedNoteId,
+        const restored = restoreWorkbenchTabSession(
+          initialBoot.preferences,
+          new Set(next.notes.map((note) => note.id)),
+          next.selectedNoteId,
         );
+        const selected = next.notes.find(
+          (note) => note.id === restored.activeNoteId,
+        );
+        const hydratedWorkspace =
+          selected === undefined
+            ? next
+            : {
+                ...next,
+                selectedNoteId: selected.id,
+              };
         lastPersistedMarkdownRef.current = new Map(
           next.notes.map((note) => [note.id, note.markdown]),
         );
         latestMarkdownRef.current = new Map(
           next.notes.map((note) => [note.id, note.markdown]),
         );
-        setWorkspace(next);
+        workspaceReadyRef.current = true;
+        setWorkspace(hydratedWorkspace);
         setNativeRoot(snapshot.rootDisplay);
         setNativeIndex(snapshot.index);
         setActiveNoteId(selected?.id ?? null);
-        setTabSession(createTabSession(selected?.id ?? null));
-        setActiveView(selected?.view ?? "continue");
+        setTabSession(restored.session);
+        setActiveView(
+          initialBoot.preferences.versionsOpen &&
+            initialBoot.preferences.activeNoteId === selected?.id
+            ? "versions"
+            : selected?.view ?? "continue",
+        );
         setSaveState("saved");
-        workspaceReadyRef.current = true;
         if (snapshot.index.state === "needsRebuild") {
           setToast("Markdown 已打开；全文索引损坏，需要从状态栏明确重建。");
         } else if (snapshot.index.state === "unavailable") {
@@ -481,7 +522,7 @@ export function App() {
       active = false;
       workspaceReadyRef.current = false;
     };
-  }, [nativeRuntime]);
+  }, [initialBoot.preferences, nativeRuntime]);
 
   useEffect(() => {
     if (
@@ -786,20 +827,44 @@ export function App() {
   }, [nativeRuntime, workspace]);
 
   useEffect(() => {
+    if (nativeRuntime && !workspaceReadyRef.current) {
+      return;
+    }
     try {
       localStorage.setItem(
         WORKBENCH_PREFERENCES_KEY,
-        JSON.stringify({
-          backlinksOpen,
+        serializeWorkbenchPreferences({
+          activeNoteId,
+          editorMode,
+          inspector: outlineOpen
+            ? "outline"
+            : backlinksOpen
+              ? "backlinks"
+              : localGraphOpen
+                ? "graph"
+                : null,
           livePreviewEnabled,
-          localGraphOpen,
-          outlineOpen,
+          sidebarOpen: sidebarOpenPreferenceRef.current,
+          tabSession,
+          versionsOpen:
+            activeNoteId !== null && activeView === "versions",
         }),
       );
     } catch {
       // UI preferences are optional; Markdown persistence is independent.
     }
-  }, [backlinksOpen, livePreviewEnabled, localGraphOpen, outlineOpen]);
+  }, [
+    activeNoteId,
+    activeView,
+    backlinksOpen,
+    editorMode,
+    isSidebarOpen,
+    livePreviewEnabled,
+    localGraphOpen,
+    nativeRuntime,
+    outlineOpen,
+    tabSession,
+  ]);
 
   useEffect(() => {
     if (
@@ -1001,14 +1066,22 @@ export function App() {
 
   useEffect(() => {
     const compactWindow = window.matchMedia("(max-width: 960px)");
-    const closeSidebarInCompactWindow = () => {
-      if (compactWindow.matches) {
-        setIsSidebarOpen(false);
-      }
+    const synchronizeSidebarWithViewport = () => {
+      setIsSidebarOpen(
+        compactWindow.matches
+          ? false
+          : sidebarOpenPreferenceRef.current,
+      );
     };
-    compactWindow.addEventListener("change", closeSidebarInCompactWindow);
+    compactWindow.addEventListener(
+      "change",
+      synchronizeSidebarWithViewport,
+    );
     return () =>
-      compactWindow.removeEventListener("change", closeSidebarInCompactWindow);
+      compactWindow.removeEventListener(
+        "change",
+        synchronizeSidebarWithViewport,
+      );
   }, []);
 
   function navigate(view: ViewKey) {
@@ -1633,10 +1706,13 @@ export function App() {
       setNativeRelationEpoch((epoch) => epoch + 1);
       const currentActiveId = activeNoteIdRef.current;
       const nextActiveId =
-        currentActiveId !== null &&
-        merged.workspace.notes.some((note) => note.id === currentActiveId)
-          ? currentActiveId
-          : (merged.workspace.notes[0]?.id ?? null);
+        currentActiveId === null
+          ? null
+          : merged.workspace.notes.some(
+                (note) => note.id === currentActiveId,
+              )
+            ? currentActiveId
+            : (merged.workspace.notes[0]?.id ?? null);
       activeNoteIdRef.current = nextActiveId;
       setActiveNoteId(nextActiveId);
       const nextActive = merged.workspace.notes.find(
@@ -2759,6 +2835,9 @@ export function App() {
         setIsCommandPaletteOpen(true);
         return;
       case "workbench.quickOpen":
+        if (!window.matchMedia("(max-width: 960px)").matches) {
+          sidebarOpenPreferenceRef.current = true;
+        }
         setIsSidebarOpen(true);
         window.setTimeout(() => searchInputRef.current?.focus(), 0);
         return;
@@ -2766,7 +2845,13 @@ export function App() {
         setQuery("");
         return;
       case "workbench.toggleSidebar":
-        setIsSidebarOpen((value) => !value);
+        setIsSidebarOpen((value) => {
+          const next = !value;
+          if (!window.matchMedia("(max-width: 960px)").matches) {
+            sidebarOpenPreferenceRef.current = next;
+          }
+          return next;
+        });
         return;
       case "workspace.createNote":
         modalPreviousFocusRef.current =
@@ -5136,6 +5221,64 @@ function readStoredWorkspace(): string | null {
   }
 }
 
+function createInitialWorkbenchBoot(
+  nativeRuntime: boolean,
+): InitialWorkbenchBoot {
+  const preferences = readStoredWorkbenchPreferences();
+  const workspace = nativeRuntime
+    ? createInitialWorkspace()
+    : parseWorkspace(readStoredWorkspace());
+  if (nativeRuntime) {
+    const selected = workspace.notes.find(
+      (note) => note.id === workspace.selectedNoteId,
+    );
+    return {
+      activeNoteId: selected?.id ?? null,
+      activeView: selected?.view ?? "continue",
+      preferences,
+      tabSession: createTabSession(selected?.id ?? null),
+      workspace,
+    };
+  }
+
+  const restored = restoreWorkbenchTabSession(
+    preferences,
+    new Set(workspace.notes.map((note) => note.id)),
+    workspace.selectedNoteId,
+  );
+  const selected = workspace.notes.find(
+    (note) => note.id === restored.activeNoteId,
+  );
+  return {
+    activeNoteId: selected?.id ?? null,
+    activeView:
+      preferences.versionsOpen &&
+      preferences.activeNoteId === selected?.id
+        ? "versions"
+        : selected?.view ?? "continue",
+    preferences,
+    tabSession: restored.session,
+    workspace:
+      selected === undefined
+        ? workspace
+        : {
+            ...workspace,
+            selectedNoteId: selected.id,
+          },
+  };
+}
+
+function readStoredWorkbenchPreferences(): WorkbenchPreferences {
+  try {
+    return parseWorkbenchPreferences(
+      localStorage.getItem(WORKBENCH_PREFERENCES_KEY),
+      localStorage.getItem(LEGACY_WORKBENCH_PREFERENCES_KEY),
+    );
+  } catch {
+    return DEFAULT_WORKBENCH_PREFERENCES;
+  }
+}
+
 async function copyText(text: string): Promise<void> {
   if (navigator.clipboard?.writeText !== undefined) {
     await navigator.clipboard.writeText(text);
@@ -5514,57 +5657,6 @@ function commandIcon(id: CommandId) {
       return Save;
     default:
       return CommandIcon;
-  }
-}
-
-function readWorkbenchPreferences(): {
-  readonly backlinksOpen: boolean;
-  readonly livePreviewEnabled: boolean;
-  readonly localGraphOpen: boolean;
-  readonly outlineOpen: boolean;
-} {
-  const defaults = {
-    backlinksOpen: false,
-    livePreviewEnabled: true,
-    localGraphOpen: false,
-    outlineOpen: false,
-  };
-  try {
-    const stored = localStorage.getItem(WORKBENCH_PREFERENCES_KEY);
-    if (stored === null) {
-      return defaults;
-    }
-    const parsed: unknown = JSON.parse(stored);
-    if (typeof parsed !== "object" || parsed === null) {
-      return defaults;
-    }
-    const outlineOpen =
-      "outlineOpen" in parsed &&
-      typeof parsed.outlineOpen === "boolean"
-        ? parsed.outlineOpen
-        : defaults.outlineOpen;
-    const backlinksOpen =
-      "backlinksOpen" in parsed &&
-      typeof parsed.backlinksOpen === "boolean"
-        ? parsed.backlinksOpen
-        : defaults.backlinksOpen;
-    const localGraphOpen =
-      "localGraphOpen" in parsed &&
-      typeof parsed.localGraphOpen === "boolean"
-        ? parsed.localGraphOpen
-        : defaults.localGraphOpen;
-    return {
-      backlinksOpen: backlinksOpen && !outlineOpen,
-      livePreviewEnabled:
-        "livePreviewEnabled" in parsed &&
-        typeof parsed.livePreviewEnabled === "boolean"
-          ? parsed.livePreviewEnabled
-          : defaults.livePreviewEnabled,
-      localGraphOpen: localGraphOpen && !outlineOpen && !backlinksOpen,
-      outlineOpen,
-    };
-  } catch {
-    return defaults;
   }
 }
 
