@@ -2,5 +2,10 @@
   "identifier": "main-window",
   "description": "The minimum capability set for the ZhiWeave main window.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-close",
+    "core:window:allow-minimize",
+    "core:window:allow-start-dragging"
+  ]
 }
