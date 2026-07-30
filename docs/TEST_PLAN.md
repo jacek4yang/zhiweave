@@ -67,6 +67,9 @@
   all-target/all-feature Clippy `-D warnings` 与 workspace all-feature tests。
 - GitHub CI run `30517970089` 对临时预览/固定标签功能与验证提交通过 Frontend、fmt、
   workspace all-target/all-feature Clippy `-D warnings` 与 workspace all-feature tests。
+- GitHub CI run `30520065978` 对工作台会话恢复功能/验证提交 `7955800`/`91f9337` 通过
+  Frontend、fmt、workspace all-target/all-feature Clippy `-D warnings` 与 workspace
+  all-feature tests。
 - GitHub CI run `30514256379` 对输入可靠性提交 `1c3bf82` 再次通过 Frontend、fmt、workspace
   all-target/all-feature Clippy `-D warnings` 与 workspace all-feature tests。
 - GitHub CI run `30516132915` 对局部图谱提交 `9faa7bc` 再次通过 Frontend、fmt、workspace

@@ -15,10 +15,11 @@
 - 工作目录：`%USERPROFILE%\Desktop\Projects\zhiweave`
 - 分支：`agent/professional-workbench`
 - Draft PR：[jacek4yang/zhiweave#1](https://github.com/jacek4yang/zhiweave/pull/1)
-- 最新本地功能提交：`7955800 Restore workbench sessions across restarts`；本节质量门已在
-  Windows 完成，尚待本轮 Linux 一次性中继上传与 PR CI。
-- 最新已发布功能提交：`1b203f1 Add preview and pinned tab sessions`；验证文档提交
-  `4b4fbca Record tab session validation`；都已通过 Linux 一次性裸仓库中继上传。
+- 最新已发布功能提交：`7955800 Restore workbench sessions across restarts`；验证文档提交
+  `91f9337 Record workbench session validation`；都已通过 Linux 一次性裸仓库中继上传。
+- GitHub CI run `30520065978`：Frontend 与 Rust 全部通过。
+- 上一标签功能提交：`1b203f1 Add preview and pinned tab sessions`；验证文档提交
+  `4b4fbca Record tab session validation`。
 - GitHub CI run `30517970089`：Frontend 与 Rust 全部通过。
 - GitHub CI run `30516132915`：Frontend 与 Rust 全部通过。
 - GitHub CI run `30514256379`：Frontend 与 Rust 全部通过。
@@ -310,5 +311,5 @@ resolver 每次全局变化仍构造全部候选映射，缺少 10,000/
 - 下一条精确任务：在隔离输入焦点下完成物理微软拼音候选窗与点击回源码验收，再进入 Android
   软键盘；持续排除用户未跟踪的 `AGENTS.md`。
 - 恢复步骤：进入 `%USERPROFILE%\Desktop\Projects\zhiweave`，核对分支
-  `agent/professional-workbench`、最新提交和 `AGENTS.md` 排除；CI run `30516132915` 已通过，
+  `agent/professional-workbench`、最新提交和 `AGENTS.md` 排除；CI run `30520065978` 已通过，
   从物理候选窗/点击回源码验收或关系大数据基准开始。
