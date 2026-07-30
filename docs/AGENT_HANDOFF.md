@@ -1,6 +1,6 @@
 # Agent 交接
 
-最近更新：2026-07-30 07:55 CST
+最近更新：2026-07-30 08:05 CST
 
 ## 不可改变的用户约束
 
@@ -15,8 +15,8 @@
 - 工作目录：`%USERPROFILE%\Desktop\Projects\zhiweave`
 - 分支：`agent/professional-workbench`
 - Draft PR：[jacek4yang/zhiweave#1](https://github.com/jacek4yang/zhiweave/pull/1)
-- 当前功能提交：`9f85c43 Add safe rich Markdown live preview`；本交接提交完成后需通过 Linux
-  中继推送并等待 GitHub CI。
+- 当前功能提交：`9f85c43 Add safe rich Markdown live preview`；验证文档提交：`a2c70cf`。
+- 两个提交已通过 Linux 中继推送；GitHub CI run `30501315962` 的 Frontend 与 Rust 均通过。
 - 共享 Markdown AST 功能提交 `27bf009` 对应 GitHub CI run `30497652526`：Frontend 与 Rust
   均通过。
 - Windows 原生验证进程已安全关闭；临时日志只在 `%TEMP%`。
@@ -124,6 +124,7 @@ SQLite/稳定身份稳定切片增加：
   验收只读且调试进程/端口已关闭。
 - 扩展 Live Preview 功能提交 `9f85c43`：Windows 全门禁通过；2 MiB 窄视口约 322 ms，
   10,000 行 fence 可见 24 行用例约 9 ms。
+- GitHub CI run `30501315962`：Frontend 20 s、Rust 3 min 50 s，全部通过。
 - Windows Tauri dev profile 7.15 s 编译并启动，原生进程可响应；DWM 1924×1204 截图无窗口
   裁切。随后已关闭进程和 1420 监听。
 - 应用内浏览器连续两次在导航本机页面时超时，所以本轮不能把真实光标、点击、IME 或窄屏

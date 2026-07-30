@@ -1,6 +1,6 @@
 # 开发进度
 
-最后更新：2026-07-30 07:55 CST
+最后更新：2026-07-30 08:05 CST
 
 ## 执行拓扑
 
@@ -107,6 +107,8 @@
   Rust 全部通过。
 - Live Preview 与语义大纲提交 `5c060b9` 已经 Linux 中继推送；GitHub CI run `30499669886`
   的 Frontend（25 s）与 Rust（3 min 14 s）全部通过。
+- 扩展 Live Preview 功能与验证提交 `9f85c43`/`a2c70cf` 已经 Linux 中继推送；GitHub CI
+  run `30501315962` 的 Frontend（20 s）与 Rust（3 min 50 s）全部通过。
 - GitHub CI run `30487216178`：watcher 跨平台修复后的 Frontend 与 Rust 全部通过。
 - CI 有一项非阻断 annotation：部分 actions 仍声明 Node 20，GitHub runner 已强制 Node 24；列为 workflow 维护项。
 - [Draft PR #1](https://github.com/jacek4yang/zhiweave/pull/1) 已创建。
