@@ -15,8 +15,8 @@
 - 工作目录：`%USERPROFILE%\Desktop\Projects\zhiweave`
 - 分支：`agent/professional-workbench`
 - Draft PR：[jacek4yang/zhiweave#1](https://github.com/jacek4yang/zhiweave/pull/1)
-- 当前工作树在 `f677260` 之后完成 missing Wiki 显式创建与安全本地附件纵切；待本轮提交、
-  Linux 中继推送和 GitHub CI 后填写新 HEAD。
+- 当前功能 HEAD：`4ee65fb feat(markdown): resolve safe local attachments`；已完成 Windows
+  全门禁与原生安装包构建，待本轮验证文档提交、Linux 中继推送和 GitHub CI。
 - 上一 GitHub CI run `30506855740`：Frontend 与 Rust 全部通过。
 - GitHub CI run `30504384326`：Frontend 20 s、Rust 3 min 19 s，全部通过；只保留既有
   actions Node 20 弃用 annotation。

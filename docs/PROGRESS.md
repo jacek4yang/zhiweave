@@ -182,6 +182,9 @@
   Rust workspace 56 项测试、fmt、Clippy、生产构建、依赖审计和 Tauri 安装包均通过。
 - Wiki 正向导航功能与验证提交 `4ee24cf`/`f677260` 已通过 Linux 临时裸仓库中继推送；GitHub
   CI run `30506855740` 的 Frontend 与 Rust 全部通过。
+- missing Wiki 显式创建与安全本地附件功能提交 `4ee65fb` 已在当前 Windows 电脑通过 54 项
+  前端测试、66 项 Rust 测试、typecheck、production build、fmt、Clippy 和 Tauri 原生构建；
+  待验证文档提交后只经 Linux 中继推送。
 - Windows 原生只读验证确认：当前用户工作区的 `#下一步` 自引用可解析并定位 heading，缺失目标
   返回 missing；内存临时 Wiki DOM 右键只出现对应两项命令，未保存、注入或改写用户 Markdown。
 - 1942×1214 物理像素原生截图与 WebView2 DOM 核对确认 1280×800 CSS viewport、24 px 状态栏、
