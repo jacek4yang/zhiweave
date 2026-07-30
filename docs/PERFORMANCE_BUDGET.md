@@ -23,10 +23,10 @@
 
 环境：当前 Windows 电脑，Vite 直接绑定 `127.0.0.1:1420`，Tauri 2 原生开发壳。
 
-- Vitest：16 files / 96 tests。
+- Vitest：17 files / 101 tests。
 - Vite production build：通过。
-- 主 CSS：73.56 KB（gzip 13.13 KB）。
-- 主 JavaScript：约 977.32 KB（gzip 322.55 KB）。
+- 主 CSS：84.45 KB（gzip 15.07 KB）。
+- 主 JavaScript：约 983.22 KB（gzip 324.34 KB）。
 - `EmbeddedLab` 按需 chunk：5.99 KB（gzip 2.45 KB）。
 - `MarkdownPreview` 按需 chunk：14.08 KB（gzip 4.81 KB）。
 - `markdownAst` 按需 chunk：92.24 KB（gzip 26.02 KB）。
@@ -34,18 +34,22 @@
 - `BacklinksPanel` 按需 chunk：2.71 KB（gzip 1.26 KB）。
 - `LocalGraphPanel` 按需 chunk：5.13 KB（gzip 2.42 KB）；不开启局部图谱时不进入执行路径。
 - `ShortcutEditor` 按需 chunk：8.17 KB（gzip 3.04 KB）；不打开快捷键设置时不进入执行路径。
+- `AppearancePanel` 按需 chunk：3.26 KB（gzip 1.44 KB）；不打开外观面板时不进入执行路径。
 - `wikiNavigation` 按需 chunk：0.34 KB（gzip 0.26 KB）；只在成功解析并需要 heading 定位时加载。
 - `MathFormula` 包装 chunk：0.47 KB（gzip 0.40 KB）；共享 `mathRenderer`/KaTeX 按需 chunk：
   259.23 KB（gzip 77.61 KB），KaTeX CSS 28.83 KB（gzip 7.92 KB）。
 - Vite 仍报告主 chunk 超过 500 KB。
 
-交互实验、Markdown 解析/阅读、大纲、反向链接面板、局部图谱和公式都不进入无关首屏；
-主包当前为 977.32 KB（gzip 322.55 KB），仍超过 200 KB 目标约 122.55 KB。快捷键编辑器 UI
+交互实验、Markdown 解析/阅读、大纲、反向链接面板、局部图谱、外观面板和公式都不进入无关
+首屏；主包当前为 983.22 KB（gzip 324.34 KB），仍超过 200 KB 目标约 124.34 KB。快捷键和
+外观面板 UI
 已拆成独立 chunk，但命令有效绑定、冲突匹配和全局分发模型属于工作台启动路径；工作台会话
 与面板尺寸模型没有增加运行时依赖，但初始化/迁移、分隔条和 pointer/keyboard 分发代码仍进入
 主包。局部图谱与标签/紧凑检查器状态样式暂在全局样式中；
-后两者共增加约 0.58 KB 原始 CSS，主要增量仍来自工作台状态/命令代码。局部图谱的 CSS 暂在
-全局样式中，增加约 3.88 KB 原始 CSS；后续建立 CSS 分片门前必须继续记录这项成本。
+后两者共增加约 0.58 KB 原始 CSS，主要增量仍来自工作台状态/命令代码。完整外观系统相对上轮
+增加约 10.89 KB 原始 CSS（gzip 1.94 KB）；主题 token 与三档密度当前必须首屏可用。外观面板
+本体已按需拆出，主 JS 相对上轮增加约 5.90 KB（gzip 1.79 KB）。局部图谱的 CSS 暂在全局样式
+中，增加约 3.88 KB 原始 CSS；后续建立 CSS 分片门前必须继续记录这些成本。
 KaTeX 只在遇到公式时加载，但当前上游 CSS 让构建产物同时包含 WOFF2/WOFF/TTF 变体，增加
 安装包体积；后续应验证 WebView2/跨平台字体覆盖后收敛到必要格式。下一步必须用可重复的
 chunk 报告定位 CodeMirror、图标、工作台和命令面板边界；语言 grammar、全局图谱和 Canvas 继续

@@ -1,6 +1,6 @@
 # 开发进度
 
-最后更新：2026-07-30 16:35 CST
+最后更新：2026-07-30 17:22 CST
 
 ## 执行拓扑
 
@@ -15,6 +15,10 @@
 - Windows Node 26.1.0、pnpm 11.9.0、Rust/Cargo 1.95.0 基线。
 - TypeScript 类型检查、前端测试、生产构建及 Rust fmt/Clippy/workspace tests 基线通过。
 - TokyoNight Moon 角色化语义配色：从服务器 `~/.config/nvim` 只读研究后适配，不复制插件实现。
+- 完整外观系统：月夜深色、暖纸浅色、高对比三套主题与 Comfortable/Compact/Terminal 三档
+  密度；语法角色颜色在三主题下保持区分，高对比不依赖透明度。
+- 独立 `zhiweave.appearance.v1` 只保存 schema/theme/density，损坏与未来版本失败关闭；
+  Activity Bar、状态栏、命令面板和位置相关右键共用外观 command id，面板按需加载。
 - 专业深色工作台：48 px Activity Bar、可折叠笔记栏、编辑器优先布局、无营销卡片、无网络字体。
 - Windows 原生无系统标题栏：客户区顶部差为 1 px，仅保留可缩放边框；自定义最小化/最大化/
   关闭和拖动已按 Tauri 最小窗口权限贯通。
@@ -39,7 +43,8 @@
 - 浏览器预览与原生持久化明确隔离；Tauri 加载失败不会拿演示正文冒充真实文件。
 - 自动保存具备 dirty/saving/saved/conflict/error/mixed 状态；冲突时不覆盖，先另存 `recovery/` 再重新载入。
 - 原生新建知识节点、今日日记和 UUID 实验写入 Markdown；Ctrl+S 保存文件，Ctrl+Alt+S 创建持久版本节点。
-- 状态栏显示实际 UTF-8 BOM、换行风格和保存状态；状态栏右键只展示保存恢复与工作区操作。
+- 状态栏显示实际 UTF-8 BOM、换行风格、保存状态和当前主题/密度；状态栏右键只展示状态、
+  外观恢复与工作区操作。
 - `.zhiweave/identity.json` 使用版本化开放 JSON 保存不可见稳定节点 ID；正文和 YAML 属性不暴露技术 ID。
 - 外部单一文件改名且内容未变时通过唯一 revision 匹配保留 ID；原生“移动或重命名 Markdown”使用 F2/节点右键，目标存在时绝不覆盖。
 - SQLite schema v2 使用 `rusqlite 0.40.1` bundled SQLite、WAL、FULL synchronous、foreign keys、5 秒 busy timeout、显式 checkpoint 和 application ID；v1 原位迁移回填关系边。
@@ -158,7 +163,7 @@
 
 - `pnpm typecheck`：通过。
 - `pnpm lint`：通过。
-- `pnpm test`：16 files / 96 tests，通过。
+- `pnpm test`：17 files / 101 tests，通过。
 - `pnpm build`：通过。
 - 交互实验独立 chunk：5.99 KB（gzip 2.45 KB）。
 - Markdown 阅读器 / AST 独立 chunk：14.08 / 92.24 KB（gzip 4.81 / 26.02 KB）。
@@ -166,19 +171,25 @@
 - 反向链接检查器独立 chunk：2.71 KB（gzip 1.26 KB）。
 - 局部图谱独立 chunk：5.13 KB（gzip 2.42 KB）。
 - 快捷键编辑器独立 chunk：8.17 KB（gzip 3.04 KB）。
+- 外观面板独立 chunk：3.26 KB（gzip 1.44 KB）。
 - Wiki heading 导航独立 chunk：0.34 KB（gzip 0.26 KB）。
 - KaTeX/mathRenderer 独立 chunk：259.23 KB（gzip 77.61 KB），只在公式出现时加载。
-- 主 CSS：73.56 KB（gzip 13.13 KB）。
-- 主 JavaScript：约 977.32 KB（gzip 322.55 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
+- 主 CSS：84.45 KB（gzip 15.07 KB）。
+- 主 JavaScript：约 983.22 KB（gzip 324.34 KB），仍超过 200 KB 首屏预算并触发 Vite 警告。
 - Rust workspace 75 项测试通过，其中 application 4 项、Tauri 6 项、storage 50 项、
   Markdown 7 项、domain 6 项、protocol/server 各 1 项；fmt 和全 workspace Clippy
   `-D warnings` 通过。
 - `pnpm audit --audit-level high`：无已知漏洞；`cargo audit` 扫描 475 个 lockfile 依赖，
   无已知 vulnerability，17 项既有 allowed warning。
-- `pnpm tauri build` 在当前 Windows 电脑通过，生成 6,152,192 B MSI 与 4,644,943 B NSIS；
+- `pnpm tauri build` 在当前 Windows 电脑通过，生成 6,156,288 B MSI 与 4,647,873 B NSIS；
   两个 SHA-256 已写入 `TEST_PLAN.md`，构建产物保持在忽略的 `target/`。
 - Windows 原生验收进程已关闭；固定工作区保持 6 个真实 Markdown、identity v1 的 6 个唯一
   ID/路径和有效 SQLite 3 数据库。
+- 外观浏览器验收覆盖三主题、三密度、radio 键盘/Esc/焦点恢复、命令面板和位置相关右键；
+  九种目标视口均无页面级溢出，320×720 面板完整，最终无 console 警告/错误或外部资源请求。
+- Windows 原生外观验收以两个完整进程验证暖纸浅色/舒适精确恢复；切换时 CodeMirror DOM
+  实例、正文、活动标签和滚动位置不变。独立记录只含 3 个允许字段；测试后恢复深色/紧凑。
+  前后 6 篇 Markdown/1004 B、逐文件 SHA-256 和 1171 B identity 摘要完全一致。
 - 共享 Markdown AST 功能提交 `27bf009` 已推送；GitHub CI run `30497652526` 的 Frontend 与
   Rust 全部通过。
 - Live Preview 与语义大纲提交 `5c060b9` 已经 Linux 中继推送；GitHub CI run `30499669886`
@@ -307,6 +318,8 @@
   摘要完全一致，原生/Vite/CDP 监听均已关闭。
 - 可调面板功能/验证提交 `a9fa6c6`/`962ce3d` 已经 Linux 一次性裸仓库中继上传；GitHub CI
   run `30527471482` 的 Frontend 与 Rust 全部通过。
+- 完整外观功能提交 `20e0ede` 已在当前 Windows 电脑通过 17 files / 101 tests、production
+  build、fmt、Clippy 和 75 项 Rust tests；等待本轮验证文档一并通过 Linux 中继上传。
 
 ## 当前任务
 
@@ -332,14 +345,14 @@
   预览、导入和有界一跳局部图谱已按显式 source/身份契约对齐；全局图谱、导出和版本差异尚未
   统一完成。Rust/JavaScript 的 Unicode
   归一化跨平台一致性及 10,000/100,000 节点关系性能仍需基准。
-- 首屏 JS gzip 超预算约 122.55 KB；CodeMirror/图标/工作台、命令有效绑定和命令面板需进一步
+- 首屏 JS gzip 超预算约 124.34 KB；CodeMirror/图标/工作台、命令有效绑定和命令面板需进一步
   分包和测量。
 - KaTeX 虽按需加载，但构建仍携带上游 WOFF2/WOFF/TTF 多格式字体，安装包资产需要收敛。
 - 已有可校验完整工作区目录包和重启前目录切换恢复，但尚无外部备份包选择/导入、跨设备恢复
   演练、备份加密或同步加密；本地 SQLite 与备份包目前未加密，不得宣称客户端密码保护已完成。
 - Command registry/命令面板、临时预览/固定标签、原生 Wiki 双向导航、missing 显式创建、
-  安全静态附件预览、受控附件导入、一跳局部图谱、快捷键编辑器和有界面板宽度已完成，但完整
-  树/属性、面板停靠位置、全局图谱、FSRS 与深度学习 schema 尚未完成。
+  安全静态附件预览、受控附件导入、一跳局部图谱、快捷键编辑器、有界面板宽度和完整外观模式
+  已完成，但完整树/属性、面板停靠位置、全局图谱、FSRS 与深度学习 schema 尚未完成。
 - 快捷键与标题栏切片已发布到 Draft PR 且 CI 通过；根目录 `AGENTS.md` 仍是用户未跟踪文件，
   严禁暂存。
 

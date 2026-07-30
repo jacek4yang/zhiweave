@@ -18,7 +18,7 @@
 - `pnpm install --frozen-lockfile`：通过，142 个 lockfile 条目通过供应链策略。
 - `pnpm typecheck`：通过。
 - `pnpm lint`：通过（当前等同 TypeScript noEmit，需加入真实 ESLint）。
-- `pnpm test`：通过，16 files / 96 tests；除原有版本/分支、日记/H1、持久版本 DTO、种子、
+- `pnpm test`：通过，17 files / 101 tests；除原有版本/分支、日记/H1、持久版本 DTO、种子、
   交互实验和保存状态用例外，新增 command id/快捷键唯一性、IME 防误触、上下文矩阵、原生能力
   隔离、禁用条件、中文/别名检索、共享 Markdown AST/安全渲染，以及 Lezer frontmatter/Wiki、
   光标揭示、composition 停用、任务/Callout、数学/图片/脚注/fence、多光标、大输入和源码
@@ -33,13 +33,15 @@
   回归，覆盖非有限值/边界/舍入、左右指针方向、普通/Shift 键步长及 Home/End/Enter。快捷键
   新增 12 项回归，覆盖
   一/二段 chord、modifier 重复按下、完全/前缀冲突、确认替换解绑、单项/全部恢复、损坏设置
-  失败关闭、IME 防误触，以及命令面板/右键/提示/实际分发共享同一有效绑定。
+  失败关闭、IME 防误触，以及命令面板/右键/提示/实际分发共享同一有效绑定。外观模型新增
+  4 项回归，覆盖文档默认值、v1 round-trip、损坏/未来 schema 失败关闭、字段独立归一化和
+  仅序列化 schema/theme/density；命令矩阵再覆盖外观面板、状态栏、Activity Bar 与中文检索。
 - `pnpm build`：最终差异通过，主 chunk 有 >500 KB 警告。
 - `pnpm audit --audit-level high`：先使用用户指定 SOCKS5 代理，50 秒无响应后安全中止；
   临时直连回退通过，无已知漏洞。代理地址不写入仓库。
-- `pnpm tauri build`：在当前 Windows 电脑通过，生成 6,152,192 B MSI 与 4,644,943 B NSIS；
-  SHA-256 分别为 `1AC832D88EB41E84005EDC862E40DF790337F5E93F7004A20B00B8C2713CD767`
-  和 `6D8D24B7A051225B511D9CB6D8733D9F07B44F822ECCCA08A90DB4DEABBE9FFA`。
+- `pnpm tauri build`：在当前 Windows 电脑通过，生成 6,156,288 B MSI 与 4,647,873 B NSIS；
+  SHA-256 分别为 `AAD7C976D2A3BEDA1C97BB919AFDFD1DF52F8A8B3FA1F214B48683188E505E7E`
+  和 `A3C55E1E4D70A85D76379B0A1631AECFFEAF77722BC2797513826F68C6005D99`。
 - 浏览器：搜索、阅读/编辑、分栏、标签、刷新恢复、复制保真、上下文菜单分流、输入粘贴、编辑撤销、UUID 生成/校验/提示词通过；单击节点生成临时预览、双击/编辑固定，固定和临时标签的
   右键菜单只出现相反状态动作；命令面板中文筛选、方向键、Enter、Esc、焦点恢复和
   390×844/1280×800 布局通过。
@@ -83,6 +85,22 @@
   `.zhiweave/identity.json` 仍为 1171 B，SHA-256 为
   `E9CF4C6438DE888803B85E6123BF27680F830C31338A62679C6CB7EFA00D07E2`。两个原生进程均由
   自定义关闭按钮结束，Tauri/Vite 无 permission、panic 或 runtime error，1420/9335 无监听。
+- 外观浏览器验收：月夜深色、暖纸浅色和高对比三套主题均有独立表面/文字/语法颜色；高对比
+  叠层为 2 px 实线边界且无阴影。Comfortable 与 Terminal 的工具栏高度分别为 48/38 px、
+  笔记行为 40/28 px、编辑器字号为 16/14 px；切换前后正文、活动标签和滚动位置不变。
+  radio 方向键、Esc/焦点恢复、`Ctrl+Shift+P` 中文检索执行通过；外观面板右键恰为 7 个外观
+  命令，状态栏右键只增加打开/恢复入口。
+- 外观响应式验收：1280×720、1366×768、1440×900、1920×1080、2560×1440、320×720、
+  390×844、412×915、915×412 的 `scrollWidth/scrollHeight` 均等于视口；320×720 下编辑/
+  预览上下排列，外观面板为 304×527 px，所有选项与恢复按钮完整可见。最终重载为深色/紧凑，
+  无 console error/warning 或外部资源请求。
+- Windows Tauri WebView2 外观验收：切换到暖纸浅色/舒适时 CodeMirror DOM 实例未重建，
+  Markdown、滚动位置和活动标签不变；首个进程写入的独立 v1 JSON 精确为
+  `{"schemaVersion":1,"theme":"light","density":"comfortable"}`，第二个完整原生进程启动后
+  DOM token、48 px 工具栏、40 px 笔记行和 17 px Live Preview 字号精确恢复。记录字段恰为
+  `schemaVersion/theme/density`，不含正文、路径、revision、根、附件、节点或工作区信息。
+  验收后恢复深色/紧凑并由自定义按钮退出；前后 6 篇 Markdown/1004 B 的逐文件 SHA-256 及
+  1171 B identity 摘要完全一致，1420/9335 和原生进程均已关闭。
 - 原生验收曾意外创建精确的 UUID 实验测试文件。只在文件大小与 SHA-256 同时匹配后移出，并
   只删除对应稳定 identity 项；最终复核恢复原有 6 篇 Markdown/1004 B、逐文件 SHA-256 和
   1171 B identity 摘要，隔离文件与快捷键设置均已删除。后续原生写入验收必须使用隔离 profile。

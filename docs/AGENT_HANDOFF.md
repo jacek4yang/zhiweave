@@ -1,6 +1,6 @@
 # Agent 交接
 
-最近更新：2026-07-30 16:35 CST
+最近更新：2026-07-30 17:22 CST
 
 ## 不可改变的用户约束
 
@@ -39,6 +39,8 @@
 - 共享 Markdown AST 功能提交 `27bf009` 对应 GitHub CI run `30497652526`：Frontend 与 Rust
   均通过。
 - Windows 原生验证进程已安全关闭；临时日志只在 `%TEMP%`。
+- 当前本地外观功能提交：`20e0ede Add complete workbench appearance modes`；等待本轮验证
+  文档提交后经 Linux 一次性中继推送。
 
 ## 已实现切片
 
@@ -262,16 +264,27 @@ SQLite/稳定身份稳定切片增加：
 - 响应式在 `≤1100 px` 将检查器改为覆盖层、`≤960 px` 将 Explorer 改为覆盖层，桌面正文至少
   保留 320 px；紧凑视口不覆盖桌面宽度意图。
 
+当前完整外观切片增加：
+
+- `appearanceModel.ts` 使用独立 `zhiweave.appearance.v1`，只允许 schema/theme/density，
+  损坏和未来版本失败关闭，不接触工作台会话或 Markdown；
+- 月夜深色、暖纸浅色、高对比共享语义表面/文字/状态/Markdown 语法 token；高对比使用不透明
+  黑色表面、实线边界和明确焦点，三档密度统一控制工具栏、标签、列表、状态栏和正文；
+- `AppearancePanel.tsx` 按需加载，具备命名 radiogroup、roving tab、方向键、Tab trap、Esc、
+  外部单击和触发点恢复；Activity Bar、状态栏、命令面板与右键菜单共享 command id；
+- 外观面板右键精确显示 3 主题 + 3 密度 + 恢复，状态栏右键只增加打开/恢复；切换只改根 token，
+  不重建 CodeMirror 或知识节点状态。
+
 ## 最近验证
 
-- 当前差异通过 typecheck、16 files / 96 tests 和 production build；快捷键编辑器独立
-  8.17 KB（gzip 3.04 KB），图谱独立 5.13 KB（gzip 2.42 KB），主 JS 约 977.32 KB
-  （gzip 322.55 KB），仍触发体积警告。
+- 当前差异通过 typecheck/lint、17 files / 101 tests 和 production build；外观面板独立
+  3.26 KB（gzip 1.44 KB），快捷键编辑器独立 8.17 KB（gzip 3.04 KB），图谱独立
+  5.13 KB（gzip 2.42 KB），主 JS 约 983.22 KB（gzip 324.34 KB），仍触发体积警告。
 - Rust workspace 75 项、fmt 与全 target/all feature Clippy `-D warnings` 全部通过；
   Markdown 7 项、storage 50 项覆盖 Wiki 解析/创建、附件安全边界/导入、局部图谱聚合/截断、
   迁移、增量替换、歧义、
   重命名/删除/重建与正向解析，同时保留历史、备份和恢复回归。
-- `pnpm tauri build` 在当前 Windows 电脑通过，生成 6,152,192 B MSI 与 4,644,943 B NSIS；
+- `pnpm tauri build` 在当前 Windows 电脑通过，生成 6,156,288 B MSI 与 4,647,873 B NSIS；
   SHA-256 记录在 `TEST_PLAN.md`，产物位于忽略的 `target/`。
 - 应用内浏览器验证录制、完全/前缀冲突替换、解绑、单项/全部恢复、跨重载、命令面板/右键/
   实际分发统一，以及 480×720 无水平溢出；测试设置已恢复默认。
@@ -282,6 +295,11 @@ SQLite/稳定身份稳定切片增加：
 - Windows Tauri WebView2 用两个完整进程真实拖动 `244/270 → 324/330 px` 并跨重启精确恢复，
   随后恢复默认。v2 只读迁移到 v3，旧记录不改写；工作区 6 篇/1004 B、逐文件 SHA-256 与
   1171 B identity 摘要前后完全一致，原生/Vite/CDP 监听已关闭。
+- 应用内浏览器验证三主题、三密度、方向键/Esc/焦点恢复、命令面板、外观/状态栏右键分流和
+  九种视口；320×720 面板完整，console 与外部资源列表为空。最终恢复深色/紧凑。
+- Windows Tauri WebView2 用两个完整进程验证暖纸浅色/舒适跨重启精确恢复；CodeMirror 实例、
+  Markdown、活动标签和滚动位置不变。外观 JSON 只含 3 个允许字段；测试后恢复默认并关闭
+  Tauri/Vite/CDP。6 篇/1004 B Markdown 与 1171 B identity 逐文件摘要前后完全一致。
 - 原生验收意外生成的一篇 UUID 实验测试文件已在大小与 SHA-256 双重匹配后精确清理；对应
   identity 项同步移除。最终恢复原有 6 篇/1004 B 和 1171 B identity，逐文件摘要不变；后续
   原生写入验收必须使用隔离 profile。
@@ -345,7 +363,7 @@ create 强杀可能留下空占位，安全移动强杀可能留下重复副本�
 及受控导入、有界一跳局部图谱已落地，但全局分片图谱、导出/版本 diff 尚未接入；关系
 resolver 每次全局变化仍构造全部候选映射，缺少 10,000/
 100,000 节点基准和跨 Rust/JavaScript Unicode 归一化契约。面板停靠位置与 Vim 模式尚未完成，
-主 bundle gzip 约 322.55 KB 超预算，KaTeX 字体资产待收敛，同步后端仍只是协议/健康
+主 bundle gzip 约 324.34 KB 超预算，KaTeX 字体资产待收敛，同步后端仍只是协议/健康
 状态骨架。
 
 ## 运行现场与恢复
@@ -353,7 +371,7 @@ resolver 每次全局变化仍构造全部候选映射，缺少 10,000/
 - 浏览器端口：`1420`，本轮 Vite 进程已按命令行与 PID 精确核对后停止，无监听。
 - SSH 隧道：不使用；用户已明确 Linux 只作 GitHub 上传中转，不在其上运行 Vite/Tauri。
 - tmux 会话：不使用；所有开发与验证在当前 Windows 电脑完成。
-- Windows Tauri/Vite/调试进程：已关闭；快捷键和面板测试设置已恢复默认。
+- Windows Tauri/Vite/调试进程：已关闭；快捷键、面板和外观测试设置已恢复默认。
 - 阻塞：无工程阻塞；物理微软拼音候选窗仍需在不干扰用户输入的独立窗口完成。
 - 下一条精确任务：在隔离输入焦点下完成物理微软拼音候选窗与点击回源码验收，再进入 Android
   软键盘；持续排除用户未跟踪的 `AGENTS.md`。
