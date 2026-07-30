@@ -1,6 +1,7 @@
 //! Recoverable local Markdown workspace adapter.
 
 mod attachment;
+mod attachment_import;
 mod backup;
 mod history;
 mod identity;
@@ -16,12 +17,13 @@ use std::{
 use atomic_write_file::AtomicWriteFile;
 use sha2::{Digest, Sha256};
 use zhiweave_application::{
-    ApplyVersionRetentionRequest, ApplyVersionRetentionResult, AttachmentResolution,
-    BacklinkReference, BacklinksRequest, CheckoutVersionRequest, CreateNoteRequest,
-    CreateWikiTargetRequest, CreateWorkspaceBackupRequest, CreateWorkspaceBackupResult,
-    DeleteVersionRequest, DeleteVersionResult, FileRevision, IndexState, IndexStatus, LineEnding,
-    NoteDocument, PrepareWorkspaceRestoreRequest, PrepareWorkspaceRestoreResult,
-    PreviewVersionRetentionRequest, ReadVersionRequest, RebuildIndexResult, RenameNoteRequest,
+    ApplyVersionRetentionRequest, ApplyVersionRetentionResult, AttachmentImportProposal,
+    AttachmentResolution, BacklinkReference, BacklinksRequest, CheckoutVersionRequest,
+    CreateNoteRequest, CreateWikiTargetRequest, CreateWorkspaceBackupRequest,
+    CreateWorkspaceBackupResult, DeleteVersionRequest, DeleteVersionResult, FileRevision,
+    ImportAttachmentRequest, IndexState, IndexStatus, LineEnding, NoteDocument,
+    PrepareWorkspaceRestoreRequest, PrepareWorkspaceRestoreResult, PreviewVersionRetentionRequest,
+    ProposeAttachmentImportRequest, ReadVersionRequest, RebuildIndexResult, RenameNoteRequest,
     ResolveAttachmentRequest, ResolveWikiTargetRequest, SaveNoteRequest, SaveNoteResult,
     SaveVersionRequest, SaveVersionResult, SearchNoteResult, SearchNotesRequest,
     SetVersionCheckpointRequest, VerifyWorkspaceBackupRequest, VerifyWorkspaceBackupResult,
@@ -681,6 +683,36 @@ impl WorkspacePort for FileWorkspace {
         attachment::resolve_attachment(&self.root, &source_path, request)
     }
 
+    fn propose_attachment_import(
+        &self,
+        request: &ProposeAttachmentImportRequest,
+    ) -> Result<AttachmentImportProposal, WorkspaceFailure> {
+        let identities = IdentityManifest::load(&self.identity_path, MAX_NOTE_COUNT)?;
+        let source_path = identities
+            .path_for_id(request.source_note_id)
+            .cloned()
+            .ok_or_else(|| WorkspaceFailure::InvalidAttachmentImport {
+                kind: "unknownSourceNote".to_owned(),
+            })?;
+        let _ = self.resolve_existing(&source_path)?;
+        attachment_import::propose_import(&self.root, &source_path, request)
+    }
+
+    fn import_attachment(
+        &self,
+        request: &ImportAttachmentRequest,
+    ) -> Result<AttachmentImportProposal, WorkspaceFailure> {
+        let identities = IdentityManifest::load(&self.identity_path, MAX_NOTE_COUNT)?;
+        let source_path = identities
+            .path_for_id(request.source_note_id)
+            .cloned()
+            .ok_or_else(|| WorkspaceFailure::InvalidAttachmentImport {
+                kind: "unknownSourceNote".to_owned(),
+            })?;
+        let _ = self.resolve_existing(&source_path)?;
+        attachment_import::commit_import(&self.root, &source_path, request)
+    }
+
     fn rebuild_index(&self) -> Result<RebuildIndexResult, WorkspaceFailure> {
         let raw_documents = self
             .collect_markdown_paths()?
@@ -997,8 +1029,9 @@ mod tests {
     };
 
     use zhiweave_application::{
-        AttachmentReferenceKind, AttachmentResolutionState, BacklinkReferenceKind,
-        BacklinksRequest, CreateNoteRequest, CreateWikiTargetRequest, IndexState, LineEnding,
+        AttachmentImportPresentation, AttachmentReferenceKind, AttachmentResolutionState,
+        BacklinkReferenceKind, BacklinksRequest, CreateNoteRequest, CreateWikiTargetRequest,
+        ImportAttachmentRequest, IndexState, LineEnding, ProposeAttachmentImportRequest,
         RenameNoteRequest, ResolveAttachmentRequest, ResolveWikiTargetRequest, SaveNoteRequest,
         SearchNotesRequest, WikiTargetResolutionState, WorkspaceFailure, WorkspacePort,
     };
@@ -1780,7 +1813,6 @@ mod tests {
                 AttachmentResolutionState::Unsupported
             );
         }
-
         let mut pixel_bomb = vec![0; 24];
         pixel_bomb[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
         pixel_bomb[16..20].copy_from_slice(&16_384_u32.to_be_bytes());
@@ -1821,6 +1853,201 @@ mod tests {
                 .unwrap_err(),
             WorkspaceFailure::InvalidAttachmentTarget { kind } if kind == "pathEscapesWorkspace"
         ));
+    }
+
+    #[test]
+    fn wiki_embed_recognizes_unknown_extensions_inside_the_attachment_directory() {
+        let directory = TestDirectory::new("inert-attachment");
+        fs::create_dir_all(directory.path().join("learning")).unwrap();
+        fs::create_dir_all(directory.path().join("attachments")).unwrap();
+        let workspace = FileWorkspace::new(directory.path()).unwrap();
+        let source = workspace
+            .create(&CreateNoteRequest {
+                path: path("learning/source.md"),
+                markdown: "# Source\n".to_owned(),
+            })
+            .unwrap();
+        fs::write(
+            directory.path().join("attachments/archive.bin"),
+            b"inert attachment bytes",
+        )
+        .unwrap();
+
+        let resolution = workspace
+            .resolve_attachment(&ResolveAttachmentRequest {
+                source_note_id: source.id,
+                raw_target: "attachments/archive.bin".to_owned(),
+                reference_kind: AttachmentReferenceKind::WikiEmbed,
+            })
+            .unwrap();
+
+        assert!(resolution.recognized_attachment);
+        assert_eq!(resolution.state, AttachmentResolutionState::Unsupported);
+    }
+
+    #[test]
+    fn attachment_import_preserves_bytes_and_generates_an_undoable_reference() {
+        let directory = TestDirectory::new("attachment-import");
+        let workspace = FileWorkspace::new(directory.path()).unwrap();
+        let source = workspace
+            .create(&CreateNoteRequest {
+                path: path("topics/uuid.md"),
+                markdown: "# UUID\n".to_owned(),
+            })
+            .unwrap();
+        let mut png = vec![0; 24];
+        png[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+        png[16..20].copy_from_slice(&320_u32.to_be_bytes());
+        png[20..24].copy_from_slice(&180_u32.to_be_bytes());
+
+        let proposal = workspace
+            .propose_attachment_import(&ProposeAttachmentImportRequest {
+                source_note_id: source.id,
+                original_file_name: "UUID diagram (final)!.PNG".to_owned(),
+                bytes: png.clone(),
+            })
+            .unwrap();
+        assert_eq!(proposal.path.as_str(), "attachments/UUID-diagram-final.png");
+        assert_eq!(
+            proposal.markdown_reference,
+            "![UUID-diagram-final](../attachments/UUID-diagram-final.png)"
+        );
+        assert_eq!(
+            proposal.presentation,
+            AttachmentImportPresentation::InlineImage
+        );
+        assert!(!directory.path().join(proposal.path.as_str()).exists());
+
+        let imported = workspace
+            .import_attachment(&ImportAttachmentRequest {
+                source_note_id: source.id,
+                original_file_name: proposal.original_file_name.clone(),
+                expected_path: proposal.path.clone(),
+                expected_markdown_reference: proposal.markdown_reference.clone(),
+                expected_presentation: proposal.presentation,
+                expected_byte_length: proposal.byte_length,
+                expected_content_sha256: proposal.content_sha256.clone(),
+                bytes: png.clone(),
+            })
+            .unwrap();
+        assert_eq!(imported, proposal);
+        assert_eq!(
+            fs::read(directory.path().join(imported.path.as_str())).unwrap(),
+            png
+        );
+        assert_eq!(
+            fs::read_to_string(directory.path().join("topics/uuid.md")).unwrap(),
+            "# UUID\n"
+        );
+    }
+
+    #[test]
+    fn attachment_import_rejects_a_source_move_after_review() {
+        let directory = TestDirectory::new("attachment-import-source-move");
+        let workspace = FileWorkspace::new(directory.path()).unwrap();
+        let source = workspace
+            .create(&CreateNoteRequest {
+                path: path("topics/uuid.md"),
+                markdown: "# UUID\n".to_owned(),
+            })
+            .unwrap();
+        let mut png = vec![0; 24];
+        png[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+        png[16..20].copy_from_slice(&64_u32.to_be_bytes());
+        png[20..24].copy_from_slice(&64_u32.to_be_bytes());
+        let proposal = workspace
+            .propose_attachment_import(&ProposeAttachmentImportRequest {
+                source_note_id: source.id,
+                original_file_name: "diagram.png".to_owned(),
+                bytes: png.clone(),
+            })
+            .unwrap();
+        workspace
+            .rename(&RenameNoteRequest {
+                path: source.path,
+                new_path: path("uuid.md"),
+                expected_revision: source.revision,
+            })
+            .unwrap();
+
+        assert!(matches!(
+            workspace
+                .import_attachment(&ImportAttachmentRequest {
+                    source_note_id: source.id,
+                    original_file_name: proposal.original_file_name,
+                    expected_path: proposal.path.clone(),
+                    expected_markdown_reference: proposal.markdown_reference,
+                    expected_presentation: proposal.presentation,
+                    expected_byte_length: proposal.byte_length,
+                    expected_content_sha256: proposal.content_sha256,
+                    bytes: png,
+                })
+                .unwrap_err(),
+            WorkspaceFailure::InvalidAttachmentImport { ref kind }
+                if kind == "staleSourceLocation"
+        ));
+        assert!(!directory.path().join(proposal.path.as_str()).exists());
+    }
+
+    #[test]
+    fn attachment_import_revalidates_collisions_and_never_overwrites() {
+        let directory = TestDirectory::new("attachment-import-collision");
+        let workspace = FileWorkspace::new(directory.path()).unwrap();
+        let source = workspace
+            .create(&CreateNoteRequest {
+                path: path("source.md"),
+                markdown: "# Source\n".to_owned(),
+            })
+            .unwrap();
+        fs::create_dir(directory.path().join("attachments")).unwrap();
+        fs::write(
+            directory.path().join("attachments/proof.pdf"),
+            b"existing-proof",
+        )
+        .unwrap();
+        let proposal = workspace
+            .propose_attachment_import(&ProposeAttachmentImportRequest {
+                source_note_id: source.id,
+                original_file_name: "proof.pdf".to_owned(),
+                bytes: b"new-proof".to_vec(),
+            })
+            .unwrap();
+        assert_eq!(proposal.path.as_str(), "attachments/proof-2.pdf");
+        assert_eq!(
+            proposal.presentation,
+            AttachmentImportPresentation::EmbeddedFile
+        );
+        assert_eq!(proposal.markdown_reference, "![[attachments/proof-2.pdf]]");
+
+        fs::write(
+            directory.path().join("attachments/proof-2.pdf"),
+            b"external-race",
+        )
+        .unwrap();
+        assert!(matches!(
+            workspace
+                .import_attachment(&ImportAttachmentRequest {
+                    source_note_id: source.id,
+                    original_file_name: proposal.original_file_name,
+                    expected_path: proposal.path,
+                    expected_markdown_reference: proposal.markdown_reference,
+                    expected_presentation: proposal.presentation,
+                    expected_byte_length: proposal.byte_length,
+                    expected_content_sha256: proposal.content_sha256,
+                    bytes: b"new-proof".to_vec(),
+                })
+                .unwrap_err(),
+            WorkspaceFailure::InvalidAttachmentImport { ref kind }
+                if kind == "staleDestination"
+        ));
+        assert_eq!(
+            fs::read(directory.path().join("attachments/proof.pdf")).unwrap(),
+            b"existing-proof"
+        );
+        assert_eq!(
+            fs::read(directory.path().join("attachments/proof-2.pdf")).unwrap(),
+            b"external-race"
+        );
     }
 
     #[test]

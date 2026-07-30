@@ -248,7 +248,7 @@ Live Preview 用 `Ctrl/Cmd+单击` 避免破坏插入点；heading 再由共享 
 missing/ambiguous 失败关闭，不创建文件、不回退猜测。Wiki DOM 使用独立 `wiki-link` command
 scope，右键菜单不继承整个预览区的通用操作；浏览器预览只允许复制 target，不显示原生打开。
 
-## ADR-0015：缺失 Wiki 创建与附件读取都是来源身份绑定的后端提案
+## ADR-0015：缺失 Wiki 与附件写入都是来源身份绑定的后端提案
 
 状态：Accepted（阶段 3 本地知识资源纵切）
 
@@ -261,6 +261,8 @@ scope，右键菜单不继承整个预览区的通用操作；浏览器预览只
 附件读取同样只接受稳定来源 ID、原始 target 和受限引用类型。普通 Markdown 图片相对来源
 文件目录解析；Wiki 嵌入在来源目录、`attachments/` 和工作区根生成确定候选，多个既有候选
 返回 `ambiguous`。不带已知附件扩展名的 Wiki 嵌入返回“非附件”，继续交给 Wiki 节点 resolver。
+显式位于 `attachments/` 下的嵌入即使扩展名未知也视为惰性附件，避免导入后的通用文件被误当作
+知识节点。
 所有候选使用 portable resource path，并逐段拒绝 `.zhiweave` 与符号链接；最终 canonical path
 必须仍位于固定 workspace root。
 
@@ -270,6 +272,24 @@ WebP、PDF、音视频、远程/活动 scheme 和未知格式只产生结构化�
 管线。Tauri 把已验证字节编码为精确 MIME 的 inert data URL；React/CodeMirror 仍执行 MIME/
 scheme 防御检查并惰性加载。浏览器预览没有该 capability，只显示占位。
 
+附件导入只由 Rust 打开原生系统选择器；WebView 只提交当前来源稳定 ID，从不接收、保存或回传
+所选文件的完整系统路径。Rust 拒绝符号链接和非普通文件；Windows 以
+`FILE_FLAG_OPEN_REPARSE_POINT` 打开选择结果，并对已打开句柄再次核对类型与重解析点属性，
+避免选择后到读取前的路径替换。单次最多读取 64 MiB 原始字节，生成 `attachments/` 下经过
+portable 文件名清洗、Windows 设备名规避和同名后缀分配的提案。
+提案包含原文件名、精确目标、原始大小、SHA-256、显示策略和将插入的 Markdown，并绑定一个
+10 分钟、一次性、内存中的 opaque token；待确认队列同时受数量和总字节预算约束。
+
+确认时后端丢弃 token 后重新验证来源身份，以捕获的原始字节重新生成目标和摘要，要求与用户
+看到的提案逐字段一致，再以 `create_new → write_all → sync_all → bounded re-read` 发布。任何
+同名竞态、摘要变化、过期 token、根外路径或 I/O 失败都删除本次未提交文件且不覆盖既有资源。
+签名、扩展名和预览预算均安全的静态图片使用相对来源的标准 Markdown 图片语法；PDF、音视频、
+未知格式和超出活动预览预算的资源使用 `![[attachments/name.ext]]` 惰性引用，不执行文件。
+
+文件发布成功后，React 只把后端返回的完整引用交给 CodeMirror，一次 transaction 在当前光标
+插入并进入统一 undo 历史；后端不直接改写 Markdown。撤销只移除引用，不删除原始附件，避免
+编辑器失败或误操作造成数据丢失；若极端情况下光标已不可用，界面明确显示已保存路径和引用。
+
 这一设计以多一次后端往返和当前较保守的媒体支持，换取路径、身份、竞态与活动内容边界集中在
-Rust。后续附件导入、缩略图缓存、PDF/音视频阅读器必须扩展同一端口和限制，不能把任意系统路径、
+Rust。后续缩略图缓存、PDF/音视频阅读器必须扩展同一端口和限制，不能把任意系统路径、
 `asset:` URL 或未清洗 SVG 直接交给 WebView。

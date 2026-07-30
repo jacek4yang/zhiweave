@@ -147,6 +147,25 @@ export interface NativeAttachmentPreview {
   readonly dataUrl: string | null;
 }
 
+export type NativeAttachmentImportPresentation =
+  | "inlineImage"
+  | "embeddedFile";
+
+export interface NativeAttachmentImportResult {
+  readonly sourceNoteId: string;
+  readonly originalFileName: string;
+  readonly path: string;
+  readonly markdownReference: string;
+  readonly presentation: NativeAttachmentImportPresentation;
+  readonly byteLength: number;
+  readonly contentSha256: string;
+}
+
+export interface NativeAttachmentImportProposal
+  extends NativeAttachmentImportResult {
+  readonly token: string;
+}
+
 export interface NativeRebuildIndexResult {
   readonly indexedNotes: number;
   readonly schemaVersion: number;
@@ -346,6 +365,36 @@ export function resolveNativeAttachment(
 ): Promise<NativeAttachmentPreview> {
   return invoke<NativeAttachmentPreview>("workspace_resolve_attachment", {
     request: { sourceNoteId, rawTarget, referenceKind },
+  });
+}
+
+export function pickNativeAttachmentImport(
+  sourceNoteId: string,
+): Promise<NativeAttachmentImportProposal | null> {
+  return invoke<NativeAttachmentImportProposal | null>(
+    "workspace_pick_attachment_import",
+    {
+      request: { sourceNoteId },
+    },
+  );
+}
+
+export function confirmNativeAttachmentImport(
+  token: string,
+): Promise<NativeAttachmentImportResult> {
+  return invoke<NativeAttachmentImportResult>(
+    "workspace_confirm_attachment_import",
+    {
+      request: { token },
+    },
+  );
+}
+
+export function cancelNativeAttachmentImport(
+  token: string,
+): Promise<boolean> {
+  return invoke<boolean>("workspace_cancel_attachment_import", {
+    request: { token },
   });
 }
 

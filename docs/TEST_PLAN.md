@@ -18,7 +18,7 @@
 - `pnpm install --frozen-lockfile`：通过，142 个 lockfile 条目通过供应链策略。
 - `pnpm typecheck`：通过。
 - `pnpm lint`：通过（当前等同 TypeScript noEmit，需加入真实 ESLint）。
-- `pnpm test`：通过，10 files / 54 tests；除原有版本/分支、日记/H1、持久版本 DTO、种子、
+- `pnpm test`：通过，11 files / 57 tests；除原有版本/分支、日记/H1、持久版本 DTO、种子、
   交互实验和保存状态用例外，新增 command id/快捷键唯一性、IME 防误触、上下文矩阵、原生能力
   隔离、禁用条件、中文/别名检索、共享 Markdown AST/安全渲染，以及 Lezer frontmatter/Wiki、
   光标揭示、composition 停用、任务/Callout、数学/图片/脚注/fence、多光标、大输入和源码
@@ -27,9 +27,9 @@
 - `pnpm build`：最终差异通过，主 chunk 有 >500 KB 警告。
 - `pnpm audit --prod --audit-level high`：先使用用户指定 SOCKS5 代理，registry audit 请求重试后
   失败；不下载依赖的直接网络回退通过，无已知漏洞。代理地址不写入仓库。
-- `pnpm tauri build`：在当前 Windows 电脑通过，生成 5,935,104 B MSI 与 4,493,937 B NSIS；
-  SHA-256 分别为 `E4AAE024283090544881A85AA7DD200637F206B56975641F8F8DD19DFECD8E9C`
-  和 `60D7578D028D220CE701FD7F3D9642536A4268CB25CEBCA1513943F5A0B8C78D`。
+- `pnpm tauri build`：在当前 Windows 电脑通过，生成 6,119,424 B MSI 与 4,617,633 B NSIS；
+  SHA-256 分别为 `2EB68ABD09962BB4D8E6CBB3A3AD6170F25FD408E3DA1FF63AE5996015438384`
+  和 `FB1058F437A14875905A3212A2D3DB0A8ADE2320C379499968246FDA5ABB4235`。
 - 浏览器：搜索、阅读/编辑、分栏、标签、刷新恢复、复制保真、上下文菜单分流、输入粘贴、编辑撤销、UUID 生成/校验/提示词通过；命令面板中文筛选、方向键、Enter、Esc、焦点恢复和 390×844/1280×800 布局通过。
 - 本轮 Wiki 正向导航浏览器自动化因应用内浏览器本地导航与 DOM 读取连续超时尚未通过，不得用
   原生截图替代；Windows 原生 IPC、WebView2 DOM 检查、DWM 截图与临时目录/Tauri 集成测试是
@@ -39,12 +39,12 @@
   与 workspace all-feature tests。
 - GitHub CI run `30509720758` 在 Linux runner 上再次通过 Frontend、fmt、workspace
   all-target/all-feature Clippy `-D warnings` 与 workspace all-feature tests。
-- `cargo audit --no-fetch --stale`：advisory DB 扫描 471 个 lockfile 依赖，无已知 vulnerability；有 17 个 allowed warning。GTK3/glib 项来自非 Windows 的 Tauri target 依赖（当前 Windows `cargo tree -i glib/atk` 不在目标图），其中 `glib` 有一项 unsound advisory；`urlpattern` 链含 6 个 unmaintained `unic-*`，另有 `proc-macro-error` warning。发布前必须在各目标平台更新 Tauri/传递依赖并以 `-D warnings` 重新评估，不能忽略。
+- `cargo audit --no-fetch --stale`：advisory DB 扫描 475 个 lockfile 依赖，无已知 vulnerability；有 17 个 allowed warning。GTK3/glib 项来自非 Windows 的 Tauri target 依赖（当前 Windows `cargo tree -i glib/atk` 不在目标图），其中 `glib` 有一项 unsound advisory；`urlpattern` 链含 6 个 unmaintained `unic-*`，另有 `proc-macro-error` warning。发布前必须在各目标平台更新 Tauri/传递依赖并以 `-D warnings` 重新评估，不能忽略。
 
 ## Markdown 文件纵切证据
 
-- Rust 当前 workspace 66 项测试通过，其中 storage 42 项、domain/portable resource 6 项、
-  application 4 项、Markdown 7 项、protocol 1 项、server 1 项和 Tauri 5 项。
+- Rust 当前 workspace 74 项测试通过，其中 storage 49 项、domain/portable resource 6 项、
+  application 4 项、Markdown 7 项、protocol 1 项、server 1 项和 Tauri 6 项。
 - 原子保存：真实临时目录创建、修改、无变化保存、回读修订与 H1 标题通过。
 - 字节往返：UTF-8 BOM + CRLF 编辑后精确保留；Mixed 保存失败并要求明确规范化。
 - 冲突：读取后由外部进程改写，保存返回结构化 conflict，外部正文逐字节保留。
@@ -180,9 +180,20 @@
   转义美元、货币、超限公式、composition 和四处多光标同时揭示，均核对 source 未改变。
 - missing Wiki 创建集成测试覆盖安全标题/path 提案、可选 heading、确认时重验证、目的地
   已存在不覆盖和创建后稳定身份/索引可见；Tauri 命令覆盖完整提案到真实临时目录发布。
-- 附件测试覆盖来源相对路径、Wiki 根/`attachments` 候选、歧义、missing、远程/活动 scheme、
+- 附件测试覆盖来源相对路径、Wiki 根/`attachments` 候选、未知扩展 inert 附件、歧义、
+  missing、远程/活动 scheme、
   根外逃逸、`.zhiweave`、符号链接、扩展名与签名不符、GIF/SVG/动画 WebP、8 MiB/尺寸/像素
   上限及 PNG/JPEG/静态 WebP 成功读取；前端覆盖惰性 resolver、失败占位和附件右键矩阵。
+- 附件导入 storage 集成测试覆盖确认前零写入、原始二进制逐字节一致、SHA-256、来源相对图片
+  引用、通用文件 inert 引用、Windows 保留名、同名 `-2` 分配、确认前来源移动失败关闭和
+  外部同名竞态不覆盖。
+  Tauri 测试覆盖完整系统路径不进入 proposal、opaque token 一次性、确认后真实文件与二次
+  确认失败；Windows 选择结果使用拒绝重解析点的文件句柄并复核已打开句柄元数据。前端覆盖
+  命令只在原生编辑器上下文出现，以及引用在一个插入操作中保留已有正文。
+- Windows 原生实际打开 Rust 系统文件选择器，选择 46.0 KB PNG 后确认页完整显示原文件名、
+  portable 目标、SHA-256、显示策略和引用；1280×800 与 390×844 无页面/对话框水平溢出，
+  primary button 获得焦点。只执行取消后，6 篇既有 Markdown 的组合摘要不变且目标附件不存在。
+  原生编辑器右键显示导入命令；浏览器工具栏、命令面板和编辑器右键均不显示原生能力。
 - 实际浏览器在默认桌面与 900×650 视口确认编辑/阅读附件占位、对象相关右键和无布局溢出；
   期间捕获并修复 `Block decorations may not be specified via plugins` 与跨换行 replace
   Decoration 白屏，新增任何插件 widget/replace 范围不得跨换行的回归断言。
@@ -190,8 +201,8 @@
   （约 9 ms、最多 24 行装饰）。
 
 尚未完成的 Markdown 测试：CommonMark 官方全集快照、round-trip 属性/模糊测试、局部输入
-P95/滚动与内存基准、真实 IME + Live Preview Decoration、附件导入/引用写入事务、局部图谱、
-Mermaid 和导出。
+P95/滚动与内存基准、真实 IME + Live Preview Decoration、隔离应用数据下附件 picker →
+确认 → 编辑器 undo 的完整 UI E2E、局部图谱、Mermaid 和导出。
 
 尚未完成：稳定 Windows 磁盘满/只读目录故障注入、Tauri IPC 自动 E2E、watcher 高频压力/休眠恢复、
 占位/安全移动强杀恢复、长读事务、10,000 文件性能基准、100,000 条索引查询基准和 Android

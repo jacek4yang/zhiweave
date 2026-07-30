@@ -51,7 +51,8 @@ Workspace 打开 → Markdown 列表 → 原子保存 → expected revision 冲�
   安全静态本地图片/占位、脚注、闭合 fence、composition 停用和全选区揭示已完成；真实 IME/Android
   与点击交互验收待完成。
 - [进行中] mdast offset 驱动的大纲 UI、稳定 ID Wiki 反向链接、权威正向打开、missing 目标
-  显式创建和受限静态附件预览已完成；附件导入/引用事务、局部图谱、导出与版本语义 diff 待完成。
+  显式创建、受限静态附件预览和受控附件导入/可撤销引用事务已完成；局部图谱、导出与版本语义
+  diff 待完成。
 - [ ] Language Registry、Tier 1 动态 grammar、缓存、折叠、高亮行和未知语言回退。
 
 ## 阶段 5–8：知识与学习

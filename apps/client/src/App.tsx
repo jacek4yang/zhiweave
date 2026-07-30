@@ -36,6 +36,7 @@ import {
   Minus,
   Network,
   NotebookPen,
+  Paperclip,
   PencilLine,
   Plus,
   RotateCcw,
@@ -105,7 +106,9 @@ import {
 import {
   applyNativeVersionRetention,
   asWorkspaceFailure,
+  cancelNativeAttachmentImport,
   checkoutNativeVersion,
+  confirmNativeAttachmentImport,
   createNativeNote,
   createNativeWikiTarget,
   createNativeWorkspaceBackup,
@@ -115,6 +118,7 @@ import {
   loadNativeBacklinks,
   loadNativeVersionHistory,
   listNativeWorkspaceBackups,
+  pickNativeAttachmentImport,
   prepareNativeWorkspaceRestore,
   previewNativeVersionRetention,
   readNativeVersion,
@@ -129,6 +133,7 @@ import {
   type NativeIndexStatus,
   type NativeBacklinkReference,
   type NativeAttachmentPreview,
+  type NativeAttachmentImportProposal,
   type NativeNoteDocument,
   type NativeVersionHistory,
   type NativeVersionRetentionPolicy,
@@ -315,6 +320,11 @@ export function App() {
   const [pendingWikiCreation, setPendingWikiCreation] =
     useState<PendingWikiCreation | null>(null);
   const [isCreatingWikiTarget, setIsCreatingWikiTarget] = useState(false);
+  const [pendingAttachmentImport, setPendingAttachmentImport] =
+    useState<NativeAttachmentImportProposal | null>(null);
+  const [attachmentImportState, setAttachmentImportState] = useState<
+    "idle" | "selecting" | "reviewing" | "confirming"
+  >("idle");
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [externalChanges, setExternalChanges] =
     useState<NativeWorkspaceChangesResult | null>(null);
@@ -327,6 +337,7 @@ export function App() {
   const contextTargetRef = useRef<HTMLElement | null>(null);
   const newNoteDialogRef = useRef<HTMLElement>(null);
   const wikiCreationDialogRef = useRef<HTMLElement>(null);
+  const attachmentImportDialogRef = useRef<HTMLElement>(null);
   const externalDialogRef = useRef<HTMLElement>(null);
   const modalPreviousFocusRef = useRef<HTMLElement | null>(null);
   const lastPersistedMarkdownRef = useRef(new Map<string, string>());
@@ -837,7 +848,8 @@ export function App() {
     if (
       !isNewNoteOpen &&
       !isExternalChangesOpen &&
-      pendingWikiCreation === null
+      pendingWikiCreation === null &&
+      pendingAttachmentImport === null
     ) {
       return undefined;
     }
@@ -848,6 +860,10 @@ export function App() {
         } else if (pendingWikiCreation !== null) {
           if (!isCreatingWikiTarget) {
             setPendingWikiCreation(null);
+          }
+        } else if (pendingAttachmentImport !== null) {
+          if (attachmentImportState !== "confirming") {
+            runCommand("dialog.closeAttachmentImport");
           }
         } else {
           runCommand("dialog.closeExternalChanges");
@@ -860,6 +876,8 @@ export function App() {
     isCreatingWikiTarget,
     isExternalChangesOpen,
     isNewNoteOpen,
+    attachmentImportState,
+    pendingAttachmentImport,
     pendingWikiCreation,
   ]);
 
@@ -867,7 +885,8 @@ export function App() {
     if (
       !isNewNoteOpen &&
       !isExternalChangesOpen &&
-      pendingWikiCreation === null
+      pendingWikiCreation === null &&
+      pendingAttachmentImport === null
     ) {
       const previous = modalPreviousFocusRef.current;
       modalPreviousFocusRef.current = null;
@@ -885,14 +904,25 @@ export function App() {
         ? newNoteDialogRef.current
         : pendingWikiCreation !== null
           ? wikiCreationDialogRef.current
-          : externalDialogRef.current;
+          : pendingAttachmentImport !== null
+            ? attachmentImportDialogRef.current
+            : externalDialogRef.current;
       const initialFocus = isNewNoteOpen
         ? dialog?.querySelector<HTMLElement>("input")
-        : dialog?.querySelector<HTMLElement>("button:not(:disabled)");
+        : pendingAttachmentImport !== null
+          ? dialog?.querySelector<HTMLElement>(
+              "footer button.primary:not(:disabled)",
+            )
+          : dialog?.querySelector<HTMLElement>("button:not(:disabled)");
       initialFocus?.focus();
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [isExternalChangesOpen, isNewNoteOpen, pendingWikiCreation]);
+  }, [
+    isExternalChangesOpen,
+    isNewNoteOpen,
+    pendingAttachmentImport,
+    pendingWikiCreation,
+  ]);
 
   useEffect(() => {
     const compactWindow = window.matchMedia("(max-width: 960px)");
@@ -1083,6 +1113,139 @@ export function App() {
       }
     } finally {
       setIsCreatingWikiTarget(false);
+    }
+  }
+
+  async function beginAttachmentImport(note: LearningNote) {
+    if (
+      !nativeRuntime ||
+      attachmentImportState !== "idle" ||
+      pendingAttachmentImport !== null
+    ) {
+      return;
+    }
+    modalPreviousFocusRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    let openedReview = false;
+    setAttachmentImportState("selecting");
+    try {
+      const proposal = await pickNativeAttachmentImport(note.id);
+      if (proposal === null) {
+        setToast("已取消选择，没有导入或修改任何文件。");
+        return;
+      }
+      if (activeNoteIdRef.current !== note.id) {
+        await cancelNativeAttachmentImport(proposal.token).catch(() => false);
+        setToast("当前知识节点已经切换，附件未导入；请在目标节点中重新选择。");
+        return;
+      }
+      setPendingAttachmentImport(proposal);
+      setAttachmentImportState("reviewing");
+      openedReview = true;
+    } catch (error: unknown) {
+      const failure = asWorkspaceFailure(error);
+      if (
+        failure?.code === "limitExceeded" &&
+        failure.limit?.startsWith("pending attachment import")
+      ) {
+        setToast("待确认附件已达到安全上限；请先完成或取消已有导入。");
+      } else if (failure?.code === "limitExceeded") {
+        setToast("附件超过 64 MB，未读取、未复制，也未修改笔记。");
+      } else if (
+        failure?.code === "invalidAttachmentImport" &&
+        failure.kind === "selectedSymbolicLink"
+      ) {
+        setToast("不能导入符号链接；请选择真实的本机文件。");
+      } else if (failure?.code === "io" && failure.kind === "permissionDenied") {
+        setToast("Windows 拒绝读取所选文件；没有导入或修改任何内容。");
+      } else {
+        setToast("附件读取失败；没有导入文件，也没有修改当前笔记。");
+      }
+    } finally {
+      if (!openedReview) {
+        setAttachmentImportState("idle");
+        const previous = modalPreviousFocusRef.current;
+        modalPreviousFocusRef.current = null;
+        if (previous?.isConnected === true) {
+          previous.focus();
+        }
+      }
+    }
+  }
+
+  async function cancelAttachmentImport() {
+    if (
+      pendingAttachmentImport === null ||
+      attachmentImportState === "confirming"
+    ) {
+      return;
+    }
+    const token = pendingAttachmentImport.token;
+    setPendingAttachmentImport(null);
+    setAttachmentImportState("idle");
+    await cancelNativeAttachmentImport(token).catch(() => false);
+    setToast("已取消导入，没有复制文件，也没有修改笔记。");
+  }
+
+  async function confirmAttachmentImport() {
+    if (
+      pendingAttachmentImport === null ||
+      attachmentImportState !== "reviewing"
+    ) {
+      return;
+    }
+    const proposal = pendingAttachmentImport;
+    if (activeNoteIdRef.current !== proposal.sourceNoteId) {
+      await cancelNativeAttachmentImport(proposal.token).catch(() => false);
+      setPendingAttachmentImport(null);
+      setAttachmentImportState("idle");
+      setToast("当前知识节点已经切换，附件未导入；请重新选择。");
+      return;
+    }
+    setAttachmentImportState("confirming");
+    try {
+      const result = await confirmNativeAttachmentImport(proposal.token);
+      const inserted = editorRef.current?.insertMarkdownReference(
+        result.markdownReference,
+      );
+      setPendingAttachmentImport(null);
+      setAttachmentImportState("idle");
+      setNativeRelationEpoch((value) => value + 1);
+      if (inserted === true) {
+        setToast(
+          `已保留原始字节并导入到 ${result.path}；引用已插入，可用 Ctrl+Z 撤销。`,
+        );
+      } else {
+        setToast(
+          `附件已安全保存到 ${result.path}，但编辑器光标已不可用；引用为 ${result.markdownReference}`,
+        );
+      }
+    } catch (error: unknown) {
+      const failure = asWorkspaceFailure(error);
+      setPendingAttachmentImport(null);
+      setAttachmentImportState("idle");
+      if (
+        failure?.code === "invalidAttachmentImport" &&
+        failure.kind === "staleDestination"
+      ) {
+        setToast("目标位置刚刚发生变化；没有覆盖文件，请重新选择以生成新位置。");
+      } else if (
+        failure?.code === "invalidAttachmentImport" &&
+        failure.kind === "staleSourceLocation"
+      ) {
+        setToast("知识节点位置刚刚发生变化；没有写入附件，请在当前节点重新选择。");
+      } else if (
+        failure?.code === "invalidAttachmentImport" &&
+        failure.kind === "unknownOrExpiredPendingToken"
+      ) {
+        setToast("导入确认已经过期；没有写入文件，请重新选择。");
+      } else if (failure?.code === "alreadyExists") {
+        setToast("目标文件已经存在；没有覆盖它，请重新选择以生成新名称。");
+      } else {
+        setToast("附件导入失败；没有覆盖文件，也没有修改当前笔记。");
+      }
     }
   }
 
@@ -2442,6 +2605,26 @@ export function App() {
       }
     }
     if (
+      nativeRuntime &&
+      note !== undefined &&
+      note.id === selectedNote?.id &&
+      activeView !== "versions" &&
+      editorMode !== "preview" &&
+      !isNewNoteOpen &&
+      !isExternalChangesOpen &&
+      pendingWikiCreation === null &&
+      pendingAttachmentImport === null &&
+      attachmentImportState === "idle"
+    ) {
+      capabilities.add("attachmentImport");
+    }
+    if (pendingAttachmentImport !== null) {
+      capabilities.add("attachmentImportDialog");
+      if (attachmentImportState === "reviewing") {
+        capabilities.add("attachmentImportReady");
+      }
+    }
+    if (
       activeView === "versions" ||
       activeNoteId !== null ||
       target.noteId !== undefined
@@ -2613,6 +2796,17 @@ export function App() {
             () => setToast("无法复制附件目标。"),
           );
         }
+        return;
+      case "attachment.import":
+        if (note !== undefined) {
+          void beginAttachmentImport(note);
+        }
+        return;
+      case "attachment.confirmImport":
+        void confirmAttachmentImport();
+        return;
+      case "dialog.closeAttachmentImport":
+        void cancelAttachmentImport();
         return;
       case "note.openSplit":
         if (note !== undefined) {
@@ -3414,18 +3608,39 @@ export function App() {
                   <span>大纲</span>
                 </button>
                 {nativeRuntime ? (
-                  <button
-                    aria-pressed={backlinksOpen}
-                    className={backlinksOpen ? "is-active" : undefined}
-                    onClick={() => runCommand("view.toggleBacklinks")}
-                    title={
-                      backlinksOpen ? "关闭反向链接" : "打开反向链接"
-                    }
-                    type="button"
-                  >
-                    <Link2 />
-                    <span>反向链接</span>
-                  </button>
+                  <>
+                    <button
+                      aria-pressed={backlinksOpen}
+                      className={backlinksOpen ? "is-active" : undefined}
+                      onClick={() => runCommand("view.toggleBacklinks")}
+                      title={
+                        backlinksOpen ? "关闭反向链接" : "打开反向链接"
+                      }
+                      type="button"
+                    >
+                      <Link2 />
+                      <span>反向链接</span>
+                    </button>
+                    <button
+                      aria-busy={attachmentImportState === "selecting"}
+                      disabled={
+                        selectedNote === undefined ||
+                        editorMode === "preview" ||
+                        attachmentImportState !== "idle" ||
+                        pendingAttachmentImport !== null
+                      }
+                      onClick={() => runCommand("attachment.import")}
+                      title="选择本机文件，确认后导入并在光标处插入引用"
+                      type="button"
+                    >
+                      <Paperclip />
+                      <span>
+                        {attachmentImportState === "selecting"
+                          ? "正在选择"
+                          : "附件"}
+                      </span>
+                    </button>
+                  </>
                 ) : null}
                 <button
                   onClick={() => runCommand("workspace.createUuidLab")}
@@ -3746,6 +3961,98 @@ export function App() {
           </span>
         </footer>
       </section>
+
+      {pendingAttachmentImport !== null && (
+        <div className="modal-backdrop">
+          <section
+            aria-describedby="attachment-import-description"
+            aria-labelledby="attachment-import-title"
+            aria-modal="true"
+            className="new-note-modal attachment-import-modal"
+            onKeyDown={handleDialogKeyboard}
+            ref={attachmentImportDialogRef}
+            role="dialog"
+          >
+            <header>
+              <div>
+                <span className="eyebrow">受控附件导入</span>
+                <h2 id="attachment-import-title">确认保存与插入位置</h2>
+              </div>
+              <button
+                aria-label="取消附件导入"
+                disabled={attachmentImportState === "confirming"}
+                onClick={() => runCommand("dialog.closeAttachmentImport")}
+                type="button"
+              >
+                <X />
+              </button>
+            </header>
+            <div className="attachment-import-details">
+              <p id="attachment-import-description">
+                目前只读取了所选文件，还没有写入工作区。确认时会再次核对目标位置，
+                保留原始字节且绝不覆盖同名文件，然后在当前光标处完成一次可撤销的
+                Markdown 插入。
+              </p>
+              <dl>
+                <div>
+                  <dt>原文件名</dt>
+                  <dd>{pendingAttachmentImport.originalFileName}</dd>
+                </div>
+                <div>
+                  <dt>保存位置</dt>
+                  <dd>
+                    <code>{pendingAttachmentImport.path}</code>
+                  </dd>
+                </div>
+                <div>
+                  <dt>大小</dt>
+                  <dd>{formatBytes(pendingAttachmentImport.byteLength)}</dd>
+                </div>
+                <div>
+                  <dt>SHA-256</dt>
+                  <dd>
+                    <code>{pendingAttachmentImport.contentSha256}</code>
+                  </dd>
+                </div>
+                <div>
+                  <dt>显示方式</dt>
+                  <dd>
+                    {pendingAttachmentImport.presentation === "inlineImage"
+                      ? "安全的本地图片预览"
+                      : "惰性附件引用（不会执行文件）"}
+                  </dd>
+                </div>
+                <div className="attachment-reference-row">
+                  <dt>插入内容</dt>
+                  <dd>
+                    <code>{pendingAttachmentImport.markdownReference}</code>
+                  </dd>
+                </div>
+              </dl>
+            </div>
+            <footer>
+              <button
+                disabled={attachmentImportState === "confirming"}
+                onClick={() => runCommand("dialog.closeAttachmentImport")}
+                type="button"
+              >
+                取消
+              </button>
+              <button
+                className="primary"
+                disabled={attachmentImportState !== "reviewing"}
+                onClick={() => runCommand("attachment.confirmImport")}
+                type="button"
+              >
+                <Paperclip />
+                {attachmentImportState === "confirming"
+                  ? "正在核验并导入…"
+                  : "确认导入并插入"}
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
 
       {pendingWikiCreation !== null && (
         <div className="modal-backdrop">
@@ -4903,6 +5210,8 @@ function contextCommandTitle(
       return "复制目标文本";
     case "attachment.copyTarget":
       return "复制附件目标文本";
+    case "attachment.import":
+      return "从本机导入附件到当前光标";
     case "note.copyLearningPrompt":
       return "复制学习提示词";
     case "note.copyMarkdown":
@@ -4938,6 +5247,9 @@ function contextCommandTitle(
 
 function commandIcon(id: CommandId) {
   switch (id) {
+    case "attachment.confirmImport":
+    case "attachment.import":
+      return Paperclip;
     case "backup.create":
     case "backup.restore":
     case "backup.verify":

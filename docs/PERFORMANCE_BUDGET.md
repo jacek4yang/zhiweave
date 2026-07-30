@@ -23,10 +23,10 @@
 
 环境：当前 Windows 电脑，Vite 直接绑定 `127.0.0.1:1420`，Tauri 2 原生开发壳。
 
-- Vitest：10 files / 54 tests。
+- Vitest：11 files / 57 tests。
 - Vite production build：通过。
-- 主 CSS：60.20 KB（gzip 11.06 KB）。
-- 主 JavaScript：约 947.68 KB（gzip 314.49 KB）。
+- 主 CSS：61.10 KB（gzip 11.20 KB）。
+- 主 JavaScript：约 955.27 KB（gzip 316.48 KB）。
 - `EmbeddedLab` 按需 chunk：5.99 KB（gzip 2.46 KB）。
 - `MarkdownPreview` 按需 chunk：14.08 KB（gzip 4.81 KB）。
 - `markdownAst` 按需 chunk：92.24 KB（gzip 26.01 KB）。

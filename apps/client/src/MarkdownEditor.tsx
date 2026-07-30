@@ -49,6 +49,7 @@ export interface EditorStatus {
 
 export interface MarkdownEditorHandle {
   readonly focus: () => void;
+  readonly insertMarkdownReference: (reference: string) => boolean;
   readonly redo: () => boolean;
   readonly revealOffset: (offset: number) => void;
   readonly undo: () => boolean;
@@ -155,6 +156,30 @@ export const MarkdownEditor = forwardRef<
   useImperativeHandle(ref, () => ({
     focus() {
       viewRef.current?.focus();
+    },
+    insertMarkdownReference(reference) {
+      const view = viewRef.current;
+      if (view === null || reference.trim().length === 0) {
+        return false;
+      }
+      const position = view.state.selection.main.head;
+      const insertion = markdownReferenceInsertion(
+        view.state.doc.toString(),
+        position,
+        reference,
+      );
+      view.dispatch({
+        changes: {
+          from: position,
+          insert: insertion.text,
+        },
+        selection: {
+          anchor: insertion.cursor,
+        },
+        scrollIntoView: true,
+      });
+      view.focus();
+      return true;
     },
     redo() {
       const view = viewRef.current;
@@ -304,4 +329,26 @@ function countWords(value: string): number {
       /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]|[\p{L}\p{N}_'-]+/gu,
     )?.length ?? 0
   );
+}
+
+export function markdownReferenceInsertion(
+  markdown: string,
+  position: number,
+  reference: string,
+): {
+  readonly text: string;
+  readonly cursor: number;
+} {
+  const bounded = Math.max(0, Math.min(position, markdown.length));
+  const before = markdown.slice(0, bounded);
+  const after = markdown.slice(bounded);
+  const prefix =
+    bounded === 0 || before.endsWith("\n") ? "" : "\n\n";
+  const suffix =
+    bounded === markdown.length || after.startsWith("\n") ? "" : "\n\n";
+  const text = `${prefix}${reference}${suffix}`;
+  return {
+    text,
+    cursor: bounded + prefix.length + reference.length,
+  };
 }

@@ -432,6 +432,75 @@ pub struct AttachmentResolution {
     pub content: Option<AttachmentContent>,
 }
 
+/// Maximum original byte length accepted by the native attachment importer.
+///
+/// Preview limits are intentionally smaller. Imported files keep their
+/// original bytes even when a format is not eligible for active inline
+/// rendering.
+pub const MAX_ATTACHMENT_IMPORT_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Markdown representation selected for one imported attachment.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AttachmentImportPresentation {
+    /// A signature-validated static image represented with Markdown image syntax.
+    InlineImage,
+    /// An inert file represented with `ZhiWeave` Wiki-embed syntax.
+    EmbeddedFile,
+}
+
+/// Trusted native input used to propose an attachment import without writing.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProposeAttachmentImportRequest {
+    /// Stable identity of the note that will receive the Markdown reference.
+    pub source_note_id: NoteId,
+    /// Final filename selected by the native picker, never a full system path.
+    pub original_file_name: String,
+    /// Exact original bytes captured at selection time.
+    pub bytes: Vec<u8>,
+}
+
+/// Exact user-reviewable destination and Markdown generated for an import.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentImportProposal {
+    /// Stable source identity bound to the proposal.
+    pub source_note_id: NoteId,
+    /// Picker filename shown to the user without exposing its system path.
+    pub original_file_name: String,
+    /// Non-overwriting destination beneath the fixed workspace.
+    pub path: PortableResourcePath,
+    /// One complete portable Markdown reference ready for an editor transaction.
+    pub markdown_reference: String,
+    /// Whether the reference is an inline image or inert embedded file.
+    pub presentation: AttachmentImportPresentation,
+    /// Exact original byte length.
+    pub byte_length: u64,
+    /// SHA-256 of the exact original bytes.
+    pub content_sha256: String,
+}
+
+/// Trusted confirmation request assembled from an opaque native pending token.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ImportAttachmentRequest {
+    /// Stable source identity captured by the proposal.
+    pub source_note_id: NoteId,
+    /// Picker filename captured by the native boundary.
+    pub original_file_name: String,
+    /// Exact destination the user reviewed.
+    pub expected_path: PortableResourcePath,
+    /// Exact Markdown reference the user reviewed.
+    pub expected_markdown_reference: String,
+    /// Exact rendering policy the user reviewed.
+    pub expected_presentation: AttachmentImportPresentation,
+    /// Exact original byte length the user reviewed.
+    pub expected_byte_length: u64,
+    /// Exact content digest the user reviewed.
+    pub expected_content_sha256: String,
+    /// Original bytes captured at selection time.
+    pub bytes: Vec<u8>,
+}
+
 /// Outcome of an explicit derived-index rebuild.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -970,6 +1039,12 @@ pub enum WorkspaceFailure {
         /// Stable validation category.
         kind: String,
     },
+    /// An attachment import proposal, token, filename, or byte snapshot is invalid.
+    #[error("workspace attachment import is invalid: {kind}")]
+    InvalidAttachmentImport {
+        /// Stable validation category without an external system path.
+        kind: String,
+    },
     /// The caller supplied an ambiguous or excessive change baseline.
     #[error("workspace change baseline is invalid: {kind}")]
     InvalidChangeBaseline {
@@ -1078,6 +1153,28 @@ pub trait WorkspacePort {
         &self,
         request: &ResolveAttachmentRequest,
     ) -> Result<AttachmentResolution, WorkspaceFailure>;
+
+    /// Proposes a non-overwriting attachment destination without writing bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns a structured source-identity, filename, resource-budget, or
+    /// filesystem-boundary failure.
+    fn propose_attachment_import(
+        &self,
+        request: &ProposeAttachmentImportRequest,
+    ) -> Result<AttachmentImportProposal, WorkspaceFailure>;
+
+    /// Publishes one attachment only when its reviewed proposal is still exact.
+    ///
+    /// # Errors
+    ///
+    /// Revalidates the source identity, destination, digest, and collision
+    /// state; never replaces an existing resource.
+    fn import_attachment(
+        &self,
+        request: &ImportAttachmentRequest,
+    ) -> Result<AttachmentImportProposal, WorkspaceFailure>;
 
     /// Rebuilds the derived index from Markdown and hidden stable identities.
     ///
@@ -1338,6 +1435,30 @@ where
         request: &ResolveAttachmentRequest,
     ) -> Result<AttachmentResolution, WorkspaceFailure> {
         self.port.resolve_attachment(request)
+    }
+
+    /// Produces an exact attachment import proposal without changing the workspace.
+    ///
+    /// # Errors
+    ///
+    /// Propagates structured source, filename, budget, and filesystem failures.
+    pub fn propose_attachment_import(
+        &self,
+        request: &ProposeAttachmentImportRequest,
+    ) -> Result<AttachmentImportProposal, WorkspaceFailure> {
+        self.port.propose_attachment_import(request)
+    }
+
+    /// Publishes the original bytes for one still-current reviewed proposal.
+    ///
+    /// # Errors
+    ///
+    /// Propagates structured revalidation, collision, integrity, and I/O failures.
+    pub fn import_attachment(
+        &self,
+        request: &ImportAttachmentRequest,
+    ) -> Result<AttachmentImportProposal, WorkspaceFailure> {
+        self.port.import_attachment(request)
     }
 
     /// Explicitly rebuilds derived index data from portable sources.
@@ -1610,12 +1731,14 @@ pub const fn system_status() -> SystemStatus {
 mod tests {
     use std::cell::RefCell;
 
-    use zhiweave_domain::{NoteId, NoteKind, PortablePath};
+    use zhiweave_domain::{NoteId, NoteKind, PortablePath, PortableResourcePath};
 
     use super::{
-        AttachmentReferenceKind, AttachmentResolution, AttachmentResolutionState, BacklinksRequest,
-        CreateNoteRequest, CreateWikiTargetRequest, DetectWorkspaceChangesRequest, FileRevision,
-        KnownNoteState, LineEnding, NoteDocument, RenameNoteRequest, ResolveAttachmentRequest,
+        AttachmentImportPresentation, AttachmentImportProposal, AttachmentReferenceKind,
+        AttachmentResolution, AttachmentResolutionState, BacklinksRequest, CreateNoteRequest,
+        CreateWikiTargetRequest, DetectWorkspaceChangesRequest, FileRevision,
+        ImportAttachmentRequest, KnownNoteState, LineEnding, NoteDocument,
+        ProposeAttachmentImportRequest, RenameNoteRequest, ResolveAttachmentRequest,
         ResolveWikiTargetRequest, SaveNoteRequest, SaveNoteResult, WikiTargetResolution,
         WikiTargetResolutionState, WorkspaceApplication, WorkspaceChangeKind, WorkspaceFailure,
         WorkspacePort, WorkspaceSnapshot,
@@ -1713,6 +1836,38 @@ mod tests {
                 recognized_attachment: true,
                 state: AttachmentResolutionState::Missing,
                 content: None,
+            })
+        }
+
+        fn propose_attachment_import(
+            &self,
+            request: &ProposeAttachmentImportRequest,
+        ) -> Result<AttachmentImportProposal, WorkspaceFailure> {
+            self.calls.borrow_mut().push("propose_attachment_import");
+            Ok(AttachmentImportProposal {
+                source_note_id: request.source_note_id,
+                original_file_name: request.original_file_name.clone(),
+                path: PortableResourcePath::new("attachments/diagram.png").unwrap(),
+                markdown_reference: "![diagram](../attachments/diagram.png)".to_owned(),
+                presentation: AttachmentImportPresentation::InlineImage,
+                byte_length: request.bytes.len() as u64,
+                content_sha256: "digest".to_owned(),
+            })
+        }
+
+        fn import_attachment(
+            &self,
+            request: &ImportAttachmentRequest,
+        ) -> Result<AttachmentImportProposal, WorkspaceFailure> {
+            self.calls.borrow_mut().push("import_attachment");
+            Ok(AttachmentImportProposal {
+                source_note_id: request.source_note_id,
+                original_file_name: request.original_file_name.clone(),
+                path: request.expected_path.clone(),
+                markdown_reference: "![diagram](../attachments/diagram.png)".to_owned(),
+                presentation: AttachmentImportPresentation::InlineImage,
+                byte_length: request.bytes.len() as u64,
+                content_sha256: request.expected_content_sha256.clone(),
             })
         }
 
@@ -1834,6 +1989,29 @@ mod tests {
                 .state,
             AttachmentResolutionState::Missing
         );
+        let import_proposal = application
+            .propose_attachment_import(&ProposeAttachmentImportRequest {
+                source_note_id: document.id,
+                original_file_name: "diagram.png".to_owned(),
+                bytes: vec![1, 2, 3],
+            })
+            .unwrap();
+        assert_eq!(
+            application
+                .import_attachment(&ImportAttachmentRequest {
+                    source_note_id: document.id,
+                    original_file_name: "diagram.png".to_owned(),
+                    expected_path: import_proposal.path,
+                    expected_markdown_reference: import_proposal.markdown_reference,
+                    expected_presentation: import_proposal.presentation,
+                    expected_byte_length: import_proposal.byte_length,
+                    expected_content_sha256: import_proposal.content_sha256,
+                    bytes: vec![1, 2, 3],
+                })
+                .unwrap()
+                .byte_length,
+            3
+        );
         assert_eq!(
             application.port.calls.into_inner(),
             [
@@ -1843,7 +2021,9 @@ mod tests {
                 "backlinks",
                 "resolve_wiki_target",
                 "create_wiki_target",
-                "resolve_attachment"
+                "resolve_attachment",
+                "propose_attachment_import",
+                "import_attachment"
             ]
         );
     }

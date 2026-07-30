@@ -1,6 +1,6 @@
 # Agent 交接
 
-最近更新：2026-07-30 10:46 CST
+最近更新：2026-07-30 12:00 CST
 
 ## 不可改变的用户约束
 
@@ -15,9 +15,9 @@
 - 工作目录：`%USERPROFILE%\Desktop\Projects\zhiweave`
 - 分支：`agent/professional-workbench`
 - Draft PR：[jacek4yang/zhiweave#1](https://github.com/jacek4yang/zhiweave/pull/1)
-- 当前功能/验证提交：`4ee65fb feat(markdown): resolve safe local attachments` /
-  `ef5b950 docs: record attachment validation`；已完成 Windows 全门禁与原生安装包构建，
-  并通过 Linux 中继推送。
+- 最新已发布提交：`c5a5f00 docs: record attachment CI`。当前本地纵切为受控原生附件导入：
+  已完成 Windows 全门禁、真实系统选择器取消验收与原生安装包构建，等待精确提交并通过 Linux
+  中继上传。
 - GitHub CI run `30509720758`：Frontend（26 s）与 Rust（3 min 40 s）全部通过。
 - 上一 GitHub CI run `30506855740`：Frontend 与 Rust 全部通过。
 - GitHub CI run `30504384326`：Frontend 20 s、Rust 3 min 19 s，全部通过；只保留既有
@@ -152,14 +152,31 @@ SQLite/稳定身份稳定切片增加：
 - 新增 1942×1214 物理像素视觉基线。WebView2 DOM 核对 1280×800 CSS viewport、24 px 状态栏和
   完整编辑区；当前用户工作区只有一篇既有 welcome 笔记，没有注入跨节点 Wiki 验收内容。
 
+当前附件导入切片增加：
+
+- application/storage 增加来源稳定 ID 绑定的 propose/confirm 端口；原生字节最多 64 MiB，
+  文件名清洗为 portable `attachments/` 目标，规避 Windows 设备名并按 `-2` 分配冲突；
+- Tauri Rust 系统 picker 不向 WebView 返回外部完整路径，只返回含 opaque token、目标、大小、
+  完整 SHA-256、显示策略和引用的提案；token 一次性、10 分钟 TTL，队列最多 8 项/128 MiB；
+- Windows 以不跟随重解析点的句柄打开选择结果，并再次核对已打开句柄；选择后路径替换为
+  junction/symlink 等间接资源时失败关闭；
+- confirm 重新生成并逐字段核对，以 `create_new`、写入、sync 和 bounded re-read 发布，失败
+  清理本次未提交文件且不覆盖；来源节点确认前移动会因相对引用变化而失败关闭；静态安全图片
+  生成相对 Markdown 图片，其他资源保持 inert embed；
+- CodeMirror 在当前光标一次 transaction 插入引用，进入统一 undo 历史；撤销引用不删除原始
+  附件。命令只在原生可编辑 editor context 出现，浏览器/预览/附件对象菜单不冒充能力；
+- Windows 实际 picker 选择 46.0 KB PNG 后，确认页在 1280×800 与 390×844 无水平溢出并正确
+  聚焦 primary；随后取消，6 篇 Markdown 组合摘要不变、提议附件不存在。原生编辑器右键有导入，
+  浏览器工具栏/面板/右键无导入。
+
 ## 最近验证
 
-- 最终差异通过 typecheck、10 files / 54 tests 和 production build；主 JS 约 947.68 KB
-  （gzip 314.49 KB），仍触发体积警告。
-- Rust workspace 66 项、fmt 与全 target/all feature Clippy `-D warnings` 全部通过；
-  Markdown 7 项、storage 42 项覆盖 Wiki 解析/创建、附件安全边界、迁移、增量替换、歧义、
+- 最终差异通过 typecheck、11 files / 57 tests 和 production build；主 JS 约 955.27 KB
+  （gzip 316.48 KB），仍触发体积警告。
+- Rust workspace 74 项、fmt 与全 target/all feature Clippy `-D warnings` 全部通过；
+  Markdown 7 项、storage 49 项覆盖 Wiki 解析/创建、附件安全边界/导入、迁移、增量替换、歧义、
   重命名/删除/重建与正向解析，同时保留历史、备份和恢复回归。
-- `pnpm tauri build` 在当前 Windows 电脑通过，生成 5,935,104 B MSI 与 4,493,937 B NSIS；
+- `pnpm tauri build` 在当前 Windows 电脑通过，生成 6,119,424 B MSI 与 4,617,633 B NSIS；
   SHA-256 记录在 `TEST_PLAN.md`，产物位于忽略的 `target/`。
 - Windows Tauri 原生验收覆盖保存、分支、重启、删除/空间回收和恢复；测试正文与版本均已清理，固定工作区保持 6 个 Markdown。
 - GitHub CI run `30482533535`：Frontend 21 s、Rust 3 min 1 s，全部通过；Node 20 actions deprecation annotation 尚待 workflow 维护。
@@ -189,17 +206,16 @@ SQLite/稳定身份稳定切片增加：
 - 本轮应用内浏览器在本地导航和 DOM 读取阶段连续超时，所以不能把反向链接浏览器点击/E2E
   标记为通过；原生 DWM 截图与临时目录集成测试是区分记录的替代证据。
 - pnpm 生产依赖审计先按用户指定 SOCKS5 代理重试，失败后以不下载依赖的直接 audit 回退完成，
-  无已知漏洞；`cargo audit --no-fetch --stale` 扫描 471 个依赖，无 vulnerability，保留
+  无已知漏洞；`cargo audit --no-fetch --stale` 扫描 475 个依赖，无 vulnerability，保留
   17 项既有维护/unsound warning。
 
 ## 下一步顺序
 
-1. 为附件增加受控导入/复制、引用写入确认、冲突处理和崩溃恢复；当前只读预览不等于附件管理。
-2. 补扩展 Live Preview 的真实 Windows IME/多光标和 Android 验收。
-3. 增加 Wiki 关系的 10,000/100,000 节点基准、Unicode 归一化契约与 corpus/fuzz。
-4. 增加局部图谱、快捷键编辑器、预览标签和移动端命令入口。
-5. 补 watcher 高频压力、休眠恢复、占位强杀、只读目录和卷级磁盘满夹具。
-6. 增加外部备份导入/跨设备恢复演练，再进入客户端加密和同步；持续排除根 `AGENTS.md`、
+1. 补扩展 Live Preview 的真实 Windows IME/多光标和 Android 验收。
+2. 增加 Wiki 关系的 10,000/100,000 节点基准、Unicode 归一化契约与 corpus/fuzz。
+3. 增加局部图谱、快捷键编辑器、预览标签和移动端命令入口。
+4. 补 watcher 高频压力、休眠恢复、占位强杀、只读目录和卷级磁盘满夹具。
+5. 增加外部备份导入/跨设备恢复演练，再进入客户端加密和同步；持续排除根 `AGENTS.md`、
    真实工作区文件、地址、密钥和数据库。
 
 ## 关键风险
@@ -209,9 +225,9 @@ Markdown 文件事实源、稳定 ID、可重建 SQLite/FTS、本机 watcher、�
 备份包尚未加密且缺少外部导入/跨设备演练；底层平台漏报只能依赖 `Rescan`/后续事件或重启发现。
 create 强杀可能留下空占位，安全移动强杀可能留下重复副本，删源前仍有极窄竞态。共享 mdast
 阅读器、扩展 Live Preview、可交互大纲、Wiki 双向导航、missing 显式创建与受限静态附件预览
-已落地，但附件导入、局部图谱、导出/版本 diff 尚未接入；关系 resolver 每次全局变化仍构造全部候选映射，缺少 10,000/
+及受控导入已落地，但局部图谱、导出/版本 diff 尚未接入；关系 resolver 每次全局变化仍构造全部候选映射，缺少 10,000/
 100,000 节点基准和跨 Rust/JavaScript Unicode 归一化契约。快捷键编辑器尚未完成，主 bundle
-gzip 约 314.49 KB 超预算，KaTeX 字体资产待收敛，同步后端仍只是协议/健康状态骨架。
+gzip 约 316.48 KB 超预算，KaTeX 字体资产待收敛，同步后端仍只是协议/健康状态骨架。
 
 ## 运行现场与恢复
 
@@ -219,7 +235,7 @@ gzip 约 314.49 KB 超预算，KaTeX 字体资产待收敛，同步后端仍只�
 - SSH 隧道：不使用；用户已明确 Linux 只作 GitHub 上传中转，不在其上运行 Vite/Tauri。
 - tmux 会话：不使用；所有开发与验证在当前 Windows 电脑完成。
 - Windows Tauri/Vite/调试进程：已关闭。
-- 阻塞：无工程阻塞；应用内浏览器控制连接超时是已记录的 E2E 证据缺口。
+- 阻塞：无工程阻塞；本轮应用内浏览器能力隔离与响应式检查已经实际通过。
 - 下一条精确命令：完成本轮最终全门禁，确认只有用户未跟踪的 `AGENTS.md` 未暂存，再通过
   Linux 临时裸仓库中继推送并等待 Draft PR CI。
 - 恢复步骤：进入 `%USERPROFILE%\Desktop\Projects\zhiweave`，核对分支

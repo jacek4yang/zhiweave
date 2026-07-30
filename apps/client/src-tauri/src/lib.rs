@@ -1,38 +1,48 @@
 use std::{
+    collections::HashMap,
+    fs::{self, File},
+    io::Read,
     path::{Component, Path},
     sync::{
         Arc, Mutex,
         mpsc::{self, Receiver, RecvTimeoutError},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{Emitter, Manager, State};
+use tauri_plugin_dialog::DialogExt;
+use uuid::Uuid;
 use zhiweave_application::{
-    ApplyVersionRetentionRequest, ApplyVersionRetentionResult, AttachmentMediaType,
-    AttachmentResolution, AttachmentResolutionState, BacklinkReference, BacklinksRequest,
-    CheckoutVersionRequest, CreateNoteRequest, CreateWikiTargetRequest,
-    CreateWorkspaceBackupRequest, CreateWorkspaceBackupResult, DeleteVersionRequest,
-    DeleteVersionResult, DetectWorkspaceChangesRequest, NoteDocument,
+    ApplyVersionRetentionRequest, ApplyVersionRetentionResult, AttachmentImportPresentation,
+    AttachmentImportProposal, AttachmentMediaType, AttachmentResolution, AttachmentResolutionState,
+    BacklinkReference, BacklinksRequest, CheckoutVersionRequest, CreateNoteRequest,
+    CreateWikiTargetRequest, CreateWorkspaceBackupRequest, CreateWorkspaceBackupResult,
+    DeleteVersionRequest, DeleteVersionResult, DetectWorkspaceChangesRequest,
+    ImportAttachmentRequest, MAX_ATTACHMENT_IMPORT_BYTES, NoteDocument,
     PrepareWorkspaceRestoreRequest, PrepareWorkspaceRestoreResult, PreviewVersionRetentionRequest,
-    ReadVersionRequest, RebuildIndexResult, RenameNoteRequest, ResolveAttachmentRequest,
-    ResolveWikiTargetRequest, SaveNoteRequest, SaveNoteResult, SaveVersionRequest,
-    SaveVersionResult, SearchNoteResult, SearchNotesRequest, SetVersionCheckpointRequest,
-    SystemStatus, VerifyWorkspaceBackupRequest, VerifyWorkspaceBackupResult, VersionContent,
-    VersionHistory, VersionHistoryRequest, VersionRetentionPreview, WikiTargetResolution,
-    WorkspaceApplication, WorkspaceBackupSummary, WorkspaceChangesResult, WorkspaceFailure,
-    WorkspaceSnapshot,
+    ProposeAttachmentImportRequest, ReadVersionRequest, RebuildIndexResult, RenameNoteRequest,
+    ResolveAttachmentRequest, ResolveWikiTargetRequest, SaveNoteRequest, SaveNoteResult,
+    SaveVersionRequest, SaveVersionResult, SearchNoteResult, SearchNotesRequest,
+    SetVersionCheckpointRequest, SystemStatus, VerifyWorkspaceBackupRequest,
+    VerifyWorkspaceBackupResult, VersionContent, VersionHistory, VersionHistoryRequest,
+    VersionRetentionPreview, WikiTargetResolution, WorkspaceApplication, WorkspaceBackupSummary,
+    WorkspaceChangesResult, WorkspaceFailure, WorkspaceSnapshot,
 };
-use zhiweave_domain::{PortablePath, PortableResourcePath};
+use zhiweave_domain::{NoteId, PortablePath, PortableResourcePath};
 use zhiweave_storage::FileWorkspace;
 
 type NativeWorkspace = Arc<Mutex<WorkspaceApplication<FileWorkspace>>>;
+type NativePendingAttachmentImports = Arc<Mutex<PendingAttachmentImports>>;
 
 const WORKSPACE_CHANGED_EVENT: &str = "workspace-files-changed";
 const WATCH_DEBOUNCE: Duration = Duration::from_millis(300);
+const PENDING_ATTACHMENT_IMPORT_TTL: Duration = Duration::from_mins(10);
+const MAX_PENDING_ATTACHMENT_IMPORTS: usize = 8;
+const MAX_PENDING_ATTACHMENT_IMPORT_BYTES: u64 = 128 * 1024 * 1024;
 
 #[derive(Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -81,6 +91,57 @@ impl From<AttachmentResolution> for NativeAttachmentPreview {
         }
         preview
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeAttachmentImportProposal {
+    token: String,
+    source_note_id: NoteId,
+    original_file_name: String,
+    path: PortableResourcePath,
+    markdown_reference: String,
+    presentation: AttachmentImportPresentation,
+    byte_length: u64,
+    content_sha256: String,
+}
+
+impl NativeAttachmentImportProposal {
+    fn from_proposal(token: String, proposal: &AttachmentImportProposal) -> Self {
+        Self {
+            token,
+            source_note_id: proposal.source_note_id,
+            original_file_name: proposal.original_file_name.clone(),
+            path: proposal.path.clone(),
+            markdown_reference: proposal.markdown_reference.clone(),
+            presentation: proposal.presentation,
+            byte_length: proposal.byte_length,
+            content_sha256: proposal.content_sha256.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PickAttachmentImportRequest {
+    source_note_id: NoteId,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ConfirmAttachmentImportRequest {
+    token: String,
+}
+
+struct PendingAttachmentImport {
+    proposal: AttachmentImportProposal,
+    bytes: Vec<u8>,
+    created_at: Instant,
+}
+
+#[derive(Default)]
+struct PendingAttachmentImports {
+    entries: HashMap<String, PendingAttachmentImport>,
 }
 
 struct NativeWorkspaceWatcher {
@@ -320,6 +381,261 @@ async fn workspace_resolve_attachment(
     })
     .await
     .map_err(|_| WorkspaceFailure::Unavailable)?
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri command extractors are ABI values.
+async fn workspace_pick_attachment_import(
+    window: tauri::WebviewWindow,
+    workspace: State<'_, NativeWorkspace>,
+    pending_imports: State<'_, NativePendingAttachmentImports>,
+    request: PickAttachmentImportRequest,
+) -> Result<Option<NativeAttachmentImportProposal>, WorkspaceFailure> {
+    let selected = window
+        .dialog()
+        .file()
+        .set_parent(&window)
+        .set_title("选择要导入知织工作区的附件")
+        .blocking_pick_file();
+    let Some(selected) = selected else {
+        return Ok(None);
+    };
+    let selected = selected
+        .into_path()
+        .map_err(|_| invalid_attachment_import("unsupportedPickerResource"))?;
+    let workspace = Arc::clone(workspace.inner());
+    let pending_imports = Arc::clone(pending_imports.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        prepare_pending_attachment_import(
+            &workspace,
+            &pending_imports,
+            request.source_note_id,
+            &selected,
+        )
+        .map(Some)
+    })
+    .await
+    .map_err(|_| WorkspaceFailure::Unavailable)?
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri command extractors are ABI values.
+async fn workspace_confirm_attachment_import(
+    workspace: State<'_, NativeWorkspace>,
+    pending_imports: State<'_, NativePendingAttachmentImports>,
+    request: ConfirmAttachmentImportRequest,
+) -> Result<AttachmentImportProposal, WorkspaceFailure> {
+    let workspace = Arc::clone(workspace.inner());
+    let pending_imports = Arc::clone(pending_imports.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        commit_pending_attachment_import(&workspace, &pending_imports, &request.token)
+    })
+    .await
+    .map_err(|_| WorkspaceFailure::Unavailable)?
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri command extractors are ABI values.
+async fn workspace_cancel_attachment_import(
+    pending_imports: State<'_, NativePendingAttachmentImports>,
+    request: ConfirmAttachmentImportRequest,
+) -> Result<bool, WorkspaceFailure> {
+    let pending_imports = Arc::clone(pending_imports.inner());
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut pending = pending_imports
+            .lock()
+            .map_err(|_| WorkspaceFailure::Unavailable)?;
+        purge_expired_imports(&mut pending);
+        Ok(pending.entries.remove(&request.token).is_some())
+    })
+    .await
+    .map_err(|_| WorkspaceFailure::Unavailable)?
+}
+
+fn prepare_pending_attachment_import(
+    workspace: &NativeWorkspace,
+    pending_imports: &NativePendingAttachmentImports,
+    source_note_id: NoteId,
+    selected: &Path,
+) -> Result<NativeAttachmentImportProposal, WorkspaceFailure> {
+    let (original_file_name, bytes) = read_selected_attachment(selected)?;
+    let import_request = ProposeAttachmentImportRequest {
+        source_note_id,
+        original_file_name,
+        bytes,
+    };
+    let proposal = workspace
+        .lock()
+        .map_err(|_| WorkspaceFailure::Unavailable)?
+        .propose_attachment_import(&import_request)?;
+    let token = Uuid::now_v7().to_string();
+    let native = NativeAttachmentImportProposal::from_proposal(token.clone(), &proposal);
+    let mut pending = pending_imports
+        .lock()
+        .map_err(|_| WorkspaceFailure::Unavailable)?;
+    purge_expired_imports(&mut pending);
+    if pending.entries.len() >= MAX_PENDING_ATTACHMENT_IMPORTS {
+        return Err(WorkspaceFailure::LimitExceeded {
+            limit: format!("pending attachment imports {MAX_PENDING_ATTACHMENT_IMPORTS}"),
+        });
+    }
+    let pending_bytes = pending.entries.values().fold(0_u64, |total, entry| {
+        total.saturating_add(entry.proposal.byte_length)
+    });
+    if pending_bytes.saturating_add(proposal.byte_length) > MAX_PENDING_ATTACHMENT_IMPORT_BYTES {
+        return Err(WorkspaceFailure::LimitExceeded {
+            limit: format!("pending attachment import bytes {MAX_PENDING_ATTACHMENT_IMPORT_BYTES}"),
+        });
+    }
+    pending.entries.insert(
+        token,
+        PendingAttachmentImport {
+            proposal,
+            bytes: import_request.bytes,
+            created_at: Instant::now(),
+        },
+    );
+    Ok(native)
+}
+
+fn commit_pending_attachment_import(
+    workspace: &NativeWorkspace,
+    pending_imports: &NativePendingAttachmentImports,
+    token: &str,
+) -> Result<AttachmentImportProposal, WorkspaceFailure> {
+    if Uuid::parse_str(token).is_err() {
+        return Err(invalid_attachment_import("invalidPendingToken"));
+    }
+    let pending = {
+        let mut imports = pending_imports
+            .lock()
+            .map_err(|_| WorkspaceFailure::Unavailable)?;
+        purge_expired_imports(&mut imports);
+        imports
+            .entries
+            .remove(token)
+            .ok_or_else(|| invalid_attachment_import("unknownOrExpiredPendingToken"))?
+    };
+    workspace
+        .lock()
+        .map_err(|_| WorkspaceFailure::Unavailable)?
+        .import_attachment(&ImportAttachmentRequest {
+            source_note_id: pending.proposal.source_note_id,
+            original_file_name: pending.proposal.original_file_name,
+            expected_path: pending.proposal.path,
+            expected_markdown_reference: pending.proposal.markdown_reference,
+            expected_presentation: pending.proposal.presentation,
+            expected_byte_length: pending.proposal.byte_length,
+            expected_content_sha256: pending.proposal.content_sha256,
+            bytes: pending.bytes,
+        })
+}
+
+fn read_selected_attachment(selected: &Path) -> Result<(String, Vec<u8>), WorkspaceFailure> {
+    let original_file_name = selected
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| invalid_attachment_import("invalidSelectedFileName"))?
+        .to_owned();
+    let metadata = fs::symlink_metadata(selected)
+        .map_err(|error| external_io_failure("inspectSelectedAttachment", &error))?;
+    if is_selected_file_indirection(&metadata) {
+        return Err(invalid_attachment_import("selectedSymbolicLink"));
+    }
+    if !metadata.is_file() {
+        return Err(invalid_attachment_import("selectedResourceNotFile"));
+    }
+    if metadata.len() > MAX_ATTACHMENT_IMPORT_BYTES {
+        return Err(WorkspaceFailure::LimitExceeded {
+            limit: format!("attachment import bytes {MAX_ATTACHMENT_IMPORT_BYTES}"),
+        });
+    }
+    let file = open_selected_file(selected)
+        .map_err(|error| external_io_failure("openSelectedAttachment", &error))?;
+    let opened_metadata = file
+        .metadata()
+        .map_err(|error| external_io_failure("inspectOpenedAttachment", &error))?;
+    if is_selected_file_indirection(&opened_metadata) {
+        return Err(invalid_attachment_import("selectedSymbolicLink"));
+    }
+    if !opened_metadata.is_file() {
+        return Err(invalid_attachment_import("selectedResourceNotFile"));
+    }
+    if opened_metadata.len() > MAX_ATTACHMENT_IMPORT_BYTES {
+        return Err(WorkspaceFailure::LimitExceeded {
+            limit: format!("attachment import bytes {MAX_ATTACHMENT_IMPORT_BYTES}"),
+        });
+    }
+    let mut bytes = Vec::with_capacity(
+        usize::try_from(opened_metadata.len().min(MAX_ATTACHMENT_IMPORT_BYTES)).unwrap_or(0),
+    );
+    file.take(MAX_ATTACHMENT_IMPORT_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| external_io_failure("readSelectedAttachment", &error))?;
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > MAX_ATTACHMENT_IMPORT_BYTES {
+        return Err(WorkspaceFailure::LimitExceeded {
+            limit: format!("attachment import bytes {MAX_ATTACHMENT_IMPORT_BYTES}"),
+        });
+    }
+    Ok((original_file_name, bytes))
+}
+
+#[cfg(windows)]
+fn open_selected_file(selected: &Path) -> std::io::Result<File> {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    // Prevent a picker path from following a reparse point introduced between
+    // the metadata check and the open. The opened handle is checked again.
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(selected)
+}
+
+#[cfg(not(windows))]
+fn open_selected_file(selected: &Path) -> std::io::Result<File> {
+    File::open(selected)
+}
+
+#[cfg(windows)]
+fn is_selected_file_indirection(metadata: &fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+    metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+
+#[cfg(not(windows))]
+fn is_selected_file_indirection(metadata: &fs::Metadata) -> bool {
+    metadata.file_type().is_symlink()
+}
+
+fn purge_expired_imports(imports: &mut PendingAttachmentImports) {
+    imports
+        .entries
+        .retain(|_, pending| pending.created_at.elapsed() <= PENDING_ATTACHMENT_IMPORT_TTL);
+}
+
+fn invalid_attachment_import(kind: &str) -> WorkspaceFailure {
+    WorkspaceFailure::InvalidAttachmentImport {
+        kind: kind.to_owned(),
+    }
+}
+
+fn external_io_failure(operation: &str, error: &std::io::Error) -> WorkspaceFailure {
+    WorkspaceFailure::Io {
+        operation: operation.to_owned(),
+        path: "selectedAttachment".to_owned(),
+        kind: match error.kind() {
+            std::io::ErrorKind::NotFound => "notFound",
+            std::io::ErrorKind::PermissionDenied => "permissionDenied",
+            std::io::ErrorKind::InvalidData | std::io::ErrorKind::InvalidInput => "invalidData",
+            _ => "other",
+        }
+        .to_owned(),
+    }
 }
 
 #[tauri::command]
@@ -622,6 +938,7 @@ fn seed_empty_workspace(
 /// Panics when the native runtime cannot initialize or exits unexpectedly.
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let root = app.path().app_data_dir()?.join("workspace");
             let should_seed = !root.join(".zhiweave").join("identity.json").exists();
@@ -629,6 +946,7 @@ pub fn run() {
             seed_empty_workspace(&application, should_seed)?;
             let watcher = NativeWorkspaceWatcher::start(&root, app.handle().clone())?;
             app.manage(Arc::new(Mutex::new(application)));
+            app.manage(Arc::new(Mutex::new(PendingAttachmentImports::default())));
             app.manage(watcher);
             Ok(())
         })
@@ -644,6 +962,9 @@ pub fn run() {
             workspace_resolve_wiki_target,
             workspace_create_wiki_target,
             workspace_resolve_attachment,
+            workspace_pick_attachment_import,
+            workspace_confirm_attachment_import,
+            workspace_cancel_attachment_import,
             workspace_rebuild_index,
             version_history,
             version_save,
@@ -668,6 +989,7 @@ mod tests {
         fs,
         path::{Path, PathBuf},
         process,
+        sync::{Arc, Mutex},
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -685,7 +1007,8 @@ mod tests {
     };
 
     use super::{
-        NativeAttachmentPreview, is_hidden_workspace_metadata, seed_empty_workspace,
+        NativeAttachmentPreview, PendingAttachmentImports, commit_pending_attachment_import,
+        is_hidden_workspace_metadata, prepare_pending_attachment_import, seed_empty_workspace,
         watcher_event_requires_rescan,
     };
 
@@ -870,6 +1193,43 @@ mod tests {
             preview.data_url.as_deref(),
             Some("data:image/png;base64,iVBORw0KGgoAAAAAAAAAAAAAACAAAAAQ")
         );
+    }
+
+    #[test]
+    fn native_attachment_import_tokens_hide_paths_and_are_one_shot() {
+        let directory = TestDirectory::new();
+        let workspace_root = directory.path().join("workspace");
+        let application = WorkspaceApplication::new(FileWorkspace::new(&workspace_root).unwrap());
+        let source = application
+            .create(&CreateNoteRequest {
+                path: PortablePath::new_markdown("learning/source.md").unwrap(),
+                markdown: "# Source\n".to_owned(),
+            })
+            .unwrap();
+        let selected = directory.path().join("Original proof.PDF");
+        fs::write(&selected, b"original-pdf-bytes").unwrap();
+        let workspace = Arc::new(Mutex::new(application));
+        let pending = Arc::new(Mutex::new(PendingAttachmentImports::default()));
+
+        let proposal =
+            prepare_pending_attachment_import(&workspace, &pending, source.id, &selected).unwrap();
+        assert_eq!(proposal.original_file_name, "Original proof.PDF");
+        assert_eq!(proposal.path.as_str(), "attachments/Original-proof.pdf");
+        assert_eq!(
+            proposal.markdown_reference,
+            "![[attachments/Original-proof.pdf]]"
+        );
+        assert!(!format!("{proposal:?}").contains(directory.path().to_str().unwrap()));
+        assert!(!workspace_root.join(proposal.path.as_str()).exists());
+
+        let imported =
+            commit_pending_attachment_import(&workspace, &pending, &proposal.token).unwrap();
+        assert_eq!(imported.path, proposal.path);
+        assert_eq!(
+            fs::read(workspace_root.join(imported.path.as_str())).unwrap(),
+            b"original-pdf-bytes"
+        );
+        assert!(commit_pending_attachment_import(&workspace, &pending, &proposal.token).is_err());
     }
 
     #[test]

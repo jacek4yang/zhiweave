@@ -220,6 +220,25 @@ describe("command registry", () => {
     ).toBe(false);
   });
 
+  it("offers native attachment import only at an editable cursor", () => {
+    const editorCommands = commandsForContext(
+      context(["native", "note", "attachmentImport"], "editor"),
+    );
+    expect(
+      editorCommands.filter((command) => command.id === "attachment.import"),
+    ).toHaveLength(1);
+    expect(
+      commandsForContext(
+        context(["browser", "note", "attachmentImport"], "editor"),
+      ).some((command) => command.id === "attachment.import"),
+    ).toBe(false);
+    expect(
+      commandsForContext(
+        context(["native", "note", "attachmentImport"], "preview"),
+      ).some((command) => command.id === "attachment.import"),
+    ).toBe(false);
+  });
+
   it("searches Chinese and aliases while preserving the registry order", () => {
     const commandContext = context([
       "native",

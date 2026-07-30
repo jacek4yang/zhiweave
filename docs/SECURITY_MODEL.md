@@ -46,6 +46,12 @@
   scheme、`.zhiweave`、符号链接、根外路径、控制字符、超限 target 和多个候选；扩展名与
   文件签名必须一致，只允许有界 PNG/JPEG/静态 WebP。SVG、GIF、动画 WebP、PDF、音视频和
   未知格式保持 inert placeholder，不进入 WebView 活动资源管线。
+- 本地附件导入：系统选择器和完整外部路径只存在于 Rust；WebView 仅发送来源稳定 ID，随后
+  收到不含系统路径的 opaque token 与精确提案。拒绝符号链接/非文件；Windows 打开时使用
+  `FILE_FLAG_OPEN_REPARSE_POINT`，并对已打开句柄再次核对文件类型与重解析点属性，关闭选择后
+  路径替换竞态。单文件 64 MiB、待确认 8 项/128 MiB、10 分钟 TTL。确认时重新生成并核对
+  目标、相对 Markdown 引用、显示策略、字节长度和 SHA-256，使用 `create_new`、同步和回读
+  校验；来源移动、同名竞态或陈旧提案失败关闭。非安全静态图片只生成 inert Wiki 附件引用。
 - 文件事件欺骗/丢失：watcher 事件仅作为无路径唤醒信号，不直接修改 UI 状态；每次由固定根
   `WorkspacePort` 重新读取、验证并比较完整快照。平台错误、空路径和 `Rescan` 都按可能漏报处理。
 
@@ -68,6 +74,9 @@
 - 附件 resolver 逐段检查 `symlink_metadata`，再验证 canonical path 仍在固定 root；普通图片
   只按来源目录解析，Wiki 嵌入候选冲突返回 ambiguous。读取上限 8 MiB，图像单边上限 16,384、
   总像素上限 40,000,000，结果带 SHA-256；WebView 只接收验证后字节的 inert data URL。
+- 附件 importer 不接受前端路径。原生 picker 捕获的原始字节只暂存在有界内存 proposal，
+  确认后写入固定 `attachments/`；发布失败由创建资源 guard 清理不完整目的文件。Markdown
+  引用由 CodeMirror 单次 transaction 插入，撤销引用不连带删除用户附件。
 - 显式索引重建先完整生成/校验候选库，再保存旧数据库到 recovery；失败不会修改 Markdown。
 - 应用内移动采用目标 `create_new`、完整写入/sync/校验、源 revision 复查、最后删源；目的地
   存在时失败，不使用平台相关的覆盖式 rename。

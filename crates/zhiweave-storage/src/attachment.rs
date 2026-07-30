@@ -25,7 +25,12 @@ pub(crate) fn resolve_attachment(
     let raw_target = request.raw_target.trim();
     validate_target(raw_target)?;
     let recognized_attachment = request.reference_kind == AttachmentReferenceKind::MarkdownImage
-        || has_attachment_extension(raw_target);
+        || has_attachment_extension(raw_target)
+        || (request.reference_kind == AttachmentReferenceKind::WikiEmbed
+            && raw_target
+                .replace('\\', "/")
+                .to_ascii_lowercase()
+                .starts_with("attachments/"));
     if is_active_or_remote_target(raw_target) {
         return Ok(empty_resolution(
             raw_target,
@@ -444,7 +449,21 @@ fn empty_resolution(
     }
 }
 
-fn hex_digest(bytes: &[u8]) -> String {
+pub(crate) fn is_safe_inline_image(path: &str, bytes: &[u8]) -> bool {
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > MAX_ATTACHMENT_PREVIEW_BYTES {
+        return false;
+    }
+    image_metadata(bytes).is_some_and(|(media_type, width, height)| {
+        extension_matches_media(path, media_type)
+            && width > 0
+            && height > 0
+            && width <= MAX_IMAGE_DIMENSION
+            && height <= MAX_IMAGE_DIMENSION
+            && u64::from(width) * u64::from(height) <= MAX_IMAGE_PIXELS
+    })
+}
+
+pub(crate) fn hex_digest(bytes: &[u8]) -> String {
     let digest = Sha256::digest(bytes);
     let mut encoded = String::with_capacity(digest.len() * 2);
     for byte in digest {

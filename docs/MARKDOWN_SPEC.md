@@ -59,13 +59,20 @@ Setext H1 标题识别和可交互大纲使用明确适配器。CodeMirror 的 L
   活动 scheme、查询/fragment 和隐藏 `.zhiweave` 元数据不可读取。
 - `![[name.ext]]` 作为附件时依次形成来源目录、`attachments/` 与工作区根候选；恰好一个
   既有候选才可读取，多个候选返回 ambiguous。带目录的嵌入按显式工作区 portable path 解析。
-- 不具有受支持附件扩展名的 `![[target]]` 继续作为 Wiki 节点嵌入解析，不被附件规则吞掉。
+- 不具有受支持附件扩展名的普通 `![[target]]` 继续作为 Wiki 节点嵌入解析；显式
+  `![[attachments/name]]` 始终是惰性附件，便于保存未知格式而不执行。
 - 当前活动预览只允许签名与扩展名一致的 PNG、JPEG 和静态 WebP，最大 8 MiB、单边 16,384
   像素、总像素 40,000,000。GIF、SVG、动画 WebP、PDF、音视频与未知格式显示 inert placeholder。
 - Rust 返回经过验证的字节、MIME、尺寸、portable path 和 SHA-256；WebView 不自行打开路径。
   阅读视图与 Live Preview 惰性请求，失败状态可见且不吞原始 target。
 - 浏览器演示没有本地文件 capability，只显示安全占位；不得以 `localStorage`、mock URL 或
   前端路径拼接冒充原生附件。
+- “导入附件到光标”只在原生可编辑上下文出现。Rust 系统选择器先读取但不写入，确认框展示
+  原文件名、portable 目标、大小、完整 SHA-256、显示方式和精确引用；单文件上限 64 MiB。
+- 确认后 Rust 重新生成提案，以 `create_new`、同步和回读校验保存原始字节，不覆盖同名文件。
+  CodeMirror 再用一次 transaction 插入完整引用；`Ctrl+Z` 撤销引用，但不删除已经保存的附件。
+- 安全静态图片生成相对来源的 `![alt](path)`；其他格式生成
+  `![[attachments/name.ext]]`，继续以 inert placeholder 降级。
 
 ## 往返规则
 
@@ -118,8 +125,8 @@ Corpus 至少覆盖 CommonMark 官方示例、GFM、深层列表、表格、脚�
 
 - Live Preview 已覆盖数学、安全本地图片/占位、脚注和闭合 fence；光标进入任一结构时恢复完整源码，
   composition 期间停止结构替换，未知/截断指令块与未闭合公式/围栏保持原文；
-- Wiki 正向打开、稳定 ID 反向链接、missing 显式新建和受限静态附件解析已接入；附件导入/
-  引用写入事务与局部图谱尚未完成；
+- Wiki 正向打开、稳定 ID 反向链接、missing 显式新建、受限静态附件解析以及受控附件导入/
+  可撤销引用事务已接入；局部图谱尚未完成；
 - Mermaid、Graphviz、导出、版本语义 diff 和 Corpus snapshot/fuzz 尚未完成；
 - 远程图片默认不加载；后续必须经过工作区资源策略与隐私提示，不能直接恢复任意 `src`；
 - 数学和解析器已按需分包，但 KaTeX 字体资产与首屏主包仍需优化。

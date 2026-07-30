@@ -17,11 +17,14 @@ export type CommandScope =
   | "workspace";
 
 export type CommandId =
+  | "attachment.confirmImport"
   | "attachment.copyTarget"
+  | "attachment.import"
   | "backup.create"
   | "backup.restore"
   | "backup.verify"
   | "dialog.closeExternalChanges"
+  | "dialog.closeAttachmentImport"
   | "dialog.closeNewNote"
   | "edit.copy"
   | "edit.cut"
@@ -86,6 +89,9 @@ export type CommandId =
   | "wiki.open";
 
 export type CommandCapability =
+  | "attachmentImport"
+  | "attachmentImportDialog"
+  | "attachmentImportReady"
   | "attachmentTarget"
   | "backup"
   | "backupIdle"
@@ -194,6 +200,7 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
     "edit.copy",
     "edit.undo",
     "edit.redo",
+    "attachment.import",
     "version.save",
     "note.copyMarkdown",
     "note.copyPlainText",
@@ -440,6 +447,34 @@ export const COMMANDS: readonly CommandDefinition[] = [
     palette: false,
     visibleRequires: ["attachmentTarget"],
   }),
+  command("attachment.import", "导入附件到光标", "附件", "attachment", 116, {
+    contexts: ["editor"],
+    keywords: ["attachment", "import", "file", "image", "附件", "导入", "图片"],
+    visibleRequires: ["native", "note", "attachmentImport"],
+  }),
+  command(
+    "attachment.confirmImport",
+    "确认导入并插入引用",
+    "附件",
+    "dialog",
+    117,
+    {
+      palette: false,
+      visibleRequires: ["attachmentImportDialog"],
+      enabledRequires: ["attachmentImportReady"],
+    },
+  ),
+  command(
+    "dialog.closeAttachmentImport",
+    "取消附件导入",
+    "对话框",
+    "dialog",
+    118,
+    {
+      palette: false,
+      visibleRequires: ["attachmentImportDialog"],
+    },
+  ),
   command("note.openSplit", "打开并实时预览", "知识节点", "note", 120, {
     contexts: NOTE_SCOPES,
     keywords: ["split", "live preview", "分栏", "实时"],

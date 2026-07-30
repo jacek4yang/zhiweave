@@ -18,6 +18,8 @@ base64.workspace = true
 notify.workspace = true
 serde.workspace = true
 tauri.workspace = true
+tauri-plugin-dialog.workspace = true
+uuid.workspace = true
 zhiweave-application = { path = "../../../crates/zhiweave-application" }
 zhiweave-domain = { path = "../../../crates/zhiweave-domain" }
 zhiweave-storage = { path = "../../../crates/zhiweave-storage" }
