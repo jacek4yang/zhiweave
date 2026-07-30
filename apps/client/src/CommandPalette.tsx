@@ -11,18 +11,22 @@ import {
   type CommandContext,
   type CommandId,
   type ResolvedCommand,
+  type ShortcutOverrides,
 } from "./commandRegistry";
+import { shortcutAriaLabel } from "./shortcutModel";
 
 interface CommandPaletteProps {
   readonly context: CommandContext;
   readonly onClose: () => void;
   readonly onRun: (id: CommandId) => void;
+  readonly shortcuts: ShortcutOverrides;
 }
 
 export function CommandPalette({
   context,
   onClose,
   onRun,
+  shortcuts,
 }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
   const [activeId, setActiveId] = useState<CommandId | null>(null);
@@ -30,8 +34,8 @@ export function CommandPalette({
   const inputRef = useRef<HTMLInputElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const commands = useMemo(
-    () => commandsForPalette(context, query),
-    [context, query],
+    () => commandsForPalette(context, query, shortcuts),
+    [context, query, shortcuts],
   );
   const enabledCommands = useMemo(
     () => commands.filter((command) => command.enabled),
@@ -209,7 +213,9 @@ export function CommandPalette({
                   <small>{command.category}</small>
                 </span>
                 {command.shortcut !== undefined && (
-                  <kbd>{command.shortcut.label}</kbd>
+                  <kbd aria-label={shortcutAriaLabel(command.shortcut)}>
+                    {command.shortcut.label}
+                  </kbd>
                 )}
               </button>
             ))

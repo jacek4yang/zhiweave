@@ -77,6 +77,7 @@ export type CommandId =
   | "workbench.commandPalette"
   | "workbench.clearQuickOpen"
   | "workbench.quickOpen"
+  | "workbench.shortcutEditor"
   | "workbench.toggleSidebar"
   | "workspace.copyRoot"
   | "workspace.applyExternalChanges"
@@ -131,13 +132,21 @@ export interface CommandContext {
   readonly capabilities: ReadonlySet<CommandCapability>;
 }
 
-export interface CommandShortcut {
+export interface CommandShortcutStroke {
   readonly key: string;
   readonly primary?: boolean;
   readonly alt?: boolean;
   readonly shift?: boolean;
-  readonly label: string;
 }
+
+export interface CommandShortcut extends CommandShortcutStroke {
+  readonly label: string;
+  readonly second?: CommandShortcutStroke;
+}
+
+export type ShortcutOverrides = Readonly<
+  Partial<Record<CommandId, CommandShortcut | null>>
+>;
 
 export interface CommandDefinition {
   readonly id: CommandId;
@@ -168,6 +177,19 @@ export interface KeyboardChord {
   readonly isComposing?: boolean;
 }
 
+export type CommandShortcutMatch =
+  | {
+      readonly kind: "command";
+      readonly command: CommandDefinition;
+    }
+  | {
+      readonly kind: "prefix";
+      readonly stroke: CommandShortcutStroke;
+    }
+  | {
+      readonly kind: "none";
+    };
+
 const WORKSPACE_SCOPES: readonly CommandScope[] = [
   "workspace",
   "activity",
@@ -188,6 +210,7 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
     "workspace.openToday",
     "workspace.createUuidLab",
     "backup.create",
+    "workbench.shortcutEditor",
     "workbench.toggleSidebar",
   ],
   attachment: ["attachment.copyTarget"],
@@ -244,6 +267,7 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
     "workspace.createUuidLab",
     "backup.create",
     "workbench.quickOpen",
+    "workbench.shortcutEditor",
     "workbench.toggleSidebar",
   ],
   graph: [
@@ -338,6 +362,7 @@ const CONTEXT_ORDER: Readonly<Record<CommandScope, readonly CommandId[]>> = {
     "workspace.openToday",
     "workspace.createUuidLab",
     "backup.create",
+    "workbench.shortcutEditor",
     "workbench.toggleSidebar",
   ],
 };
@@ -357,6 +382,11 @@ export const COMMANDS: readonly CommandDefinition[] = [
     contexts: WORKSPACE_SCOPES,
     keywords: ["sidebar", "侧栏", "explorer"],
     shortcut: shortcut("b", "Ctrl+B"),
+  }),
+  command("workbench.shortcutEditor", "打开快捷键编辑器", "工作台", "workbench", 35, {
+    contexts: WORKSPACE_SCOPES,
+    keywords: ["keyboard", "shortcut", "keybinding", "键盘", "快捷键", "按键"],
+    shortcut: shortcutSequence("k", "s", "Ctrl+K Ctrl+S"),
   }),
   command("workspace.createNote", "新建知识节点", "知识节点", "workspace", 40, {
     contexts: WORKSPACE_SCOPES,
@@ -816,19 +846,25 @@ export const COMMANDS: readonly CommandDefinition[] = [
   navigationCommand("view.versions", "版本", 560),
 ];
 
-export function commandById(id: CommandId): CommandDefinition {
+export function commandById(
+  id: CommandId,
+  shortcuts?: ShortcutOverrides,
+): CommandDefinition {
   const definition = COMMANDS.find((candidate) => candidate.id === id);
   if (definition === undefined) {
     throw new Error(`Unknown command: ${id}`);
   }
-  return definition;
+  return shortcuts === undefined
+    ? definition
+    : withEffectiveShortcut(definition, shortcuts);
 }
 
 export function resolveCommandById(
   id: CommandId,
   context: CommandContext,
+  shortcuts?: ShortcutOverrides,
 ): ResolvedCommand | undefined {
-  const definition = commandById(id);
+  const definition = commandById(id, shortcuts);
   return requirementsMet(
     definition.visibleRequires,
     context.capabilities,
@@ -839,6 +875,7 @@ export function resolveCommandById(
 
 export function commandsForContext(
   context: CommandContext,
+  shortcuts: ShortcutOverrides = {},
 ): readonly ResolvedCommand[] {
   if (context.scope === undefined) {
     return [];
@@ -848,7 +885,12 @@ export function commandsForContext(
       definition.contexts.includes(context.scope as CommandScope) &&
       requirementsMet(definition.visibleRequires, context.capabilities),
   )
-    .map((definition) => resolveCommand(definition, context))
+    .map((definition) =>
+      resolveCommand(
+        withEffectiveShortcut(definition, shortcuts),
+        context,
+      ),
+    )
     .sort(
       (left, right) =>
         contextCommandOrder(context.scope as CommandScope, left.id) -
@@ -859,6 +901,7 @@ export function commandsForContext(
 export function commandsForPalette(
   context: CommandContext,
   query: string,
+  shortcuts: ShortcutOverrides = {},
 ): readonly ResolvedCommand[] {
   const normalized = normalize(query);
   return COMMANDS.filter(
@@ -867,7 +910,10 @@ export function commandsForPalette(
       requirementsMet(definition.visibleRequires, context.capabilities),
   )
     .map((definition) => ({
-      command: resolveCommand(definition, context),
+      command: resolveCommand(
+        withEffectiveShortcut(definition, shortcuts),
+        context,
+      ),
       score: commandScore(definition, normalized),
     }))
     .filter((item) => Number.isFinite(item.score))
@@ -882,15 +928,67 @@ export function commandsForPalette(
 
 export function commandForShortcut(
   chord: KeyboardChord,
+  shortcuts: ShortcutOverrides = {},
 ): CommandDefinition | undefined {
+  const match = matchCommandShortcut(chord, shortcuts);
+  return match.kind === "command" ? match.command : undefined;
+}
+
+export function matchCommandShortcut(
+  chord: KeyboardChord,
+  shortcuts: ShortcutOverrides = {},
+  prefix?: CommandShortcutStroke,
+): CommandShortcutMatch {
   if (chord.defaultPrevented || chord.isComposing) {
-    return undefined;
+    return { kind: "none" };
   }
-  return COMMANDS.find(
+  if (
+    prefix !== undefined &&
+    ["alt", "altgraph", "control", "meta", "shift"].includes(
+      normalizeKey(chord.key),
+    )
+  ) {
+    return { kind: "prefix", stroke: prefix };
+  }
+  const stroke = keyboardChordToStroke(chord);
+  const definitions = COMMANDS.map((definition) =>
+    withEffectiveShortcut(definition, shortcuts),
+  );
+  if (prefix !== undefined) {
+    const command = definitions.find(
+      (definition) =>
+        definition.shortcut?.second !== undefined &&
+        shortcutStrokeMatches(definition.shortcut, prefix) &&
+        shortcutStrokeMatches(definition.shortcut.second, stroke),
+    );
+    return command === undefined
+      ? { kind: "none" }
+      : { kind: "command", command };
+  }
+
+  const command = definitions.find(
     (definition) =>
       definition.shortcut !== undefined &&
-      shortcutMatches(definition.shortcut, chord),
+      definition.shortcut.second === undefined &&
+      shortcutStrokeMatches(definition.shortcut, stroke),
   );
+  if (command !== undefined) {
+    return { kind: "command", command };
+  }
+  return definitions.some(
+    (definition) =>
+      definition.shortcut?.second !== undefined &&
+      shortcutStrokeMatches(definition.shortcut, stroke),
+  )
+    ? { kind: "prefix", stroke }
+    : { kind: "none" };
+}
+
+export function shortcutForCommand(
+  id: CommandId,
+  shortcuts: ShortcutOverrides = {},
+): CommandShortcut | undefined {
+  return commandById(id, shortcuts).shortcut;
 }
 
 function resolveCommand(
@@ -919,17 +1017,44 @@ function contextCommandOrder(scope: CommandScope, id: CommandId): number {
   return index < 0 ? Number.MAX_SAFE_INTEGER : index;
 }
 
-function shortcutMatches(
-  expected: CommandShortcut,
-  actual: KeyboardChord,
+function shortcutStrokeMatches(
+  expected: CommandShortcutStroke,
+  actual: CommandShortcutStroke,
 ): boolean {
-  const primary = actual.ctrlKey || actual.metaKey;
   return (
     normalizeKey(actual.key) === normalizeKey(expected.key) &&
-    primary === (expected.primary ?? false) &&
-    actual.altKey === (expected.alt ?? false) &&
-    actual.shiftKey === (expected.shift ?? false)
+    (actual.primary ?? false) === (expected.primary ?? false) &&
+    (actual.alt ?? false) === (expected.alt ?? false) &&
+    (actual.shift ?? false) === (expected.shift ?? false)
   );
+}
+
+function keyboardChordToStroke(
+  chord: KeyboardChord,
+): CommandShortcutStroke {
+  return {
+    key: chord.key,
+    ...(chord.ctrlKey || chord.metaKey ? { primary: true } : {}),
+    ...(chord.altKey ? { alt: true } : {}),
+    ...(chord.shiftKey ? { shift: true } : {}),
+  };
+}
+
+function withEffectiveShortcut(
+  definition: CommandDefinition,
+  shortcuts: ShortcutOverrides,
+): CommandDefinition {
+  if (!Object.prototype.hasOwnProperty.call(shortcuts, definition.id)) {
+    return definition;
+  }
+  const { shortcut: _defaultShortcut, ...withoutShortcut } = definition;
+  const effective = shortcuts[definition.id];
+  return effective === null || effective === undefined
+    ? withoutShortcut
+    : {
+        ...withoutShortcut,
+        shortcut: effective,
+      };
 }
 
 function normalizeKey(value: string): string {
@@ -1042,5 +1167,21 @@ function shortcut(
     primary: true,
     ...(modifiers.alt === undefined ? {} : { alt: modifiers.alt }),
     ...(modifiers.shift === undefined ? {} : { shift: modifiers.shift }),
+  };
+}
+
+function shortcutSequence(
+  firstKey: string,
+  secondKey: string,
+  label: string,
+): CommandShortcut {
+  return {
+    key: firstKey,
+    label,
+    primary: true,
+    second: {
+      key: secondKey,
+      primary: true,
+    },
   };
 }

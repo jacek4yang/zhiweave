@@ -28,6 +28,7 @@ import {
   GitFork,
   GitBranch,
   GraduationCap,
+  Keyboard,
   Library,
   Link2,
   ListTree,
@@ -72,15 +73,25 @@ import {
 } from "./appModel";
 import {
   commandById,
-  commandForShortcut,
   commandsForContext,
+  matchCommandShortcut,
   resolveCommandById,
+  shortcutForCommand,
   type CommandCapability,
   type CommandContext,
   type CommandId,
   type CommandScope,
+  type CommandShortcutStroke,
   type ResolvedCommand,
+  type ShortcutOverrides,
 } from "./commandRegistry";
+import {
+  SHORTCUT_PREFERENCES_KEY,
+  createShortcut,
+  parseShortcutOverrides,
+  serializeShortcutOverrides,
+  shortcutAriaLabel,
+} from "./shortcutModel";
 import {
   MarkdownEditor,
   type EditorStatus,
@@ -186,6 +197,10 @@ const BacklinksPanel = lazy(async () => {
 const LocalGraphPanel = lazy(async () => {
   const module = await import("./LocalGraphPanel");
   return { default: module.LocalGraphPanel };
+});
+const ShortcutEditor = lazy(async () => {
+  const module = await import("./ShortcutEditor");
+  return { default: module.ShortcutEditor };
 });
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -374,6 +389,9 @@ export function App() {
     "idle" | "selecting" | "reviewing" | "confirming"
   >("idle");
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [isShortcutEditorOpen, setIsShortcutEditorOpen] = useState(false);
+  const [shortcutOverrides, setShortcutOverrides] =
+    useState<ShortcutOverrides>(readStoredShortcutOverrides);
   const [externalChanges, setExternalChanges] =
     useState<NativeWorkspaceChangesResult | null>(null);
   const [isExternalChangesOpen, setIsExternalChangesOpen] = useState(false);
@@ -400,6 +418,8 @@ export function App() {
   );
   const checkingExternalChangesRef = useRef(false);
   const pendingExternalCheckRef = useRef(false);
+  const pendingShortcutRef = useRef<CommandShortcutStroke | null>(null);
+  const shortcutTimerRef = useRef<number | null>(null);
 
   const selectedNote = workspace.notes.find(
     (note) => note.id === activeNoteId,
@@ -865,6 +885,17 @@ export function App() {
     outlineOpen,
     tabSession,
   ]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        SHORTCUT_PREFERENCES_KEY,
+        serializeShortcutOverrides(shortcutOverrides),
+      );
+    } catch {
+      // Shortcut preferences are optional and never affect Markdown persistence.
+    }
+  }, [shortcutOverrides]);
 
   useEffect(() => {
     if (
@@ -2804,7 +2835,11 @@ export function App() {
   }
 
   function runCommand(id: CommandId, target: CommandTarget = {}) {
-    const resolved = resolveCommandById(id, commandContextFor(target));
+    const resolved = resolveCommandById(
+      id,
+      commandContextFor(target),
+      shortcutOverrides,
+    );
     if (resolved === undefined || !resolved.enabled) {
       setToast("当前上下文不能安全执行这个命令。");
       return;
@@ -2829,10 +2864,21 @@ export function App() {
     if (id !== "workbench.commandPalette") {
       setIsCommandPaletteOpen(false);
     }
+    if (id !== "workbench.shortcutEditor") {
+      setIsShortcutEditorOpen(false);
+    }
 
     switch (id) {
       case "workbench.commandPalette":
         setIsCommandPaletteOpen(true);
+        return;
+      case "workbench.shortcutEditor":
+        pendingShortcutRef.current = null;
+        if (shortcutTimerRef.current !== null) {
+          window.clearTimeout(shortcutTimerRef.current);
+          shortcutTimerRef.current = null;
+        }
+        setIsShortcutEditorOpen(true);
         return;
       case "workbench.quickOpen":
         if (!window.matchMedia("(max-width: 960px)").matches) {
@@ -3376,33 +3422,90 @@ export function App() {
     const handleShortcut = (event: KeyboardEvent) => {
       if (
         isCommandPaletteOpen ||
+        isShortcutEditorOpen ||
         isNewNoteOpen ||
         isExternalChangesOpen ||
-        pendingWikiCreation !== null
+        pendingWikiCreation !== null ||
+        pendingAttachmentImport !== null
       ) {
         return;
       }
       if (event.key === "Escape") {
+        if (pendingShortcutRef.current !== null) {
+          pendingShortcutRef.current = null;
+          if (shortcutTimerRef.current !== null) {
+            window.clearTimeout(shortcutTimerRef.current);
+            shortcutTimerRef.current = null;
+          }
+          setToast("已取消两段快捷键。");
+        }
         setContextMenu(null);
         return;
       }
-      const command = commandForShortcut(event);
-      if (command === undefined) {
+      const pending = pendingShortcutRef.current;
+      const match = matchCommandShortcut(
+        event,
+        shortcutOverrides,
+        pending ?? undefined,
+      );
+      if (match.kind === "prefix") {
+        event.preventDefault();
+        pendingShortcutRef.current = match.stroke;
+        if (shortcutTimerRef.current !== null) {
+          window.clearTimeout(shortcutTimerRef.current);
+        }
+        shortcutTimerRef.current = window.setTimeout(() => {
+          pendingShortcutRef.current = null;
+          shortcutTimerRef.current = null;
+          setToast("两段快捷键等待超时，未执行命令。");
+        }, 1_600);
+        const prefix = createShortcut([match.stroke]);
+        setToast(
+          prefix === null
+            ? "等待第二段快捷键…"
+            : `${prefix.label} 已按下，等待第二段快捷键…`,
+        );
         return;
+      }
+      if (match.kind === "none") {
+        if (pending !== null) {
+          event.preventDefault();
+          pendingShortcutRef.current = null;
+          if (shortcutTimerRef.current !== null) {
+            window.clearTimeout(shortcutTimerRef.current);
+            shortcutTimerRef.current = null;
+          }
+          setToast("这个两段快捷键没有对应命令。");
+        }
+        return;
+      }
+      pendingShortcutRef.current = null;
+      if (shortcutTimerRef.current !== null) {
+        window.clearTimeout(shortcutTimerRef.current);
+        shortcutTimerRef.current = null;
       }
       event.preventDefault();
       const focused = document.activeElement?.closest<HTMLElement>(
         '[data-context="note-item"], [data-context="tab"]',
       );
-      runCommand(command.id, {
+      runCommand(match.command.id, {
         ...(focused?.dataset.noteId === undefined
           ? {}
           : { noteId: focused.dataset.noteId }),
       });
     };
-    window.addEventListener("keydown", handleShortcut);
-    return () => window.removeEventListener("keydown", handleShortcut);
+    window.addEventListener("keydown", handleShortcut, true);
+    return () => window.removeEventListener("keydown", handleShortcut, true);
   });
+
+  useEffect(
+    () => () => {
+      if (shortcutTimerRef.current !== null) {
+        window.clearTimeout(shortcutTimerRef.current);
+      }
+    },
+    [],
+  );
 
   const pageTitle =
     activeView === "versions"
@@ -3494,8 +3597,23 @@ export function App() {
   const contextCommands =
     contextMenu === null
       ? []
-      : commandsForContext(commandContextFor(contextCommandTarget));
+      : commandsForContext(
+          commandContextFor(contextCommandTarget),
+          shortcutOverrides,
+        );
   const paletteContext = commandContextFor();
+  const shortcutTitle = (id: CommandId, label?: string) => {
+    const command = commandById(id, shortcutOverrides);
+    return command.shortcut === undefined
+      ? (label ?? command.title)
+      : `${label ?? command.title} (${command.shortcut.label})`;
+  };
+  const shortcutAria = (id: CommandId) => {
+    const shortcut = shortcutForCommand(id, shortcutOverrides);
+    return shortcut === undefined || shortcut.second !== undefined
+      ? undefined
+      : shortcutAriaLabel(shortcut);
+  };
 
   return (
     <main
@@ -3550,10 +3668,11 @@ export function App() {
         data-context="activity"
       >
         <button
+          aria-keyshortcuts={shortcutAria("workbench.toggleSidebar")}
           aria-label="显示或隐藏笔记栏"
           className="activity-brand"
           onClick={() => runCommand("workbench.toggleSidebar")}
-          title="显示或隐藏笔记栏"
+          title={shortcutTitle("workbench.toggleSidebar")}
           type="button"
         >
           <BrainCircuit />
@@ -3625,9 +3744,10 @@ export function App() {
               </button>
             )}
             <button
+              aria-keyshortcuts={shortcutAria("workspace.createNote")}
               aria-label="新建笔记"
               onClick={() => runCommand("workspace.createNote")}
-              title="新建笔记"
+              title={shortcutTitle("workspace.createNote", "新建笔记")}
               type="button"
             >
               <Plus />
@@ -3639,10 +3759,12 @@ export function App() {
           <label>
             <Search />
             <input
+              aria-keyshortcuts={shortcutAria("workbench.quickOpen")}
               aria-label="搜索笔记"
               onChange={(event) => setQuery(event.target.value)}
               placeholder="搜索笔记"
               ref={searchInputRef}
+              title={shortcutTitle("workbench.quickOpen")}
               value={query}
             />
             {query.length > 0 && (
@@ -3711,9 +3833,10 @@ export function App() {
         <header className="workbench-toolbar">
           <div className="document-trail">
             <button
+              aria-keyshortcuts={shortcutAria("workbench.toggleSidebar")}
               aria-label="显示或隐藏笔记栏"
               onClick={() => runCommand("workbench.toggleSidebar")}
-              title="显示或隐藏笔记栏"
+              title={shortcutTitle("workbench.toggleSidebar")}
               type="button"
             >
               <Menu />
@@ -3725,20 +3848,31 @@ export function App() {
 
           <div className="header-actions">
             <button
-              aria-keyshortcuts="Control+Shift+P"
+              aria-keyshortcuts={shortcutAria("workbench.commandPalette")}
               className="command-palette-trigger"
               onClick={() => runCommand("workbench.commandPalette")}
-              title={`${commandById("workbench.commandPalette").title} (Ctrl+Shift+P)`}
+              title={shortcutTitle("workbench.commandPalette")}
               type="button"
             >
               <CommandIcon />
               <span>命令</span>
             </button>
+            <button
+              aria-keyshortcuts={shortcutAria("workbench.shortcutEditor")}
+              onClick={() => runCommand("workbench.shortcutEditor")}
+              title={shortcutTitle("workbench.shortcutEditor")}
+              type="button"
+            >
+              <Keyboard />
+              <span>快捷键</span>
+            </button>
             {activeView === "versions" ? (
               <button
+                aria-keyshortcuts={shortcutAria("version.save")}
                 className="primary"
                 disabled={selectedNote === undefined}
                 onClick={() => runCommand("version.save")}
+                title={shortcutTitle("version.save")}
                 type="button"
               >
                 <Save />
@@ -3758,20 +3892,22 @@ export function App() {
                     <span>编辑</span>
                   </button>
                   <button
+                    aria-keyshortcuts={shortcutAria("view.split")}
                     aria-pressed={editorMode === "split"}
                     className={editorMode === "split" ? "is-active" : ""}
                     onClick={() => runCommand("view.split")}
-                    title="实时分栏预览 (Ctrl+\\)"
+                    title={shortcutTitle("view.split", "实时分栏预览")}
                     type="button"
                   >
                     <Columns2 />
                     <span>分栏</span>
                   </button>
                   <button
+                    aria-keyshortcuts={shortcutAria("view.preview")}
                     aria-pressed={editorMode === "preview"}
                     className={editorMode === "preview" ? "is-active" : ""}
                     onClick={() => runCommand("view.preview")}
-                    title="Markdown 预览 (Ctrl+Shift+V)"
+                    title={shortcutTitle("view.preview", "Markdown 预览")}
                     type="button"
                   >
                     <BookOpenText />
@@ -3856,8 +3992,9 @@ export function App() {
                   <span>交互实验</span>
                 </button>
                 <button
+                  aria-keyshortcuts={shortcutAria("version.save")}
                   onClick={() => runCommand("version.save")}
-                  title="保存版本"
+                  title={shortcutTitle("version.save", "保存版本")}
                   type="button"
                 >
                   <Save />
@@ -3898,10 +4035,11 @@ export function App() {
                 <strong>本地版本历史</strong>
               </button>
               <button
+                aria-keyshortcuts={shortcutAria("tab.close")}
                 aria-label="关闭版本标签"
                 className="tab-close"
                 onClick={() => runCommand("tab.close")}
-                title="关闭 (Ctrl+W)"
+                title={shortcutTitle("tab.close", "关闭")}
                 type="button"
               >
                 <X />
@@ -3947,10 +4085,11 @@ export function App() {
                   <strong>{note.title}</strong>
                 </button>
                 <button
+                  aria-keyshortcuts={shortcutAria("tab.close")}
                   aria-label={`关闭 ${note.title}`}
                   className="tab-close"
                   onClick={() => runCommand("tab.close", { noteId: note.id })}
-                  title="关闭 (Ctrl+W)"
+                  title={shortcutTitle("tab.close", "关闭")}
                   type="button"
                 >
                   <X />
@@ -4124,11 +4263,12 @@ export function App() {
 
         <footer className="status-bar" data-context="status">
           <button
+            aria-keyshortcuts={shortcutAria("workspace.save")}
             aria-disabled={!saveStatusActionable}
             className={`save-status is-${saveState}`}
             onClick={() => runCommand("workspace.resolveSave")}
             tabIndex={saveStatusActionable ? 0 : -1}
-            title={saveStatusLabel}
+            title={shortcutTitle("workspace.save", saveStatusLabel)}
             type="button"
           >
             <i />
@@ -4595,10 +4735,12 @@ export function App() {
                   </span>
                 )}
                 <button
-                  aria-keyshortcuts={command.shortcut?.label.replace(
-                    "Ctrl",
-                    "Control",
-                  )}
+                  aria-keyshortcuts={
+                    command.shortcut === undefined ||
+                    command.shortcut.second !== undefined
+                      ? undefined
+                      : shortcutAriaLabel(command.shortcut)
+                  }
                   className={command.dangerous === true ? "danger" : undefined}
                   disabled={!command.enabled}
                   onClick={() => runCommand(command.id, contextCommandTarget)}
@@ -4626,7 +4768,17 @@ export function App() {
           context={paletteContext}
           onClose={() => setIsCommandPaletteOpen(false)}
           onRun={(id) => runCommand(id)}
+          shortcuts={shortcutOverrides}
         />
+      )}
+      {isShortcutEditorOpen && (
+        <Suspense fallback={null}>
+          <ShortcutEditor
+            onChange={setShortcutOverrides}
+            onClose={() => setIsShortcutEditorOpen(false)}
+            overrides={shortcutOverrides}
+          />
+        </Suspense>
       )}
     </main>
   );
@@ -5276,6 +5428,16 @@ function readStoredWorkbenchPreferences(): WorkbenchPreferences {
     );
   } catch {
     return DEFAULT_WORKBENCH_PREFERENCES;
+  }
+}
+
+function readStoredShortcutOverrides(): ShortcutOverrides {
+  try {
+    return parseShortcutOverrides(
+      localStorage.getItem(SHORTCUT_PREFERENCES_KEY),
+    );
+  } catch {
+    return {};
   }
 }
 

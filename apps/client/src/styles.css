@@ -4050,6 +4050,380 @@ button.preview-wiki-embed:focus-visible {
   margin-left: auto;
 }
 
+.shortcut-editor-backdrop {
+  position: fixed;
+  z-index: 185;
+  inset: 32px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgb(9 10 17 / 68%);
+}
+
+.shortcut-editor {
+  display: flex;
+  width: min(940px, calc(100vw - 36px));
+  max-height: min(760px, calc(100vh - 68px));
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--muted);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  outline: 0;
+  background: #1e2030;
+  box-shadow: 0 26px 78px rgb(0 0 0 / 56%);
+}
+
+.shortcut-editor-header {
+  display: flex;
+  min-height: 72px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px 12px 18px;
+  border-bottom: 1px solid var(--line);
+  background: #1b1d2b;
+}
+
+.shortcut-editor-header > div,
+.shortcut-editor-header > div > span:last-child {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.shortcut-editor-header > div {
+  gap: 12px;
+}
+
+.shortcut-editor-header > div > span:last-child {
+  display: grid;
+  gap: 3px;
+}
+
+.shortcut-editor-header h2,
+.shortcut-editor-header p {
+  margin: 0;
+}
+
+.shortcut-editor-header h2 {
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.shortcut-editor-header p {
+  color: var(--subtle);
+  font-size: 10px;
+}
+
+.shortcut-editor-icon {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  border: 1px solid rgb(142 130 255 / 34%);
+  border-radius: 6px;
+  background: var(--accent-soft);
+}
+
+.shortcut-editor-icon svg {
+  width: 18px;
+}
+
+.shortcut-editor button {
+  min-height: 30px;
+  padding: 0 9px;
+  color: var(--muted);
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: #25283a;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.shortcut-editor button:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: rgb(142 130 255 / 58%);
+  background: var(--accent-soft);
+}
+
+.shortcut-editor button:focus-visible,
+.shortcut-recorder:focus-visible,
+.shortcut-editor input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.shortcut-editor button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.shortcut-editor button svg {
+  width: 13px;
+}
+
+.shortcut-editor button.danger {
+  color: #ffb4b6;
+  border-color: rgb(225 132 141 / 38%);
+  background: rgb(113 49 60 / 18%);
+}
+
+.shortcut-icon-button {
+  display: inline-flex;
+  width: 32px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 0 !important;
+  border-color: transparent !important;
+  background: transparent !important;
+}
+
+.shortcut-editor-tools {
+  display: flex;
+  min-height: 54px;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.shortcut-editor-search {
+  display: grid;
+  min-width: 0;
+  min-height: 34px;
+  flex: 1;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  color: var(--subtle);
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: #191b29;
+}
+
+.shortcut-editor-search > svg {
+  width: 14px;
+}
+
+.shortcut-editor-search input {
+  width: 100%;
+  height: 30px;
+  padding: 0;
+  color: var(--ink);
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 11px;
+}
+
+.shortcut-editor-search input::placeholder {
+  color: var(--subtle);
+}
+
+.shortcut-editor-search kbd,
+.shortcut-editor kbd {
+  color: var(--ink);
+  font: 9px/1.35 "Cascadia Code", Consolas, monospace;
+}
+
+.shortcut-editor-tools > button,
+.shortcut-reset-confirm,
+.shortcut-reset-confirm button,
+.shortcut-row-actions,
+.shortcut-recorder-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.shortcut-editor-tools > button {
+  white-space: nowrap;
+}
+
+.shortcut-reset-confirm {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.shortcut-recorder,
+.shortcut-conflict {
+  display: grid;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 10px 12px 0;
+  padding: 10px 12px;
+  border: 1px solid rgb(142 130 255 / 44%);
+  border-radius: 6px;
+  background: rgb(98 84 190 / 12%);
+}
+
+.shortcut-recorder {
+  grid-template-columns: minmax(130px, 1fr) minmax(150px, auto) auto;
+}
+
+.shortcut-recorder > span:first-child,
+.shortcut-conflict > span:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.shortcut-recorder small,
+.shortcut-conflict small {
+  color: var(--subtle);
+  font-size: 9px;
+}
+
+.shortcut-recorder > small {
+  grid-column: 1 / -1;
+}
+
+.shortcut-recorder-value {
+  min-width: 154px;
+  padding: 8px 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 4px;
+  background: rgb(14 15 24 / 42%);
+  text-align: center;
+}
+
+.shortcut-recorder-value em,
+.shortcut-binding em {
+  color: var(--subtle);
+  font-size: 9px;
+  font-style: normal;
+}
+
+.shortcut-conflict {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  border-color: rgb(225 132 141 / 46%);
+  background: rgb(113 49 60 / 14%);
+}
+
+.shortcut-list {
+  min-height: 120px;
+  flex: 1;
+  padding: 6px 8px;
+  overflow-y: auto;
+  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-width: thin;
+}
+
+.shortcut-list article {
+  display: grid;
+  min-height: 52px;
+  grid-template-columns: minmax(180px, 1fr) minmax(160px, 0.72fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 8px 6px 12px;
+  border-left: 2px solid transparent;
+  border-radius: 4px;
+}
+
+.shortcut-list article:hover {
+  background: rgb(255 255 255 / 2.5%);
+}
+
+.shortcut-list article.is-customized {
+  border-left-color: var(--accent);
+  background: rgb(98 84 190 / 7%);
+}
+
+.shortcut-command-copy,
+.shortcut-binding {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.shortcut-command-copy strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shortcut-command-copy small,
+.shortcut-binding small {
+  overflow: hidden;
+  color: var(--subtle);
+  font: 8.5px/1.3 "Cascadia Code", Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shortcut-binding {
+  justify-items: start;
+}
+
+.shortcut-binding kbd,
+.shortcut-recorder-value kbd {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  padding: 0 7px;
+  color: #e8e4ff;
+  border: 1px solid rgb(142 130 255 / 36%);
+  border-radius: 4px;
+  background: rgb(98 84 190 / 15%);
+  box-shadow: inset 0 -1px rgb(0 0 0 / 20%);
+  white-space: nowrap;
+}
+
+.shortcut-row-actions {
+  justify-content: flex-end;
+}
+
+.shortcut-row-actions button:not(:first-child) {
+  width: 30px;
+  justify-content: center;
+  padding: 0;
+}
+
+.shortcut-empty {
+  margin: 0;
+  padding: 42px 16px;
+  color: var(--subtle);
+  font-size: 10px;
+  text-align: center;
+}
+
+.shortcut-editor-footer {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 13px;
+  color: var(--subtle);
+  border-top: 1px solid var(--line);
+  background: #1b1d2b;
+  font-size: 9px;
+}
+
+.shortcut-editor-footer > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shortcut-editor-footer > span:last-child {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
 .context-menu {
   position: fixed;
   z-index: 160;
@@ -4177,6 +4551,70 @@ button.preview-wiki-embed:focus-visible {
 @media (max-width: 720px) {
   .command-palette-backdrop {
     padding: 8px;
+  }
+
+  .shortcut-editor-backdrop {
+    align-items: stretch;
+    padding: 8px;
+  }
+
+  .shortcut-editor {
+    width: 100%;
+    max-height: none;
+  }
+
+  .shortcut-editor-header {
+    min-height: 64px;
+    padding-left: 12px;
+  }
+
+  .shortcut-editor-header p {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .shortcut-editor-tools {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .shortcut-editor-tools > button {
+    justify-content: center;
+  }
+
+  .shortcut-reset-confirm {
+    justify-content: flex-end;
+  }
+
+  .shortcut-recorder,
+  .shortcut-conflict {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .shortcut-recorder-value {
+    min-width: 130px;
+  }
+
+  .shortcut-recorder-actions,
+  .shortcut-recorder > small {
+    grid-column: 1 / -1;
+  }
+
+  .shortcut-conflict > span {
+    grid-column: 1 / -1;
+  }
+
+  .shortcut-list article {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .shortcut-binding {
+    justify-items: end;
+  }
+
+  .shortcut-row-actions {
+    grid-column: 1 / -1;
   }
 
   .command-palette {
@@ -4427,6 +4865,35 @@ button.preview-wiki-embed:focus-visible {
 }
 
 @media (max-width: 480px) {
+  .shortcut-editor-header p,
+  .shortcut-editor-icon,
+  .shortcut-command-copy small,
+  .shortcut-editor-footer > span:last-child {
+    display: none;
+  }
+
+  .shortcut-editor-tools {
+    min-height: 0;
+  }
+
+  .shortcut-reset-confirm {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .shortcut-list article {
+    gap: 6px 8px;
+    padding-left: 8px;
+  }
+
+  .shortcut-row-actions button:first-child {
+    flex: 1;
+  }
+
+  .shortcut-editor-footer > span:first-child {
+    white-space: normal;
+  }
+
   .editor-workspace.has-inspector .document-outline,
   .editor-workspace.has-inspector .backlinks-panel,
   .editor-workspace.has-inspector .local-graph-panel,

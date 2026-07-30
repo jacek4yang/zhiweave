@@ -5,6 +5,8 @@ import {
   commandForShortcut,
   commandsForContext,
   commandsForPalette,
+  matchCommandShortcut,
+  shortcutForCommand,
   type CommandCapability,
   type CommandContext,
   type KeyboardChord,
@@ -49,6 +51,10 @@ describe("command registry", () => {
               item.alt ?? false,
               item.shift ?? false,
               item.key.toLocaleLowerCase("en-US"),
+              item.second?.primary ?? false,
+              item.second?.alt ?? false,
+              item.second?.shift ?? false,
+              item.second?.key.toLocaleLowerCase("en-US") ?? "",
             ].join(":"),
           ];
     });
@@ -69,6 +75,73 @@ describe("command registry", () => {
         chord("p", { ctrlKey: true, shiftKey: true, isComposing: true }),
       ),
     ).toBeUndefined();
+  });
+
+  it("dispatches a two-stroke shortcut only after its second chord", () => {
+    const first = matchCommandShortcut(chord("k", { ctrlKey: true }));
+    expect(first.kind).toBe("prefix");
+    if (first.kind !== "prefix") {
+      return;
+    }
+    expect(
+      matchCommandShortcut(
+        chord("Control", { ctrlKey: true }),
+        {},
+        first.stroke,
+      ),
+    ).toEqual(first);
+    expect(
+      matchCommandShortcut(
+        chord("s", { ctrlKey: true }),
+        {},
+        first.stroke,
+      ),
+    ).toMatchObject({
+      kind: "command",
+      command: { id: "workbench.shortcutEditor" },
+    });
+    expect(
+      matchCommandShortcut(
+        chord("x", { ctrlKey: true }),
+        {},
+        first.stroke,
+      ),
+    ).toEqual({ kind: "none" });
+  });
+
+  it("uses one effective override for dispatch, palette, and context menus", () => {
+    const custom = {
+      key: "j",
+      label: "Ctrl+Alt+J",
+      primary: true,
+      alt: true,
+    } as const;
+    const overrides = {
+      "view.split": custom,
+      "workbench.quickOpen": null,
+    } as const;
+
+    expect(
+      commandForShortcut(
+        chord("j", { ctrlKey: true, altKey: true }),
+        overrides,
+      )?.id,
+    ).toBe("view.split");
+    expect(
+      commandForShortcut(chord("p", { ctrlKey: true }), overrides),
+    ).toBeUndefined();
+    expect(shortcutForCommand("view.split", overrides)?.label).toBe(
+      "Ctrl+Alt+J",
+    );
+    expect(
+      commandsForPalette(context(["note"], "workspace"), "分栏", overrides)[0]
+        ?.shortcut?.label,
+    ).toBe("Ctrl+Alt+J");
+    expect(
+      commandsForContext(context(["note"], "editor"), overrides).find(
+        (command) => command.id === "view.split",
+      )?.shortcut?.label,
+    ).toBe("Ctrl+Alt+J");
   });
 
   it("shows only commands that belong to the clicked object", () => {
