@@ -15,9 +15,9 @@
 - 工作目录：`%USERPROFILE%\Desktop\Projects\zhiweave`
 - 分支：`agent/professional-workbench`
 - Draft PR：[jacek4yang/zhiweave#1](https://github.com/jacek4yang/zhiweave/pull/1)
-- 最新已发布提交：`c5a5f00 docs: record attachment CI`。当前本地纵切为受控原生附件导入：
-  已完成 Windows 全门禁、真实系统选择器取消验收与原生安装包构建，等待精确提交并通过 Linux
-  中继上传。
+- 最新已发布提交：`c5a5f00 docs: record attachment CI`。当前本地功能提交：
+  `f9ad649 feat(attachments): add controlled native import`；已完成 Windows 全门禁、真实系统
+  选择器取消验收与原生安装包构建，等待通过 Linux 中继上传。
 - GitHub CI run `30509720758`：Frontend（26 s）与 Rust（3 min 40 s）全部通过。
 - 上一 GitHub CI run `30506855740`：Frontend 与 Rust 全部通过。
 - GitHub CI run `30504384326`：Frontend 20 s、Rust 3 min 19 s，全部通过；只保留既有

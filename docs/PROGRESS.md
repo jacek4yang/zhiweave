@@ -207,6 +207,8 @@
   相同，提议附件不存在，原生编辑器右键含导入命令，浏览器同位置/命令面板均不含该命令。
 - 本轮附件依赖加入后，57 项前端、74 项 Rust workspace、fmt、Clippy、生产构建和 Windows
   MSI/NSIS 全部通过；`cargo audit --no-fetch --stale` 无已知 vulnerability。
+- 受控原生附件导入功能提交 `f9ad649` 已在当前 Windows 电脑完成上述门禁；待验证记录提交后
+  仅经 Linux 中继上传并等待 Draft PR CI。
 - 本轮应用内浏览器在本地导航和 DOM 读取阶段连续超时，未把反向链接浏览器点击/E2E 标记为
   通过；浏览器预览按能力边界也不会伪造 SQLite 关系。
 - Live Preview 性能回归：2 MiB 窄视口约 322 ms；10,000 行 fence 可见 24 行用例约 9 ms。
